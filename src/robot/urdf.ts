@@ -27,6 +27,8 @@ export interface UrdfLink {
   mass: number;
   /** Centro de masa en el frame del link (m) */
   com: Vec3;
+  /** Tensor de inercia en el centro de masa: [ixx, iyy, izz, ixy, ixz, iyz] (kg·m²) */
+  inertia: [number, number, number, number, number, number];
 }
 
 export interface UrdfRobot {
@@ -64,10 +66,13 @@ export function parseUrdf(xml: string): UrdfRobot {
   const links = direct('link').map((el): UrdfLink => {
     const inertial = el.querySelector(':scope > inertial');
     const mass = inertial?.querySelector(':scope > mass');
+    const I = inertial?.querySelector(':scope > inertia');
+    const i = (k: string) => (I ? num(I, k, 0) : 0);
     return {
       name: el.getAttribute('name')!,
       mass: mass ? num(mass, 'value', 0) : 0,
       com: vec3(inertial?.querySelector(':scope > origin')?.getAttribute('xyz'), [0, 0, 0]),
+      inertia: [i('ixx'), i('iyy'), i('izz'), i('ixy'), i('ixz'), i('iyz')],
     };
   });
   const joints = direct('joint').map((el): UrdfJoint => {

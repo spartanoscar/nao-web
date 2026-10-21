@@ -17,10 +17,18 @@ export interface BodySupport {
   pitch: number;
 }
 
+/** Pose del torso en el mundo (Z arriba, como el URDF). La escribe la simulación física. */
+export interface RootPose {
+  position: [number, number, number];
+  /** [w, x, y, z] */
+  quaternion: [number, number, number, number];
+}
+
 export class RobotState {
   private readonly values = new Map<string, number>(JOINTS.map((s) => [s.name, 0]));
   private readonly stiffness = new Map<string, number>(JOINTS.map((s) => [s.name, 0]));
   private readonly support: BodySupport = { footSupport: 1, pitch: 0 };
+  private rootPose: RootPose | null = null;
 
   /** Se incrementa en cada cambio: los lectores (escena, UI) solo recalculan si cambió */
   revision = 0;
@@ -89,6 +97,21 @@ export class RobotState {
   setBody(patch: Partial<BodySupport>): void {
     if (patch.footSupport !== undefined) this.support.footSupport = Math.min(Math.max(patch.footSupport, 0), 1);
     if (patch.pitch !== undefined) this.support.pitch = patch.pitch;
+    this.revision++;
+  }
+
+  /** null = sin física: la escena calcula el apoyo de forma cinemática (BodySupport) */
+  get root(): Readonly<RootPose> | null {
+    return this.rootPose;
+  }
+
+  /** Lectura de la simulación: pose del torso + ángulos medidos, en una sola revisión */
+  setFromPhysics(root: RootPose, joints: Readonly<Record<string, number>>): void {
+    this.rootPose = root;
+    for (const [name, v] of Object.entries(joints)) {
+      // Sin clamp ni acoplamiento: es la medida del sensor (la física ya respeta los límites)
+      if (this.values.has(name)) this.values.set(name, v);
+    }
     this.revision++;
   }
 

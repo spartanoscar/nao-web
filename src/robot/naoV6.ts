@@ -87,6 +87,45 @@ export function headPitchLimits(headYaw: number): [number, number] {
   return [lerp(HEAD_PITCH_MIN), lerp(HEAD_PITCH_MAX)];
 }
 
+/**
+ * Motores del NAO V6 (reference/naoqi-2.8-api/family_nao_technical_motors_naov6.md): modelo, torque
+ * de bloqueo, velocidad sin carga y reducción por joint. A la salida de la reductora:
+ *   τ_stall = stall · reducción,  ω₀ = rpm_sin_carga · 2π/60 / reducción
+ */
+const MOTOR_TYPES = {
+  t1: { model: '22NT Z13', stallMNm: 65, noLoadRpm: 8700 },
+  t2: { model: '17N', stallMNm: 9.4, noLoadRpm: 8400 },
+  t3: { model: '16GT', stallMNm: 14.3, noLoadRpm: 10700 },
+  t4: { model: 'DCX 16S', stallMNm: 22.4, noLoadRpm: 11400 },
+  t5: { model: '22NT Z20', stallMNm: 65, noLoadRpm: 8700 },
+} as const;
+
+const MOTOR_OF: Record<string, [keyof typeof MOTOR_TYPES, number]> = {
+  HipYawPitch: ['t1', 201.3], HipRoll: ['t1', 201.3], AnkleRoll: ['t1', 201.3],
+  WristYaw: ['t2', 50.61], Hand: ['t2', 36.24],
+  HeadYaw: ['t3', 150.27], ElbowYaw: ['t3', 150.27],
+  HeadPitch: ['t3', 173.22], ShoulderRoll: ['t3', 173.22], ElbowRoll: ['t3', 173.22],
+  ShoulderPitch: ['t4', 150.27],
+  HipPitch: ['t5', 130.85], KneePitch: ['t5', 130.85], AnklePitch: ['t5', 130.85],
+};
+
+export interface MotorSpec {
+  model: string;
+  /** Torque de bloqueo a la salida (N·m): el máximo que entrega el motor parado */
+  stallTorque: number;
+  /** Velocidad sin carga a la salida (rad/s): a esta velocidad el torque disponible es 0 */
+  noLoadSpeed: number;
+}
+
+export function motorOf(joint: string): MotorSpec {
+  const key = joint.startsWith('Head') ? joint : joint.slice(1);
+  const entry = MOTOR_OF[key];
+  if (!entry) throw new Error(`Sin motor documentado: ${joint}`);
+  const [type, ratio] = entry;
+  const m = MOTOR_TYPES[type];
+  return { model: m.model, stallTorque: (m.stallMNm / 1000) * ratio, noLoadSpeed: (m.noLoadRpm * 2 * Math.PI) / 60 / ratio };
+}
+
 const GROUPS: Readonly<Record<string, readonly string[]>> = {
   ...CHAINS,
   Body: JOINTS.map((s) => s.name),

@@ -65,6 +65,13 @@ class Task implements MotionTask {
 }
 
 export class MotionEngine {
+  /**
+   * true cuando hay simulación física: el motor solo genera comandos (los lee physics.ts) y los
+   * ángulos medidos los escribe la física. Las manos siguen siendo cinemáticas.
+   */
+  physical = false;
+  /** Lo llama manual(): con física, un joint sin motor se coloca a mano (ver PhysicsSim.placeJoint) */
+  onManual: ((name: string, value: number) => void) | null = null;
   private readonly channels = new Map<string, Channel>();
   private readonly tracks = new Map<string, Track>();
   /** Posición comandada (getAngles(useSensors=false)); difiere del sensor con stiffness 0 */
@@ -118,7 +125,13 @@ export class MotionEngine {
     const tr = this.tracks.get(name);
     if (tr) return tr.pos;
     const ch = this.channel(name);
-    if (!ch.enabled()) return ch.get();
+    if (!ch.enabled()) {
+      // Motor apagado: el comando sigue al sensor, así al encenderlo el joint se queda donde está
+      // (si no, volvería de golpe al último ángulo comandado)
+      const v = ch.get();
+      this.commanded.set(name, v);
+      return v;
+    }
     return this.commanded.get(name) ?? ch.get();
   }
 
@@ -168,6 +181,13 @@ export class MotionEngine {
   /** Mover un joint "a mano" (slider): cancela su comando y escribe directo */
   manual(name: string, value: number): void {
     this.stopChannels([name]);
+    if (this.physical && !name.endsWith('Hand')) {
+      const [min, max] = this.state.limits(name);
+      const v = Math.min(Math.max(value, min), max);
+      this.commanded.set(name, v);
+      if (this.state.getStiffness(name) === 0) this.onManual?.(name, v);
+      return;
+    }
     this.commanded.set(name, this.state.set(name, value));
   }
 
@@ -271,8 +291,12 @@ export class MotionEngine {
       tr.vel = (p - tr.pos) / h;
       tr.pos = p;
       if (ch.enabled()) {
-        if (JOINT_BY_NAME.has(name)) writes[name] = p;
-        else ch.set(p);
+        const isJoint = JOINT_BY_NAME.has(name);
+        // Con física los joints los mueve la simulación (salvo las manos); el apoyo del cuerpo también
+        if (!this.physical) {
+          if (isJoint) writes[name] = p;
+          else ch.set(p);
+        } else if (name.endsWith('Hand')) writes[name] = p;
       }
       if (finished) {
         this.commanded.set(name, p);

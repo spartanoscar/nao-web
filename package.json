@@ -12,6 +12,7 @@
     "deploy": "bash scripts/deploy.sh prod"
   },
   "dependencies": {
+    "@mujoco/mujoco": "^3.16.0",
     "three": "^0.186.1"
   },
   "devDependencies": {
