@@ -9,7 +9,12 @@ export interface BehaviorPanel {
   refresh(): void;
 }
 
-export function createBehaviorPanel(host: HTMLElement, session: Session, state: RobotState): BehaviorPanel {
+export function createBehaviorPanel(
+  host: HTMLElement,
+  session: Session,
+  state: RobotState,
+  { onReset }: { onReset(): void },
+): BehaviorPanel {
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
 
@@ -36,13 +41,21 @@ export function createBehaviorPanel(host: HTMLElement, session: Session, state: 
   power.append(
     chip('Despertar', 'motion.wakeUp()', () => run('ALMotion.wakeUp()', () => motion.wakeUp())),
     chip('Reposo', 'motion.rest()', () => run('ALMotion.rest()', () => motion.rest())),
+    chip('Reiniciar', 'Vuelve a Crouch en el centro, con los motores apagados', () => {
+      onReset();
+      activity.textContent = '';
+    }),
   );
 
   const postures = el('div', 'chips');
   for (const name of posture.getPostureList()) {
     postures.append(
       chip(name, `posture.goToPosture("${name}", 0.6)`, () =>
-        run(`ALRobotPosture.goToPosture("${name}", 0.6)`, () => posture.goToPosture(name, 0.6)),
+        run(`ALRobotPosture.goToPosture("${name}", 0.6)`, async () => {
+          if (!(await posture.goToPosture(name, 0.6)) && posture.lastFailure) {
+            throw new Error(`goToPosture → False: ${posture.lastFailure}`);
+          }
+        }),
       ),
     );
   }

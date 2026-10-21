@@ -13,10 +13,9 @@ export class Session {
   constructor(state: RobotState) {
     this.engine = new MotionEngine(state);
     const motion = new ALMotion(this.engine, state);
-    this.services = {
-      ALMotion: motion,
-      ALRobotPosture: new ALRobotPosture(this.engine, state, motion),
-    };
+    const posture = new ALRobotPosture(this.engine, state, motion);
+    motion.goToPosture = (name, speed) => posture.goToPosture(name, speed);
+    this.services = { ALMotion: motion, ALRobotPosture: posture };
   }
 
   service(name: 'ALMotion'): ALMotion;

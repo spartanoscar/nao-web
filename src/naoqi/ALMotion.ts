@@ -14,6 +14,9 @@ import { familyOf, moveToPosture, nearestPosture } from './postures';
 const SERVICE = 'ALMotion';
 
 export class ALMotion {
+  /** La pone Session: wakeUp/rest usan ALRobotPosture (y su camino entre posturas) */
+  goToPosture: ((name: string, speed: number) => Promise<boolean>) | null = null;
+
   constructor(
     private readonly engine: MotionEngine,
     private readonly state: RobotState,
@@ -31,14 +34,19 @@ export class ALMotion {
     await this.engine.interpolateStiffness(this.stiffnessTargets(1, 0.5)).done;
     const posture = nearestPosture(this.state);
     if (familyOf(posture.name) !== 'Standing' || posture.error > 0.1) {
-      await moveToPosture(this.engine, 'StandInit', 0.5).done;
+      if (this.goToPosture) await this.goToPosture('StandInit', 0.5);
+      else await moveToPosture(this.engine, 'StandInit', 0.5).done;
     }
     return true;
   }
 
   /** "The robot rests: goes to a relaxed and safe position and sets Motor off." H25 → Crouch. */
   async rest(): Promise<void> {
-    if (this.robotIsWakeUp()) await moveToPosture(this.engine, 'Crouch', 0.5).done;
+    // De pie va a Crouch; sentado o acostado ya está en una posición segura
+    if (this.robotIsWakeUp() && familyOf(nearestPosture(this.state).name) === 'Standing') {
+      if (this.goToPosture) await this.goToPosture('Crouch', 0.5);
+      else await moveToPosture(this.engine, 'Crouch', 0.5).done;
+    }
     this.engine.stopAll();
     await this.engine.interpolateStiffness(this.stiffnessTargets(0, 0.3)).done;
   }
