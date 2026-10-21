@@ -9,7 +9,7 @@ todo lo que implementamos en el simulador se deriva o se valida contra esto.
 | `urdf/naoV40.urdf` | Igual, versión V4 (para comparar) | idem | BSD-3 |
 | `motions/*.motion` | Animaciones por keyframes (HandWave, TaiChi, Forwards, Shoot, StandUpFromFront…) en formato CSV `tiempo,pose,joint1,joint2…` (`*` = sin cambio) | [cyberbotics/webots](https://github.com/cyberbotics/webots) `projects/robots/softbank/nao/motions` | Apache-2.0 (`motions/LICENSE-webots.txt`) |
 | `qibullet/robot_posture.py`, `nao_virtual.py` | Valores articulares de las 8 posturas predefinidas (Stand, StandInit, StandZero, Crouch, Sit, SitRelax, LyingBelly, LyingBack). `nao_postures.json` es derivado (`scripts/extract-postures.py`) | [softbankrobotics-research/qibullet](https://github.com/softbankrobotics-research/qibullet) (simulador oficial de SoftBank) | Apache-2.0 (`qibullet/LICENSE-qibullet.txt`) |
-| `naoqi-2.8-api/*.md` | Documentación oficial de la API NAOqi 2.8 (la que corre en NAO6), convertida a Markdown: ALMotion, ALRobotPosture, ALTextToSpeech, ALMemory, ALLeds, ALVideoDevice, ALAudioDevice, ALSpeechRecognition, joints/masas/links NAO V6 | http://doc.aldebaran.com/2-8/ | © SoftBank/Aldebaran — solo referencia |
+| `naoqi-2.8-api/*.md` | Documentación oficial de la API NAOqi 2.8 (la que corre en NAO6), convertida a Markdown: ALMotion, ALRobotPosture, ALTextToSpeech, ALMemory, ALLeds, ALVideoDevice, ALAudioDevice, ALSpeechRecognition, joints/masas/links/**motores** NAO V6, stiffness, fall manager | http://doc.aldebaran.com/2-8/ | © SoftBank/Aldebaran — solo referencia |
 
 ## Lo que NO existe en abierto
 
