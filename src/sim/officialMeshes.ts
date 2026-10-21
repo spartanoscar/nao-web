@@ -66,3 +66,83 @@ export async function loadOfficialMeshes(
   }
   return result;
 }
+
+// ─── Color de la carcasa ──────────────────────────────────────────────────────
+// La textura oficial es un atlas con zonas rotuladas por Aldebaran ("Structure", "Main Skin",
+// "Inside", "Eyes", "Colored part"). Las piezas de color usan el rectángulo "Colored part": para las
+// variantes de color se dibuja en memoria una copia de la textura con ese rectángulo de otro color.
+// El archivo no se modifica y el azul usa la textura original tal cual.
+
+export interface ShellColor {
+  id: string;
+  label: string;
+  /** null = textura original (azul) */
+  hex: number | null;
+}
+
+/** Variantes de color del NAO V4. APPROX: Aldebaran no publica los códigos; tonos aproximados. */
+export const SHELL_COLORS: readonly ShellColor[] = [
+  { id: 'blue', label: 'Azul', hex: null },
+  { id: 'red', label: 'Rojo', hex: 0xcc1f2a },
+  { id: 'orange', label: 'Naranja', hex: 0xf0701a },
+  { id: 'black', label: 'Negro', hex: 0x262628 },
+];
+
+/** "Colored part" en textureNAO.png (640×400): medido, un rectángulo exacto de #0826e0 */
+const COLORED_PART = { x: 465, y: 0, w: 129, h: 167 };
+const TEXTURE_URL = `${MESHES_BASE}texture/textureNAO.png`;
+
+const originals = new WeakMap<THREE.Material, THREE.Texture>();
+const tinted = new Map<number, Promise<HTMLCanvasElement>>();
+
+function tintedAtlas(hex: number): Promise<HTMLCanvasElement> {
+  let p = tinted.get(hex);
+  if (!p) {
+    p = new THREE.ImageLoader().loadAsync(TEXTURE_URL).then((img) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const g = canvas.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      g.fillStyle = `#${hex.toString(16).padStart(6, '0')}`;
+      g.fillRect(COLORED_PART.x, COLORED_PART.y, COLORED_PART.w, COLORED_PART.h);
+      return canvas;
+    });
+    tinted.set(hex, p);
+  }
+  return p;
+}
+
+/** Cambia el color de las piezas de color de todas las mallas oficiales dadas */
+export async function setShellColor(meshes: Iterable<THREE.Object3D>, color: ShellColor): Promise<void> {
+  const atlas = color.hex === null ? null : await tintedAtlas(color.hex);
+  let texture: THREE.CanvasTexture | null = null;
+  for (const root of meshes) {
+    root.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        const map = (m as THREE.MeshPhongMaterial).map;
+        if (!map && !originals.has(m)) continue;
+        if (!originals.has(m)) {
+          const src = String((map!.image as { src?: string } | undefined)?.src ?? '');
+          if (!src.includes('textureNAO')) continue;
+          originals.set(m, map!);
+        }
+        const original = originals.get(m)!;
+        if (!atlas) {
+          (m as THREE.MeshPhongMaterial).map = original;
+          continue;
+        }
+        if (!texture) {
+          texture = new THREE.CanvasTexture(atlas);
+          texture.flipY = original.flipY;
+          texture.wrapS = original.wrapS;
+          texture.wrapT = original.wrapT;
+          texture.colorSpace = original.colorSpace;
+          texture.anisotropy = original.anisotropy;
+        }
+        (m as THREE.MeshPhongMaterial).map = texture;
+      }
+    });
+  }
+}

@@ -12,6 +12,7 @@ import { createBehaviorPanel } from './ui/behaviorPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { attachMeshLicense } from './ui/meshLicense';
+import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
 const BOOT_POSTURE = postureJoints('Crouch');
@@ -73,8 +74,16 @@ const follow = () => {
 // Mallas oficiales del NAO: solo tras aceptar su licencia (ui/meshLicense.ts)
 attachMeshLicense({
   load: async (onProgress) => {
-    const { loadOfficialMeshes } = await import('./sim/officialMeshes');
-    nao.setOfficialMeshes(await loadOfficialMeshes(urdf, onProgress));
+    const { loadOfficialMeshes, setShellColor, SHELL_COLORS } = await import('./sim/officialMeshes');
+    const meshes = await loadOfficialMeshes(urdf, onProgress);
+    nao.setOfficialMeshes(meshes);
+    const paint = async (color: (typeof SHELL_COLORS)[number]) => {
+      await setShellColor(meshes.values(), color);
+      world.invalidate();
+    };
+    const initial = rememberedShellColor(SHELL_COLORS);
+    if (initial.hex !== null) await paint(initial);
+    createShellColorPicker(behavior.slot, SHELL_COLORS, initial, (c) => void paint(c));
     if (!addOfficialChestLogo(nao, () => world.invalidate())) console.warn('No encontré el pecho de la malla oficial para el logo');
     world.invalidate(true);
   },

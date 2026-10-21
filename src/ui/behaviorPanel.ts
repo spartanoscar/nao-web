@@ -7,6 +7,8 @@ import type { RobotState } from '../robot/state';
 
 export interface BehaviorPanel {
   refresh(): void;
+  /** Espacio bajo los botones de encendido para controles que llegan después (color de carcasa) */
+  slot: HTMLElement;
 }
 
 export function createBehaviorPanel(
@@ -73,16 +75,19 @@ export function createBehaviorPanel(
     );
   }
 
+  const slot = el('div', 'behavior-slot');
   host.append(
     status,
     power,
     activity,
+    slot,
     section('Posturas · ALRobotPosture', postures),
     section('Animaciones · .motion', animations),
   );
 
   let shownRevision = -1;
   return {
+    slot,
     refresh() {
       if (state.revision === shownRevision) return;
       shownRevision = state.revision;
