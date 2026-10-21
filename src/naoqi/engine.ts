@@ -70,7 +70,6 @@ export class MotionEngine {
   /** Posición comandada (getAngles(useSensors=false)); difiere del sensor con stiffness 0 */
   private readonly commanded = new Map<string, number>();
   private readonly stiffTracks = new Map<string, { t: number; times: number[]; values: number[]; task: Task }>();
-  private acc = 0;
 
   constructor(private readonly state: RobotState) {
     for (const spec of JOINTS) {
@@ -96,16 +95,18 @@ export class MotionEngine {
     });
   }
 
-  /** Llamar en cada frame con el tiempo real transcurrido */
+  /**
+   * Llamar en cada frame con el tiempo real transcurrido. Avanza exactamente `dt`, en subpasos de
+   * hasta un ciclo de ALMotion. (Con pasos fijos de 20 ms la pose solo cambiaba a 50 Hz: en pantallas
+   * de 60/120 Hz se repetía en frames irregulares y el robot parecía vibrar.)
+   */
   update(dt: number): void {
-    this.acc += dt;
-    let steps = 0;
-    while (this.acc >= MOTION_CYCLE && steps < 5) {
-      this.acc -= MOTION_CYCLE;
-      this.step(MOTION_CYCLE);
-      steps++;
+    let remaining = Math.min(dt, 5 * MOTION_CYCLE); // pestaña congelada: no recuperar el tiempo perdido
+    while (remaining > 1e-6) {
+      const h = Math.min(remaining, MOTION_CYCLE);
+      this.step(h);
+      remaining -= h;
     }
-    if (steps === 5) this.acc = 0; // pestaña congelada: no intentar recuperar el tiempo perdido
   }
 
   maxVelocity(name: string): number {
