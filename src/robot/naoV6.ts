@@ -1,0 +1,96 @@
+// Especificación de los actuadores del NAO V6 según la documentación oficial NAOqi 2.8.
+// Fuente: reference/naoqi-2.8-api/family_nao_technical_joints_naov6.md
+// (los límites del URDF V5 difieren en milésimas; mandan los de V6).
+
+export type ChainName = 'Head' | 'LArm' | 'LLeg' | 'RLeg' | 'RArm';
+
+export interface JointSpec {
+  name: string;
+  chain: ChainName;
+  /** rad (LHand/RHand: 0 = cerrada, 1 = abierta) */
+  min: number;
+  max: number;
+}
+
+const j = (name: string, chain: ChainName, min: number, max: number): JointSpec => ({ name, chain, min, max });
+
+/** Orden de ALMotion.getBodyNames("Body"): Head, LArm, LLeg, RLeg, RArm (26 nombres) */
+export const JOINTS: readonly JointSpec[] = [
+  j('HeadYaw', 'Head', -2.0857, 2.0857),
+  j('HeadPitch', 'Head', -0.672, 0.5149),
+
+  j('LShoulderPitch', 'LArm', -2.0857, 2.0857),
+  j('LShoulderRoll', 'LArm', -0.3142, 1.3265),
+  j('LElbowYaw', 'LArm', -2.0857, 2.0857),
+  j('LElbowRoll', 'LArm', -1.5446, -0.0349),
+  j('LWristYaw', 'LArm', -1.8238, 1.8238),
+  j('LHand', 'LArm', 0, 1),
+
+  j('LHipYawPitch', 'LLeg', -1.145303, 0.74081),
+  j('LHipRoll', 'LLeg', -0.379472, 0.790477),
+  j('LHipPitch', 'LLeg', -1.535889, 0.48409),
+  j('LKneePitch', 'LLeg', -0.092346, 2.112528),
+  j('LAnklePitch', 'LLeg', -1.189516, 0.922747),
+  j('LAnkleRoll', 'LLeg', -0.39788, 0.769001),
+
+  // Mismo motor físico que LHipYawPitch (ver COUPLED)
+  j('RHipYawPitch', 'RLeg', -1.145303, 0.74081),
+  j('RHipRoll', 'RLeg', -0.790477, 0.379472),
+  j('RHipPitch', 'RLeg', -1.535889, 0.48409),
+  j('RKneePitch', 'RLeg', -0.103083, 2.120198),
+  j('RAnklePitch', 'RLeg', -1.186448, 0.932056),
+  j('RAnkleRoll', 'RLeg', -0.768992, 0.397935),
+
+  j('RShoulderPitch', 'RArm', -2.0857, 2.0857),
+  j('RShoulderRoll', 'RArm', -1.3265, 0.3142),
+  j('RElbowYaw', 'RArm', -2.0857, 2.0857),
+  j('RElbowRoll', 'RArm', 0.0349, 1.5446),
+  j('RWristYaw', 'RArm', -1.8238, 1.8238),
+  j('RHand', 'RArm', 0, 1),
+];
+
+export const JOINT_BY_NAME: ReadonlyMap<string, JointSpec> = new Map(JOINTS.map((s) => [s.name, s]));
+
+export const CHAINS: Readonly<Record<ChainName, readonly string[]>> = {
+  Head: JOINTS.filter((s) => s.chain === 'Head').map((s) => s.name),
+  LArm: JOINTS.filter((s) => s.chain === 'LArm').map((s) => s.name),
+  LLeg: JOINTS.filter((s) => s.chain === 'LLeg').map((s) => s.name),
+  RLeg: JOINTS.filter((s) => s.chain === 'RLeg').map((s) => s.name),
+  RArm: JOINTS.filter((s) => s.chain === 'RArm').map((s) => s.name),
+};
+
+/**
+ * "LHipYawPitch and RHipYawPitch are physically just one motor so they cannot be controlled
+ * independently. In case of conflicting orders, LHipYawPitch always takes the priority."
+ */
+export const COUPLED: Readonly<Record<string, string>> = { RHipYawPitch: 'LHipYawPitch' };
+
+/** 26 nombres de joint, 25 actuadores reales */
+export const ACTUATOR_COUNT = JOINTS.length - Object.keys(COUPLED).length;
+
+// Anti-colisión de la cabeza con la carcasa: el rango de HeadPitch depende de HeadYaw.
+// Tabla oficial NAO V6 (rad). APPROX: la doc no dice cómo se interpola; usamos lineal.
+const HEAD_YAW = [-2.086017, -1.526988, -1.089958, -0.903033, -0.756077, -0.486074, 0, 0.486074, 0.756077, 0.903033, 1.089958, 1.526988, 2.086017];
+const HEAD_PITCH_MIN = [-0.449073, -0.330041, -0.430049, -0.479965, -0.548033, -0.671951, -0.671951, -0.671951, -0.548033, -0.479965, -0.430049, -0.330041, -0.449073];
+const HEAD_PITCH_MAX = [0.330041, 0.200015, 0.300022, 0.330041, 0.37001, 0.422021, 0.515047, 0.422021, 0.37001, 0.330041, 0.300022, 0.200015, 0.330041];
+
+export function headPitchLimits(headYaw: number): [number, number] {
+  const yaw = Math.min(Math.max(headYaw, HEAD_YAW[0]), HEAD_YAW[HEAD_YAW.length - 1]);
+  let i = 0;
+  while (i < HEAD_YAW.length - 2 && yaw > HEAD_YAW[i + 1]) i++;
+  const t = (yaw - HEAD_YAW[i]) / (HEAD_YAW[i + 1] - HEAD_YAW[i]);
+  const lerp = (a: number[]) => a[i] + (a[i + 1] - a[i]) * t;
+  return [lerp(HEAD_PITCH_MIN), lerp(HEAD_PITCH_MAX)];
+}
+
+/**
+ * Pose inicial del simulador: de pie, brazos abajo. Es la pose 1 de reference/motions/TaiChi.motion
+ * (no es una postura de ALRobotPosture; esas llegan en F3).
+ */
+export const DEFAULT_POSE: Readonly<Record<string, number>> = {
+  HeadYaw: 0, HeadPitch: 0,
+  LShoulderPitch: 1.571, LShoulderRoll: 0.175, LElbowYaw: -1.571, LElbowRoll: -0.0349, LWristYaw: -1.536, LHand: 0.25,
+  LHipYawPitch: -0.108, LHipRoll: -0.052, LHipPitch: 0, LKneePitch: 0, LAnklePitch: 0, LAnkleRoll: 0.052,
+  RHipYawPitch: -0.108, RHipRoll: 0.052, RHipPitch: 0, RKneePitch: 0, RAnklePitch: 0, RAnkleRoll: -0.052,
+  RShoulderPitch: 1.571, RShoulderRoll: -0.175, RElbowYaw: 1.571, RElbowRoll: 0.0349, RWristYaw: 1.536, RHand: 0.25,
+};

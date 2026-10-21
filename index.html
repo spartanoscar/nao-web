@@ -6,17 +6,12 @@
     <meta name="robots" content="noindex" />
     <title>NAO Web</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <style>
-      html, body { margin: 0; height: 100%; background: #0e1116; color: #e6e9ef; font-family: system-ui, sans-serif; }
-      #app { position: fixed; inset: 0; }
-      #hud { position: fixed; top: 16px; left: 16px; pointer-events: none; }
-      #hud h1 { margin: 0; font-size: 18px; font-weight: 600; }
-      #hud p { margin: 4px 0 0; font-size: 13px; opacity: .65; }
-    </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="hud"><h1>NAO Web</h1><p>Gemelo digital NAO V6 · NAOqi 2.8 · en construcción</p></div>
+    <div id="hud"><h1>NAO Web</h1><p>Gemelo digital NAO V6 · NAOqi 2.8</p></div>
+    <aside id="panel" aria-label="Articulaciones"></aside>
+    <button id="panel-toggle" type="button" aria-controls="panel">Articulaciones</button>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
