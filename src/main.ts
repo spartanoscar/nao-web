@@ -10,6 +10,7 @@ import { createWorld } from './sim/world';
 import { createBehaviorPanel } from './ui/behaviorPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachKeyboard } from './ui/keyboard';
+import { attachMeshLicense } from './ui/meshLicense';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
 const BOOT_POSTURE = postureJoints('Crouch');
@@ -66,6 +67,19 @@ const follow = () => {
   }
   followed = [x, y];
 };
+
+// Mallas oficiales del NAO: solo tras aceptar su licencia (ui/meshLicense.ts)
+attachMeshLicense({
+  load: async (onProgress) => {
+    const { loadOfficialMeshes } = await import('./sim/officialMeshes');
+    nao.setOfficialMeshes(await loadOfficialMeshes(urdf, onProgress));
+    world.invalidate(true);
+  },
+  showPrimitives: (show) => {
+    nao.showPrimitives(show);
+    world.invalidate(true);
+  },
+});
 
 // MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
 import('./physics/physics')

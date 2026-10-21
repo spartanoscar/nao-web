@@ -73,3 +73,26 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; margin-right: 2p
 .keys-status { margin-top: 6px; min-height: 16px; font: 12px/1.4 ui-monospace, 'SF Mono', Menlo, monospace; color: var(--accent); }
 /* Sin teclado físico (táctil) la leyenda no aplica */
 @media (hover: none) { #keys { display: none; } }
+
+/* ─── Licencia del modelo oficial ─── */
+#mesh-license {
+  position: fixed; top: 16px; left: calc((100vw - var(--panel-w)) / 2); transform: translateX(-50%);
+  width: min(440px, calc(100vw - var(--panel-w) - 32px)); box-sizing: border-box; z-index: 3;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .35); font-size: 13px;
+}
+#mesh-license h2 { margin: 0 0 6px; font-size: 14px; }
+#mesh-license p { margin: 0 0 8px; color: var(--muted); line-height: 1.45; }
+#mesh-license strong { color: var(--text); font-weight: 600; }
+.ml-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0 !important; }
+.ml-actions button { border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid var(--line); background: #1f2632; color: var(--text); }
+.ml-actions .ml-accept { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+#mesh-license a, #mesh-credit a { color: var(--accent); }
+.ml-progress { margin: 0 !important; color: var(--text) !important; }
+#mesh-credit { position: fixed; right: calc(var(--panel-w) + 12px); bottom: 12px; font-size: 11.5px; color: var(--muted); }
+#mesh-credit a { color: var(--muted); }
+#mesh-credit button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+@media (max-width: 720px) {
+  #mesh-license { left: 50%; width: calc(100vw - 32px); }
+  #mesh-credit { right: auto; left: 16px; bottom: 12px; max-width: calc(100vw - 150px); }
+}

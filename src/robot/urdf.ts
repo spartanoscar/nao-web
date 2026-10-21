@@ -29,6 +29,8 @@ export interface UrdfLink {
   com: Vec3;
   /** Tensor de inercia en el centro de masa: [ixx, iyy, izz, ixy, ixz, iyz] (kg·m²) */
   inertia: [number, number, number, number, number, number];
+  /** Malla visual (<visual><mesh>), p. ej. package://nao_meshes/meshes/V40/HeadPitch.dae */
+  visual?: { mesh: string; scale: Vec3; xyz: Vec3; rpy: Vec3 };
 }
 
 export interface UrdfRobot {
@@ -68,11 +70,22 @@ export function parseUrdf(xml: string): UrdfRobot {
     const mass = inertial?.querySelector(':scope > mass');
     const I = inertial?.querySelector(':scope > inertia');
     const i = (k: string) => (I ? num(I, k, 0) : 0);
+    const visual = el.querySelector(':scope > visual');
+    const mesh = visual?.querySelector(':scope > geometry > mesh');
+    const vOrigin = visual?.querySelector(':scope > origin');
     return {
       name: el.getAttribute('name')!,
       mass: mass ? num(mass, 'value', 0) : 0,
       com: vec3(inertial?.querySelector(':scope > origin')?.getAttribute('xyz'), [0, 0, 0]),
       inertia: [i('ixx'), i('iyy'), i('izz'), i('ixy'), i('ixz'), i('iyz')],
+      visual: mesh
+        ? {
+            mesh: mesh.getAttribute('filename')!,
+            scale: vec3(mesh.getAttribute('scale'), [1, 1, 1]),
+            xyz: vec3(vOrigin?.getAttribute('xyz'), [0, 0, 0]),
+            rpy: vec3(vOrigin?.getAttribute('rpy'), [0, 0, 0]),
+          }
+        : undefined,
     };
   });
   const joints = direct('joint').map((el): UrdfJoint => {

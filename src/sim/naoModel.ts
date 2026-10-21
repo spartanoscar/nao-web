@@ -32,6 +32,9 @@ export class NaoModel {
   private readonly frames = new Map<string, THREE.Group>();
   private readonly movable: MovableJoint[] = [];
   private readonly highlightSets = new Map<string, THREE.Mesh[]>();
+  /** Formas simples (sim/shapes.ts): se ocultan cuando hay mallas oficiales */
+  private readonly primitives: THREE.Mesh[] = [];
+  private readonly official: THREE.Object3D[] = [];
   private readonly soles: THREE.Object3D[] = [];
   private readonly probes: { frame: THREE.Object3D; point: THREE.Vector3; radius: number }[] = [];
   private readonly masses: { frame: THREE.Object3D; point: THREE.Vector3; mass: number }[] = [];
@@ -56,7 +59,7 @@ export class NaoModel {
         const origin = new THREE.Group();
         origin.name = j.name;
         origin.position.set(...j.xyz);
-        origin.rotation.set(j.rpy[0], j.rpy[1], j.rpy[2], 'ZYX'); // URDF: Rz·Ry·Rx
+        origin.quaternion.copy(rpyQuaternion(j.rpy));
         const motion = new THREE.Group();
         motion.name = j.child;
         origin.add(motion);
@@ -67,16 +70,14 @@ export class NaoModel {
       }
     }
 
-    for (const [link, frame] of this.frames) for (const shape of linkShapes(link)) frame.add(shapeMesh(shape));
-
-    // Resaltar un joint = todo lo que se mueve con él (incluye joints mimic: dedos, RHipYawPitch)
-    for (const { joint, motion } of this.movable) {
-      const meshes = collectMeshes(motion);
-      for (const other of this.movable) {
-        if (other.joint.mimic?.joint === joint.name) meshes.push(...collectMeshes(other.motion));
+    for (const [link, frame] of this.frames) {
+      for (const shape of linkShapes(link)) {
+        const m = shapeMesh(shape);
+        this.primitives.push(m);
+        frame.add(m);
       }
-      this.highlightSets.set(joint.name, [...new Set(meshes)]);
     }
+    this.buildHighlightSets();
 
     for (const name of ['l_sole', 'r_sole']) {
       const sole = this.frames.get(name);
@@ -90,6 +91,41 @@ export class NaoModel {
     for (const [link, point, radius] of CONTACT_PROBES) {
       const frame = this.frames.get(link);
       if (frame) this.probes.push({ frame, point: new THREE.Vector3(...point), radius });
+    }
+  }
+
+  /** Cuelga las mallas oficiales de sus links y oculta las formas simples */
+  setOfficialMeshes(meshes: ReadonlyMap<string, THREE.Object3D>): void {
+    for (const [link, mesh] of meshes) {
+      const frame = this.frames.get(link);
+      if (!frame) continue;
+      frame.add(mesh);
+      this.official.push(mesh);
+    }
+    this.showPrimitives(false);
+    this.buildHighlightSets();
+  }
+
+  get hasOfficialMeshes(): boolean {
+    return this.official.length > 0;
+  }
+
+  /** true = formas simples (lo que usa la física para chocar); false = mallas oficiales */
+  showPrimitives(show: boolean): void {
+    const hasOfficial = this.official.length > 0;
+    for (const m of this.primitives) m.visible = show || !hasOfficial;
+    for (const o of this.official) o.visible = !show;
+  }
+
+  // Resaltar un joint = todo lo que se mueve con él (incluye joints mimic: dedos, RHipYawPitch)
+  private buildHighlightSets(): void {
+    this.highlight(null);
+    for (const { joint, motion } of this.movable) {
+      const meshes = collectMeshes(motion);
+      for (const other of this.movable) {
+        if (other.joint.mimic?.joint === joint.name) meshes.push(...collectMeshes(other.motion));
+      }
+      this.highlightSets.set(joint.name, [...new Set(meshes)]);
     }
   }
 
@@ -217,6 +253,11 @@ export class NaoModel {
 
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
+/** rpy del URDF (R = Rz·Ry·Rx) como cuaternión de Three */
+export function rpyQuaternion([r, p, y]: Vec3): THREE.Quaternion {
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(r, p, y, 'ZYX'));
+}
 
 /**
  * Puntos que pueden tocar el suelo: [link, punto en su frame (m), radio]. Coinciden con la
