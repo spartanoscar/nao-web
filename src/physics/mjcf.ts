@@ -116,7 +116,9 @@ export function buildMjcf(
   <default>
     <!-- APPROX: reductora del NAO (~1:130–1:200): inercia reflejada del rotor (armature) y fricción
          de la caja de engranajes; valores plausibles, no medidos. -->
-    <joint armature="0.005" damping="0.02"/>
+    <!-- solreffriction: la fricción de MuJoCo es una restricción blanda y con el valor por defecto
+         (0.02 s) el robot en reposo "se escurría" ~1.3°/s hasta caerse. Más rígida = sin deslizar. -->
+    <joint armature="0.005" damping="0.02" solreffriction="0.004 1" solimpfriction="0.99 0.999 0.001"/>
     <geom friction="1 0.005 0.0001"/>
   </default>
   <worldbody>

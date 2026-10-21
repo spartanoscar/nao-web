@@ -38,9 +38,20 @@ const EPS = 1e-5;
 /** APPROX: eficiencia de las reductoras de engranajes rectos del NAO (no documentada) */
 const GEAR_EFFICIENCY = 0.8;
 
+/** Reposo: velocidad máxima (rad/s, m/s) y tiempo quieto para bloquear la simulación */
+const REST_SPEED = 1e-3;
+const REST_TIME = 1;
+
 export class PhysicsSim {
   private acc = 0;
   private readonly lastQpos: Float64Array;
+  /**
+   * Bloqueo de reposo: con todos los motores apagados y el robot quieto, la simulación se detiene.
+   * La fricción de MuJoCo es una restricción blanda y dejaba "escurrir" al robot ~0.01°/s; una
+   * reductora real no se desliza. También ahorra CPU cuando nada se mueve.
+   */
+  private stillFor = 0;
+  private locked = false;
 
   private constructor(
     private readonly mj: MainModule,
@@ -105,6 +116,10 @@ export class PhysicsSim {
 
   /** Avanza la física `dt` segundos. Devuelve true si algo se movió (hay que redibujar). */
   step(dt: number): boolean {
+    if (this.locked) {
+      if (!this.canRest()) this.locked = false;
+      else return false;
+    }
     this.acc = Math.min(this.acc + dt, 0.1); // pestaña congelada: no recuperar el tiempo perdido
     let stepped = false;
     while (this.acc >= PHYSICS_TIMESTEP) {
@@ -113,13 +128,31 @@ export class PhysicsSim {
       this.acc -= PHYSICS_TIMESTEP;
       stepped = true;
     }
+    this.updateRest(dt);
     return stepped && this.syncState(false);
+  }
+
+  /** ¿Se puede bloquear? Motores apagados y sin comandos en curso */
+  private canRest(): boolean {
+    return !this.engine.busy && this.joints.every((s) => this.state.getStiffness(s.name) === 0);
+  }
+
+  private updateRest(dt: number): void {
+    const qvel = this.data.qvel;
+    let still = this.canRest();
+    for (let i = 0; i < qvel.length && still; i++) if (Math.abs(qvel[i]) > REST_SPEED) still = false;
+    this.stillFor = still ? this.stillFor + dt : 0;
+    if (this.stillFor >= REST_TIME) {
+      this.locked = true;
+      this.stillFor = 0;
+    }
   }
 
   /** Mover un joint "a mano" con el motor apagado: se coloca directamente (como con la mano) */
   placeJoint(name: string, value: number): void {
     const s = this.joints.find((j) => j.name === name);
     if (!s) return;
+    this.locked = false;
     this.data.qpos[s.qpos] = value;
     this.data.qvel[s.dof] = 0;
     this.mj.mj_forward(this.model, this.data);
@@ -128,6 +161,8 @@ export class PhysicsSim {
 
   /** Vuelve a la pose dada (torso + ángulos) en reposo; los objetos vuelven a su sitio */
   reset(root: RootPose, angles: Readonly<Record<string, number>>): void {
+    this.locked = false;
+    this.stillFor = 0;
     this.mj.mj_resetData(this.model, this.data);
     const q = this.data.qpos;
     [q[0], q[1], q[2]] = root.position;
