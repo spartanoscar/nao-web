@@ -77,6 +77,9 @@ export class MotionEngine {
   /** Posición comandada (getAngles(useSensors=false)); difiere del sensor con stiffness 0 */
   private readonly commanded = new Map<string, number>();
   private readonly stiffTracks = new Map<string, { t: number; times: number[]; values: number[]; task: Task }>();
+  private readonly agenda: { at: number; fn: () => void }[] = [];
+  /** Tiempo de movimiento transcurrido (s); avanza con update() */
+  time = 0;
 
   constructor(private readonly state: RobotState) {
     for (const spec of JOINTS) {
@@ -112,8 +115,20 @@ export class MotionEngine {
     while (remaining > 1e-6) {
       const h = Math.min(remaining, MOTION_CYCLE);
       this.step(h);
+      this.time += h;
       remaining -= h;
+      this.runAgenda();
     }
+  }
+
+  /** Ejecuta `fn` cuando el reloj de movimiento llegue a `at` (s). Para cambios en límites de ciclo. */
+  schedule(at: number, fn: () => void): void {
+    this.agenda.push({ at, fn });
+    this.agenda.sort((a, b) => a.at - b.at);
+  }
+
+  private runAgenda(): void {
+    while (this.agenda.length && this.agenda[0].at <= this.time + 1e-9) this.agenda.shift()!.fn();
   }
 
   maxVelocity(name: string): number {
@@ -139,13 +154,19 @@ export class MotionEngine {
    * Trayectorias por keyframes, todas en paralelo. Tiempos en segundos desde ahora (estrictamente
    * crecientes, > 0); valores absolutos. Reemplaza cualquier comando previo sobre esos canales.
    */
-  interpolate(trajectories: Readonly<Record<string, { times: number[]; values: number[] }>>): MotionTask {
+  interpolate(
+    trajectories: Readonly<Record<string, { times: number[]; values: number[] }>>,
+    { continuous = false }: { continuous?: boolean } = {},
+  ): MotionTask {
     const task = new Task(this);
     for (const [name, { times, values }] of Object.entries(trajectories)) {
       const start = this.command(name);
       const ts = [0, ...times];
       const vs = [start, ...values.map((v) => this.clampValue(name, v))];
-      this.startTrack(name, { kind: 'curve', t: 0, times: ts, values: vs, slopes: monotoneSlopes(ts, vs) }, task, start);
+      const slopes = monotoneSlopes(ts, vs);
+      // Encadenado: la curva nueva arranca con la velocidad que llevaba el joint (sin frenar en la unión)
+      if (continuous) slopes[0] = this.tracks.get(name)?.vel ?? 0;
+      this.startTrack(name, { kind: 'curve', t: 0, times: ts, values: vs, slopes }, task, start);
     }
     if (task.remaining === 0) task.release();
     return task;

@@ -23,7 +23,7 @@ export class ALMotion {
     private readonly engine: MotionEngine,
     private readonly state: RobotState,
   ) {
-    this.gait = new Gait(this, state);
+    this.gait = new Gait(engine, state);
   }
 
   // ─── Stiffness ──────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ export class ALMotion {
 
   /** Detiene todas las tareas de movimiento */
   killAll(): void {
-    void this.gait.stop();
+    this.gait.abort();
     this.engine.stopAll();
   }
 

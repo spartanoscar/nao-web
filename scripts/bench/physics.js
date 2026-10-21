@@ -29,6 +29,10 @@ async () => {
   out.push(await go('LyingBack')); //                                                  true, LyingBack, ~-92°
   out.push(await go('StandInit')); //                                                  false: sin camino validado
   await reset(); await motion.wakeUp(); await wait(800);
+  const x0 = state.root.position[0];
+  motion.moveToward(1, 0, 0); await wait(4000); await motion.stopMove(); await wait(500);
+  out.push(`moveToward(1, 0, 0) 4 s: ${((state.root.position[0] - x0) * 100).toFixed(1)} cm · ${ang()}`); //  ~30 cm, de pie
+  await reset(); await motion.wakeUp(); await wait(800);
   await motion.angleInterpolation(['LHipPitch', 'LKneePitch', 'LAnklePitch'], [-0.9, 1.6, -0.7], 1.0, true);
   await wait(1200);
   out.push(`levantar pie izquierdo sin pasar el peso: ${ang()}`); //                    se cae de lado (roll ~-85°)

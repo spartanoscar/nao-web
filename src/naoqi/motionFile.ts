@@ -68,12 +68,6 @@ export function firstPose(clip: MotionClip): Record<string, number> {
   return Object.fromEntries(clip.names.map((n, i) => [n, clip.angleLists[i][0]]));
 }
 
-/**
- * Reproduce la animación con ALMotion.angleInterpolation. `leadIn` reemplaza la entrada por defecto
- * (p. ej. al encadenar pasos de marcha, que ya terminan en la pose inicial del siguiente).
- */
-export function playMotion(motion: ALMotion, clip: MotionClip, { leadIn }: { leadIn?: number } = {}): Promise<void> {
-  const shift = leadIn === undefined ? 0 : Math.max(leadIn, 0.02) - clip.lead;
-  const timeLists = shift ? clip.timeLists.map((ts) => ts.map((t) => t + shift)) : clip.timeLists;
-  return motion.angleInterpolation(clip.names, clip.angleLists, timeLists, true);
+export function playMotion(motion: ALMotion, clip: MotionClip): Promise<void> {
+  return motion.angleInterpolation(clip.names, clip.angleLists, clip.timeLists, true);
 }
