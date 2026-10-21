@@ -8,8 +8,10 @@ import type { ALMotion } from './ALMotion';
 
 export interface MotionClip {
   name: string;
-  /** Duración total (s) */
+  /** Duración total (s), incluida la entrada `lead` */
   duration: number;
+  /** Tiempo añadido al principio para llegar a la primera pose (s) */
+  lead: number;
   names: string[];
   angleLists: number[][];
   timeLists: number[][];
@@ -52,7 +54,7 @@ export function parseMotion(name: string, text: string): MotionClip {
     }
   });
 
-  return { name, duration: rows[rows.length - 1].t + lead, names, angleLists, timeLists };
+  return { name, duration: rows[rows.length - 1].t + lead, lead, names, angleLists, timeLists };
 }
 
 const files = import.meta.glob<string>('../../reference/motions/*.motion', { query: '?raw', import: 'default', eager: true });
@@ -61,6 +63,17 @@ export const MOTIONS: readonly MotionClip[] = Object.entries(files)
   .map(([path, text]) => parseMotion(path.split('/').pop()!.replace('.motion', ''), text))
   .sort((a, b) => a.name.localeCompare(b.name));
 
-export function playMotion(motion: ALMotion, clip: MotionClip): Promise<void> {
-  return motion.angleInterpolation(clip.names, clip.angleLists, clip.timeLists, true);
+/** Primera pose de la animación (joint → ángulo) */
+export function firstPose(clip: MotionClip): Record<string, number> {
+  return Object.fromEntries(clip.names.map((n, i) => [n, clip.angleLists[i][0]]));
+}
+
+/**
+ * Reproduce la animación con ALMotion.angleInterpolation. `leadIn` reemplaza la entrada por defecto
+ * (p. ej. al encadenar pasos de marcha, que ya terminan en la pose inicial del siguiente).
+ */
+export function playMotion(motion: ALMotion, clip: MotionClip, { leadIn }: { leadIn?: number } = {}): Promise<void> {
+  const shift = leadIn === undefined ? 0 : Math.max(leadIn, 0.02) - clip.lead;
+  const timeLists = shift ? clip.timeLists.map((ts) => ts.map((t) => t + shift)) : clip.timeLists;
+  return motion.angleInterpolation(clip.names, clip.angleLists, timeLists, true);
 }

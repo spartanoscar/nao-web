@@ -9,6 +9,7 @@ import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
 import { createBehaviorPanel } from './ui/behaviorPanel';
 import { createJointPanel } from './ui/jointPanel';
+import { attachKeyboard } from './ui/keyboard';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
 const BOOT_POSTURE = postureJoints('Crouch');
@@ -44,6 +45,27 @@ const joints = createJointPanel(panelHost, state, session.engine, {
   },
 });
 document.getElementById('panel-toggle')!.addEventListener('click', () => document.body.classList.toggle('panel-open'));
+const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
+attachKeyboard(session, (text) => (keyStatus.textContent = text));
+
+// La cámara sigue al robot cuando camina: se traslada con el torso (en el plano del suelo) y
+// conserva el ángulo que haya elegido el usuario. Three: x = X del mundo, z = −Y del mundo.
+let followed: [number, number] | null = null;
+const follow = () => {
+  const root = state.root;
+  if (!root) return;
+  const [x, y] = root.position;
+  if (followed) {
+    const [dx, dz] = [x - followed[0], -(y - followed[1])];
+    if (Math.abs(dx) + Math.abs(dz) > 1e-5) {
+      world.camera.position.x += dx;
+      world.camera.position.z += dz;
+      world.controls.target.x += dx;
+      world.controls.target.z += dz;
+    }
+  }
+  followed = [x, y];
+};
 
 // MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
 import('./physics/physics')
@@ -63,7 +85,10 @@ import('./physics/physics')
 world.onFrame((dt) => {
   session.update(dt);
   if (physics?.step(dt)) world.invalidate(true);
-  if (nao.apply(state)) world.invalidate(true);
+  if (nao.apply(state)) {
+    follow();
+    world.invalidate(true);
+  }
   behavior.refresh();
   joints.refresh();
 });

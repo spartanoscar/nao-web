@@ -10,17 +10,21 @@ import type { RobotState } from '../robot/state';
 import { type ALValue, NaoqiError, perJoint, resolveCoupled, toNames, trajectories } from './args';
 import type { MotionEngine } from './engine';
 import { familyOf, moveToPosture, nearestPosture } from './postures';
+import { Gait, WALK_POSE } from './walk';
 
 const SERVICE = 'ALMotion';
 
 export class ALMotion {
   /** La pone Session: wakeUp/rest usan ALRobotPosture (y su camino entre posturas) */
   goToPosture: ((name: string, speed: number) => Promise<boolean>) | null = null;
+  private readonly gait: Gait;
 
   constructor(
     private readonly engine: MotionEngine,
     private readonly state: RobotState,
-  ) {}
+  ) {
+    this.gait = new Gait(this, state);
+  }
 
   // ─── Stiffness ──────────────────────────────────────────────────────────────
 
@@ -124,6 +128,54 @@ export class ALMotion {
     await this.angleInterpolationWithSpeed(this.hand('closeHand', handName), 0, 0.25);
   }
 
+  // ─── Locomoción ─────────────────────────────────────────────────────────────
+  // Docs: reference/naoqi-2.8-api/naoqi_motion_control-walk-api.md · implementación: walk.ts (APPROX)
+
+  /** Blocking. "Initializes the move process. Checks the robot pose and takes a right posture." */
+  async moveInit(): Promise<void> {
+    if (!this.canWalk('moveInit')) return;
+    const legs = Object.keys(WALK_POSE);
+    await this.angleInterpolationWithSpeed(legs, legs.map((j) => WALK_POSE[j]), 0.3);
+  }
+
+  /**
+   * Non-blocking. "Makes the robot move at the given normalized velocity, expressed in FRAME_ROBOT."
+   * x, y, theta ∈ [-1, 1]; (0, 0, 0) termina el paso en curso y se detiene.
+   */
+  moveToward(x: number, y: number, theta: number): void {
+    // Ya caminando no se revisa: a mitad de un paso la pose no parece "de pie"
+    if ((x || y || theta) && !this.gait.active && !this.canWalk('moveToward')) return;
+    this.gait.setVelocity({ x, y, theta });
+  }
+
+  /** Blocking. Detiene la marcha al terminar el paso en curso. */
+  async stopMove(): Promise<boolean> {
+    await this.gait.stop();
+    return true;
+  }
+
+  moveIsActive(): boolean {
+    return this.gait.active;
+  }
+
+  /** Blocking. Espera a que termine la marcha. */
+  async waitUntilMoveIsFinished(): Promise<void> {
+    await this.gait.finished();
+  }
+
+  /** Como en el robot: caminar requiere motores encendidos y estar de pie */
+  private canWalk(method: string): boolean {
+    if (!this.robotIsWakeUp()) {
+      console.warn(`ALMotion::${method}: el robot no está despierto (motion.wakeUp())`);
+      return false;
+    }
+    if (familyOf(nearestPosture(this.state).name) !== 'Standing') {
+      console.warn(`ALMotion::${method}: el robot no está de pie`);
+      return false;
+    }
+    return true;
+  }
+
   // ─── Herramientas generales ─────────────────────────────────────────────────
 
   /** Nombres de joints de un joint, cadena o grupo ("Body" → 26 nombres) */
@@ -138,6 +190,7 @@ export class ALMotion {
 
   /** Detiene todas las tareas de movimiento */
   killAll(): void {
+    void this.gait.stop();
     this.engine.stopAll();
   }
 
