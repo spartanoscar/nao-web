@@ -82,9 +82,9 @@ export class NaoModel {
     return this.frames.get(link);
   }
 
-  /** Copia los ángulos del estado a la escena (solo si el estado cambió) */
-  apply(state: RobotState): void {
-    if (state.revision === this.appliedRevision) return;
+  /** Copia los ángulos del estado a la escena. Devuelve false si no había cambios. */
+  apply(state: RobotState): boolean {
+    if (state.revision === this.appliedRevision) return false;
     this.appliedRevision = state.revision;
     for (const { joint, motion, axis } of this.movable) {
       const q = joint.mimic
@@ -93,6 +93,7 @@ export class NaoModel {
       motion.quaternion.setFromAxisAngle(axis, q);
     }
     this.ground();
+    return true;
   }
 
   highlight(jointName: string | null): void {

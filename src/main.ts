@@ -13,12 +13,15 @@ const nao = new NaoModel(parseUrdf(urdfXml));
 world.scene.add(nao.root);
 
 const panel = createJointPanel(document.getElementById('panel')!, state, {
-  onHover: (joint) => nao.highlight(joint),
+  onHover: (joint) => {
+    nao.highlight(joint);
+    world.invalidate();
+  },
 });
 document.getElementById('panel-toggle')!.addEventListener('click', () => document.body.classList.toggle('panel-open'));
 
 world.onFrame(() => {
-  nao.apply(state);
+  if (nao.apply(state)) world.invalidate(true);
   panel.refresh();
 });
 

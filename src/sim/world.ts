@@ -12,6 +12,12 @@ export interface World {
   controls: OrbitControls;
   /** Registra una función que corre en cada frame (dt en segundos) */
   onFrame(cb: (dt: number) => void): void;
+  /**
+   * Pide redibujar en el próximo frame. Se renderiza bajo demanda: con la escena quieta la GPU no
+   * trabaja (dibujar sin parar a resolución retina saturaba la GPU y ralentizaba otras pestañas).
+   * `shadows`: algo de la escena se movió y hay que recalcular el mapa de sombras.
+   */
+  invalidate(shadows?: boolean): void;
 }
 
 const BG = 0x0e1116;
@@ -19,9 +25,13 @@ const BASE_FOV = 40;
 
 export function createWorld(container: HTMLElement): World {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // ×1.5 es casi indistinguible de ×2 y son ~44% menos píxeles por frame
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  // La luz es fija: la sombra solo cambia cuando algo se mueve, no al orbitar la cámara
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   container.appendChild(renderer.domElement);
 
@@ -40,6 +50,14 @@ export function createWorld(container: HTMLElement): World {
   controls.maxPolarAngle = Math.PI / 2 - 0.02; // no atravesar el suelo
   controls.update();
 
+  let dirty = true;
+  const invalidate = (shadows = false) => {
+    dirty = true;
+    if (shadows) renderer.shadowMap.needsUpdate = true;
+  };
+  // También dispara durante la inercia (damping) mientras controls.update() siga moviendo la cámara
+  controls.addEventListener('change', () => invalidate());
+
   addLights(scene);
   addEnvironment(scene);
 
@@ -51,6 +69,7 @@ export function createWorld(container: HTMLElement): World {
     const halfH = Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2));
     camera.fov = camera.aspect < 1 ? Math.min(75, THREE.MathUtils.radToDeg(2 * Math.atan(halfH / camera.aspect))) : BASE_FOV;
     camera.updateProjectionMatrix();
+    invalidate();
   };
   new ResizeObserver(resize).observe(container);
   resize();
@@ -62,10 +81,12 @@ export function createWorld(container: HTMLElement): World {
     const dt = Math.min(timer.getDelta(), 0.1);
     for (const cb of callbacks) cb(dt);
     controls.update();
+    if (!dirty) return;
+    dirty = false;
     renderer.render(scene, camera);
   });
 
-  return { renderer, scene, camera, controls, onFrame: (cb) => void callbacks.push(cb) };
+  return { renderer, scene, camera, controls, onFrame: (cb) => void callbacks.push(cb), invalidate };
 }
 
 function addLights(scene: THREE.Scene) {
