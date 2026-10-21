@@ -4,12 +4,17 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { ENV_OBJECTS } from './environment';
 
 export interface World {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
+  /** Grupo con coordenadas Z arriba (URDF/MuJoCo): todo lo que mueve la física cuelga de aquí */
+  zUp: THREE.Group;
+  /** Mallas de los objetos del entorno por nombre (ver environment.ts) */
+  objects: ReadonlyMap<string, THREE.Mesh>;
   /** Registra una función que corre en cada frame (dt en segundos) */
   onFrame(cb: (dt: number) => void): void;
   /**
@@ -59,7 +64,11 @@ export function createWorld(container: HTMLElement): World {
   controls.addEventListener('change', () => invalidate());
 
   addLights(scene);
-  addEnvironment(scene);
+  addFloor(scene);
+  const zUp = new THREE.Group();
+  zUp.rotation.x = -Math.PI / 2;
+  scene.add(zUp);
+  const objects = addObjects(zUp);
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = container;
@@ -86,7 +95,7 @@ export function createWorld(container: HTMLElement): World {
     renderer.render(scene, camera);
   });
 
-  return { renderer, scene, camera, controls, onFrame: (cb) => void callbacks.push(cb), invalidate };
+  return { renderer, scene, camera, controls, zUp, objects, onFrame: (cb) => void callbacks.push(cb), invalidate };
 }
 
 function addLights(scene: THREE.Scene) {
@@ -110,7 +119,7 @@ function addLights(scene: THREE.Scene) {
   scene.add(rim);
 }
 
-function addEnvironment(scene: THREE.Scene) {
+function addFloor(scene: THREE.Scene) {
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(8, 64),
     new THREE.MeshStandardMaterial({ color: 0x1b212b, roughness: 0.95 }),
@@ -123,39 +132,23 @@ function addEnvironment(scene: THREE.Scene) {
   const grid = new THREE.GridHelper(6, 60, 0x3a4352, 0x262d39);
   grid.position.y = 0.0005;
   scene.add(grid);
-
-  // Cubos de 6 cm: tamaño que la mano del NAO podría agarrar más adelante
-  const cubes: [number, number, number, number][] = [
-    [0.32, 0.18, 0xe5484d, 0.4],
-    [0.36, -0.05, 0x3aa0ff, 1.1],
-    [0.28, -0.24, 0xf5a524, 2.3],
-  ];
-  for (const [x, z, color, yaw] of cubes) {
-    addBox(scene, [0.06, 0.06, 0.06], [x, 0.03, z], color, yaw);
-  }
-
-  // Cajas de cartón
-  const cardboard = 0xb08a5a;
-  addBox(scene, [0.3, 0.22, 0.3], [-0.5, 0.11, 0.55], cardboard, 0.3);
-  addBox(scene, [0.22, 0.16, 0.22], [-0.48, 0.3, 0.53], cardboard, 0.6);
-  addBox(scene, [0.4, 0.3, 0.3], [0.2, 0.15, -0.9], cardboard, -0.2);
-  addBox(scene, [0.25, 0.25, 0.25], [-0.9, 0.125, -0.4], 0x7c8696, 0.8);
 }
 
-function addBox(
-  scene: THREE.Scene,
-  [w, h, d]: [number, number, number],
-  [x, y, z]: [number, number, number],
-  color: number,
-  yaw: number,
-) {
-  const box = new THREE.Mesh(
-    new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.06),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.8 }),
-  );
-  box.position.set(x, y, z);
-  box.rotation.y = yaw;
-  box.castShadow = true;
-  box.receiveShadow = true;
-  scene.add(box);
+function addObjects(zUp: THREE.Group): Map<string, THREE.Mesh> {
+  const meshes = new Map<string, THREE.Mesh>();
+  for (const { name, size, pos, yaw, color } of ENV_OBJECTS) {
+    const [w, d, h] = size;
+    const box = new THREE.Mesh(
+      new RoundedBoxGeometry(w, d, h, 2, Math.min(w, d, h) * 0.06),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.8 }),
+    );
+    box.name = name;
+    box.position.set(...pos);
+    box.rotation.z = yaw;
+    box.castShadow = true;
+    box.receiveShadow = true;
+    zUp.add(box);
+    meshes.set(name, box);
+  }
+  return meshes;
 }

@@ -4,8 +4,9 @@
 
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import type { BodySupport, RobotState } from '../robot/state';
+import type { BodySupport, RobotState, RootPose } from '../robot/state';
 import type { UrdfJoint, UrdfRobot, Vec3 } from '../robot/urdf';
+import { linkShapes, type Shape } from './shapes';
 
 interface MovableJoint {
   joint: UrdfJoint;
@@ -66,7 +67,7 @@ export class NaoModel {
       }
     }
 
-    for (const [link, frame] of this.frames) for (const mesh of linkVisuals(link)) frame.add(mesh);
+    for (const [link, frame] of this.frames) for (const shape of linkShapes(link)) frame.add(shapeMesh(shape));
 
     // Resaltar un joint = todo lo que se mueve con él (incluye joints mimic: dedos, RHipYawPitch)
     for (const { joint, motion } of this.movable) {
@@ -107,9 +108,25 @@ export class NaoModel {
         : state.get(joint.name);
       motion.quaternion.setFromAxisAngle(axis, q);
     }
-    this.orient(state.body);
-    this.ground();
+    const root = state.root;
+    if (root) {
+      // Con física: la pose del torso es la de la simulación (coordenadas Z arriba, bajo `base`)
+      const [w, x, y, z] = root.quaternion;
+      this.root.position.y = 0;
+      this.tilt.position.set(...root.position);
+      this.tilt.quaternion.set(x, y, z, w);
+    } else {
+      this.tilt.position.set(0, 0, 0);
+      this.orient(state.body);
+      this.ground();
+    }
     return true;
+  }
+
+  /** Pose del torso del modelo cinemático actual (Z arriba), para arrancar la física apoyado en el suelo */
+  kinematicRootPose(): RootPose {
+    const q = this.tilt.quaternion;
+    return { position: [0, 0, this.root.position.y], quaternion: [q.w, q.x, q.y, q.z] };
   }
 
   highlight(jointName: string | null): void {
@@ -233,10 +250,6 @@ function collectMeshes(obj: THREE.Object3D): THREE.Mesh[] {
   return out;
 }
 
-// ─── Geometría provisional por link ────────────────────────────────────────────
-// Coordenadas en el frame del link (URDF, metros). Las medidas buscan parecerse al NAO, pero son
-// solo visuales: la cinemática ya está fijada por los orígenes de los joints.
-
 function mesh(geometry: THREE.BufferGeometry, material: THREE.MeshStandardMaterial): THREE.Mesh {
   const m = new THREE.Mesh(geometry, material);
   m.castShadow = true;
@@ -245,83 +258,34 @@ function mesh(geometry: THREE.BufferGeometry, material: THREE.MeshStandardMateri
   return m;
 }
 
-function capsule(a: Vec3, b: Vec3, r: number, mat: THREE.MeshStandardMaterial): THREE.Mesh {
-  const A = new THREE.Vector3(...a);
-  const B = new THREE.Vector3(...b);
-  const m = mesh(new THREE.CapsuleGeometry(r, A.distanceTo(B), 6, 16), mat);
-  m.position.copy(A).add(B).multiplyScalar(0.5);
-  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
-  return m;
-}
-
-function sphere(c: Vec3, r: number, mat: THREE.MeshStandardMaterial): THREE.Mesh {
-  const m = mesh(new THREE.SphereGeometry(r, 20, 14), mat);
-  m.position.set(...c);
-  return m;
-}
-
-function rbox(c: Vec3, size: Vec3, radius: number, mat: THREE.MeshStandardMaterial): THREE.Mesh {
-  const m = mesh(new RoundedBoxGeometry(size[0], size[1], size[2], 3, radius), mat);
-  m.position.set(...c);
-  return m;
-}
-
-/** Disco cuya cara mira hacia el eje dado */
-function disc(c: Vec3, r: number, thickness: number, normal: 'x' | 'y' | 'z', mat: THREE.MeshStandardMaterial): THREE.Mesh {
-  const m = mesh(new THREE.CylinderGeometry(r, r, thickness, 24), mat);
-  m.position.set(...c);
-  if (normal === 'x') m.rotation.z = Math.PI / 2;
-  if (normal === 'z') m.rotation.x = Math.PI / 2;
-  return m;
-}
-
-function linkVisuals(link: string): THREE.Mesh[] {
-  if (/Finger\d\d_link$|Thumb\d_link$/.test(link)) return [capsule([0, 0, 0], [0.0144, 0, 0], 0.005, MAT.dark)];
-
-  const s = /^(L|l_)/.test(link) ? 1 : -1; // espejo izquierda/derecha
-  switch (link.replace(/^(L|R|l_|r_)(?=[A-Za-z])/, '')) {
-    case 'torso':
-      return [
-        rbox([0, 0, 0.03], [0.1, 0.13, 0.17], 0.03, MAT.shell),
-        rbox([-0.005, 0, -0.072], [0.075, 0.13, 0.045], 0.015, MAT.joint),
-        disc([0.05, 0, 0.0552], 0.012, 0.004, 'x', MAT.dark), // botón del pecho
-      ];
-    case 'Neck':
-      return [disc([0, 0, -0.005], 0.018, 0.03, 'z', MAT.joint)];
-    case 'Head':
-      return [
-        rbox([0, 0, 0.058], [0.115, 0.13, 0.115], 0.045, MAT.shell),
-        disc([0.056, 0.027, 0.048], 0.013, 0.004, 'x', MAT.eye),
-        disc([0.056, -0.027, 0.048], 0.013, 0.004, 'x', MAT.eye),
-        disc([-0.005, 0.066, 0.055], 0.026, 0.012, 'y', MAT.joint), // orejas (parlantes)
-        disc([-0.005, -0.066, 0.055], 0.026, 0.012, 'y', MAT.joint),
-        disc([0.058, 0, 0.0636], 0.005, 0.004, 'x', MAT.dark), // CameraTop
-        disc([0.057, 0, 0.0177], 0.005, 0.004, 'x', MAT.dark), // CameraBottom
-      ];
-    case 'Shoulder':
-      return [sphere([0, 0, 0], 0.03, MAT.joint)];
-    case 'Bicep':
-      return [capsule([0.012, 0, 0], [0.098, 0.015 * s, 0], 0.026, MAT.shell)];
-    case 'Elbow':
-      return [sphere([0, 0, 0], 0.021, MAT.joint)];
-    case 'ForeArm':
-      return [capsule([0.008, 0, 0], [0.05, 0, 0], 0.021, MAT.shell)];
-    case 'wrist':
-      return [rbox([0.028, 0, -0.006], [0.045, 0.042, 0.03], 0.01, MAT.shell)];
-    case 'Pelvis':
-      return [sphere([0, 0, 0], 0.022, MAT.joint)];
-    case 'Thigh':
-      return [capsule([0, 0, -0.008], [0, 0, -0.092], 0.031, MAT.shell)];
-    case 'Tibia':
-      return [sphere([0, 0, 0], 0.028, MAT.joint), capsule([0, 0, -0.01], [0, 0, -0.093], 0.027, MAT.shell)];
-    case 'AnklePitch':
-      return [sphere([0, 0, 0], 0.02, MAT.joint)];
-    case 'ankle':
-      return [
-        rbox([0.025, 0.003 * s, -0.0321], [0.16, 0.088, 0.02], 0.008, MAT.shell),
-        rbox([0.025, 0.003 * s, -0.0436], [0.162, 0.09, 0.003], 0.001, MAT.dark), // suela
-      ];
-    default:
-      return [];
+function shapeMesh(shape: Shape): THREE.Mesh {
+  const mat = MAT[shape.material];
+  switch (shape.kind) {
+    case 'capsule': {
+      const A = new THREE.Vector3(...shape.from);
+      const B = new THREE.Vector3(...shape.to);
+      const m = mesh(new THREE.CapsuleGeometry(shape.radius, A.distanceTo(B), 6, 16), mat);
+      m.position.copy(A).add(B).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+      return m;
+    }
+    case 'sphere': {
+      const m = mesh(new THREE.SphereGeometry(shape.radius, 20, 14), mat);
+      m.position.set(...shape.center);
+      return m;
+    }
+    case 'box': {
+      const [x, y, z] = shape.size;
+      const m = mesh(new RoundedBoxGeometry(x, y, z, 3, shape.round), mat);
+      m.position.set(...shape.center);
+      return m;
+    }
+    case 'disc': {
+      const m = mesh(new THREE.CylinderGeometry(shape.radius, shape.radius, shape.thickness, 24), mat);
+      m.position.set(...shape.center);
+      if (shape.normal === 'x') m.rotation.z = Math.PI / 2;
+      if (shape.normal === 'z') m.rotation.x = Math.PI / 2;
+      return m;
+    }
   }
 }
