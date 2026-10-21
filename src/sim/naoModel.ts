@@ -106,6 +106,20 @@ export class NaoModel {
     this.buildHighlightSets();
   }
 
+  /**
+   * Cuelga un objeto propio de un link, ligado a una de las dos vistas: 'primitive' (formas simples)
+   * u 'official' (mallas de Aldebaran). Se muestra y oculta junto con esa vista.
+   */
+  attach(link: string, obj: THREE.Object3D, layer: 'primitive' | 'official'): void {
+    const frame = this.frames.get(link);
+    if (!frame) throw new Error(`link desconocido: ${link}`);
+    frame.add(obj);
+    if (layer === 'official') this.official.push(obj);
+    else if (obj instanceof THREE.Mesh) this.primitives.push(obj);
+    else obj.traverse((o) => o instanceof THREE.Mesh && this.primitives.push(o));
+    obj.visible = layer === 'official' ? this.official.some((o) => o !== obj && o.visible) : !this.hasOfficialMeshes;
+  }
+
   get hasOfficialMeshes(): boolean {
     return this.official.length > 0;
   }

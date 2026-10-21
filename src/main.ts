@@ -5,6 +5,7 @@ import { Session } from './naoqi/session';
 import type { PhysicsSim } from './physics/physics';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
+import { addOfficialChestLogo, addPrimitiveChestLogo } from './sim/chestLogo';
 import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
 import { createBehaviorPanel } from './ui/behaviorPanel';
@@ -22,6 +23,7 @@ const world = createWorld(document.getElementById('app')!);
 const nao = new NaoModel(urdf);
 world.scene.add(nao.root);
 nao.apply(state);
+addPrimitiveChestLogo(nao, () => world.invalidate());
 // Pose de arranque apoyada en el suelo (calculada por el modelo cinemático), para la física y el reinicio
 const bootRoot = nao.kinematicRootPose();
 
@@ -73,6 +75,7 @@ attachMeshLicense({
   load: async (onProgress) => {
     const { loadOfficialMeshes } = await import('./sim/officialMeshes');
     nao.setOfficialMeshes(await loadOfficialMeshes(urdf, onProgress));
+    if (!addOfficialChestLogo(nao, () => world.invalidate())) console.warn('No encontré el pecho de la malla oficial para el logo');
     world.invalidate(true);
   },
   showPrimitives: (show) => {
