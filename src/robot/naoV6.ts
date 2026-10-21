@@ -10,43 +10,47 @@ export interface JointSpec {
   /** rad (LHand/RHand: 0 = cerrada, 1 = abierta) */
   min: number;
   max: number;
+  /** rad/s (manos: unidades/s). Del atributo velocity del URDF; la doc V6 no lo da. */
+  maxVelocity: number;
 }
 
-const j = (name: string, chain: ChainName, min: number, max: number): JointSpec => ({ name, chain, min, max });
+const j = (name: string, chain: ChainName, min: number, max: number, maxVelocity: number): JointSpec => ({
+  name, chain, min, max, maxVelocity,
+});
 
 /** Orden de ALMotion.getBodyNames("Body"): Head, LArm, LLeg, RLeg, RArm (26 nombres) */
 export const JOINTS: readonly JointSpec[] = [
-  j('HeadYaw', 'Head', -2.0857, 2.0857),
-  j('HeadPitch', 'Head', -0.672, 0.5149),
+  j('HeadYaw', 'Head', -2.0857, 2.0857, 8.26797),
+  j('HeadPitch', 'Head', -0.672, 0.5149, 7.19407),
 
-  j('LShoulderPitch', 'LArm', -2.0857, 2.0857),
-  j('LShoulderRoll', 'LArm', -0.3142, 1.3265),
-  j('LElbowYaw', 'LArm', -2.0857, 2.0857),
-  j('LElbowRoll', 'LArm', -1.5446, -0.0349),
-  j('LWristYaw', 'LArm', -1.8238, 1.8238),
-  j('LHand', 'LArm', 0, 1),
+  j('LShoulderPitch', 'LArm', -2.0857, 2.0857, 8.26797),
+  j('LShoulderRoll', 'LArm', -0.3142, 1.3265, 7.19407),
+  j('LElbowYaw', 'LArm', -2.0857, 2.0857, 8.26797),
+  j('LElbowRoll', 'LArm', -1.5446, -0.0349, 7.19407),
+  j('LWristYaw', 'LArm', -1.8238, 1.8238, 24.6229),
+  j('LHand', 'LArm', 0, 1, 8.33),
 
-  j('LHipYawPitch', 'LLeg', -1.145303, 0.74081),
-  j('LHipRoll', 'LLeg', -0.379472, 0.790477),
-  j('LHipPitch', 'LLeg', -1.535889, 0.48409),
-  j('LKneePitch', 'LLeg', -0.092346, 2.112528),
-  j('LAnklePitch', 'LLeg', -1.189516, 0.922747),
-  j('LAnkleRoll', 'LLeg', -0.39788, 0.769001),
+  j('LHipYawPitch', 'LLeg', -1.145303, 0.74081, 4.16174),
+  j('LHipRoll', 'LLeg', -0.379472, 0.790477, 4.16174),
+  j('LHipPitch', 'LLeg', -1.535889, 0.48409, 6.40239),
+  j('LKneePitch', 'LLeg', -0.092346, 2.112528, 6.40239),
+  j('LAnklePitch', 'LLeg', -1.189516, 0.922747, 6.40239),
+  j('LAnkleRoll', 'LLeg', -0.39788, 0.769001, 4.16174),
 
   // Mismo motor físico que LHipYawPitch (ver COUPLED)
-  j('RHipYawPitch', 'RLeg', -1.145303, 0.74081),
-  j('RHipRoll', 'RLeg', -0.790477, 0.379472),
-  j('RHipPitch', 'RLeg', -1.535889, 0.48409),
-  j('RKneePitch', 'RLeg', -0.103083, 2.120198),
-  j('RAnklePitch', 'RLeg', -1.186448, 0.932056),
-  j('RAnkleRoll', 'RLeg', -0.768992, 0.397935),
+  j('RHipYawPitch', 'RLeg', -1.145303, 0.74081, 4.16174),
+  j('RHipRoll', 'RLeg', -0.790477, 0.379472, 4.16174),
+  j('RHipPitch', 'RLeg', -1.535889, 0.48409, 6.40239),
+  j('RKneePitch', 'RLeg', -0.103083, 2.120198, 6.40239),
+  j('RAnklePitch', 'RLeg', -1.186448, 0.932056, 6.40239),
+  j('RAnkleRoll', 'RLeg', -0.768992, 0.397935, 4.16174),
 
-  j('RShoulderPitch', 'RArm', -2.0857, 2.0857),
-  j('RShoulderRoll', 'RArm', -1.3265, 0.3142),
-  j('RElbowYaw', 'RArm', -2.0857, 2.0857),
-  j('RElbowRoll', 'RArm', 0.0349, 1.5446),
-  j('RWristYaw', 'RArm', -1.8238, 1.8238),
-  j('RHand', 'RArm', 0, 1),
+  j('RShoulderPitch', 'RArm', -2.0857, 2.0857, 8.26797),
+  j('RShoulderRoll', 'RArm', -1.3265, 0.3142, 7.19407),
+  j('RElbowYaw', 'RArm', -2.0857, 2.0857, 8.26797),
+  j('RElbowRoll', 'RArm', 0.0349, 1.5446, 7.19407),
+  j('RWristYaw', 'RArm', -1.8238, 1.8238, 24.6229),
+  j('RHand', 'RArm', 0, 1, 8.33),
 ];
 
 export const JOINT_BY_NAME: ReadonlyMap<string, JointSpec> = new Map(JOINTS.map((s) => [s.name, s]));
@@ -83,14 +87,24 @@ export function headPitchLimits(headYaw: number): [number, number] {
   return [lerp(HEAD_PITCH_MIN), lerp(HEAD_PITCH_MAX)];
 }
 
-/**
- * Pose inicial del simulador: de pie, brazos abajo. Es la pose 1 de reference/motions/TaiChi.motion
- * (no es una postura de ALRobotPosture; esas llegan en F3).
- */
-export const DEFAULT_POSE: Readonly<Record<string, number>> = {
-  HeadYaw: 0, HeadPitch: 0,
-  LShoulderPitch: 1.571, LShoulderRoll: 0.175, LElbowYaw: -1.571, LElbowRoll: -0.0349, LWristYaw: -1.536, LHand: 0.25,
-  LHipYawPitch: -0.108, LHipRoll: -0.052, LHipPitch: 0, LKneePitch: 0, LAnklePitch: 0, LAnkleRoll: 0.052,
-  RHipYawPitch: -0.108, RHipRoll: 0.052, RHipPitch: 0, RKneePitch: 0, RAnklePitch: 0, RAnkleRoll: -0.052,
-  RShoulderPitch: 1.571, RShoulderRoll: -0.175, RElbowYaw: 1.571, RElbowRoll: 0.0349, RWristYaw: 1.536, RHand: 0.25,
+const GROUPS: Readonly<Record<string, readonly string[]>> = {
+  ...CHAINS,
+  Body: JOINTS.map((s) => s.name),
+  Joints: JOINTS.map((s) => s.name),
+  JointActuators: JOINTS.map((s) => s.name),
+  Actuators: JOINTS.map((s) => s.name),
 };
+
+/**
+ * Expande nombres de la API NAOqi: joint, cadena ("Head", "LArm"…) o grupo ("Body", "JointActuators",
+ * "Joints", "Actuators"). Lanza error con un nombre desconocido, como ALMotion.
+ */
+export function expandNames(names: string | readonly string[]): string[] {
+  const out: string[] = [];
+  for (const n of typeof names === 'string' ? [names] : names) {
+    const group = GROUPS[n] ?? (JOINT_BY_NAME.has(n) ? [n] : undefined);
+    if (!group) throw new Error(`nombre de joint o cadena desconocido: "${n}"`);
+    for (const g of group) if (!out.includes(g)) out.push(g);
+  }
+  return out;
+}

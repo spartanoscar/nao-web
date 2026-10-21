@@ -29,13 +29,9 @@ button { font: inherit; }
 }
 #panel-toggle { display: none; }
 
-.panel-header { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 14px 0 10px; border-bottom: 1px solid var(--line); }
-.panel-header h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-.panel-actions { display: flex; gap: 8px; }
-.panel-actions button, #panel-toggle {
+#panel-toggle {
   background: #1f2632; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
 }
-.panel-actions button:hover { border-color: var(--accent); }
 
 .chain { border-bottom: 1px solid var(--line); padding: 6px 0; }
 .chain summary { cursor: pointer; padding: 6px 0; font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
@@ -56,3 +52,16 @@ button { font: inherit; }
   #panel-toggle { display: block; position: fixed; right: 16px; bottom: 16px; z-index: 2; }
   body.panel-open #panel-toggle { bottom: calc(48vh + 12px); }
 }
+
+/* ─── Comportamiento (F3) ─── */
+.status { display: flex; align-items: center; gap: 8px; padding: 14px 0 10px; font-weight: 600; }
+.status-dot, .stiffness-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4a5363; flex: none; }
+.status-dot.on, .stiffness-dot.on { background: #3ddc84; }
+.stiffness-dot { width: 6px; height: 6px; margin-right: 6px; vertical-align: middle; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px; }
+.chip { background: #1f2632; color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
+.chip:active { background: #263043; }
+.activity { min-height: 18px; font: 12px/1.5 ui-monospace, 'SF Mono', Menlo, monospace; color: var(--accent); word-break: break-word; }
+.activity.error { color: #ff6b6b; }
+.panel-subtitle { margin: 14px 0 4px; font-size: 14px; font-weight: 600; }

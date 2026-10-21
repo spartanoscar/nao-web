@@ -1,7 +1,9 @@
-// Panel de articulaciones: un slider por joint, agrupado por cadena. Escribe en RobotState y se
-// resincroniza cuando el estado cambia desde otro lado (consola, NAOqi, IA).
+// Panel de articulaciones: un slider por joint, agrupado por cadena. Mover un slider es como mover
+// el joint con la mano: cancela el comando de ALMotion sobre ese joint. Se resincroniza cuando el
+// estado cambia desde otro lado (posturas, consola, IA).
 
-import { ACTUATOR_COUNT, CHAINS, COUPLED, DEFAULT_POSE, type ChainName } from '../robot/naoV6';
+import type { MotionEngine } from '../naoqi/engine';
+import { ACTUATOR_COUNT, CHAINS, COUPLED, type ChainName } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
 
 const CHAIN_LABEL: Record<ChainName, string> = {
@@ -21,6 +23,7 @@ interface Row {
   name: string;
   input: HTMLInputElement;
   value: HTMLElement;
+  stiffness: HTMLElement;
 }
 
 export interface JointPanel {
@@ -31,20 +34,11 @@ export interface JointPanel {
 export function createJointPanel(
   host: HTMLElement,
   state: RobotState,
+  engine: MotionEngine,
   { onHover }: { onHover(joint: string | null): void },
 ): JointPanel {
-  host.innerHTML = '';
   const rows: Row[] = [];
-
-  const header = el('header', 'panel-header');
-  header.append(el('h2', '', `Articulaciones · ${ACTUATOR_COUNT} actuadores`));
-  const actions = el('div', 'panel-actions');
-  actions.append(
-    button('Pose inicial', () => state.setMany(DEFAULT_POSE)),
-    button('Cero', () => state.setMany(Object.fromEntries(Object.keys(DEFAULT_POSE).map((n) => [n, 0])))),
-  );
-  header.append(actions);
-  host.append(header);
+  host.append(el('h2', 'panel-subtitle', `Articulaciones · ${ACTUATOR_COUNT} actuadores`));
 
   for (const chain of CHAIN_ORDER) {
     const group = el('details', 'chain') as HTMLDetailsElement;
@@ -62,10 +56,12 @@ export function createJointPanel(
       input.step = isHand(name) ? '0.01' : '0.001';
       input.value = String(state.get(name));
       input.disabled = Boolean(coupledTo);
-      input.addEventListener('input', () => state.set(name, Number(input.value)));
+      input.addEventListener('input', () => engine.manual(name, Number(input.value)));
 
       const value = el('span', 'joint-value', format(name, state.get(name)));
-      const title = el('span', 'joint-name', name);
+      const title = el('span', 'joint-name');
+      const stiffness = el('span', 'stiffness-dot');
+      title.append(stiffness, name);
       if (coupledTo) title.title = `Mismo motor que ${coupledTo}`;
       row.append(title, value, input);
       if (coupledTo) row.append(el('small', 'joint-note', `acoplado a ${coupledTo}`));
@@ -77,17 +73,21 @@ export function createJointPanel(
       input.addEventListener('blur', () => onHover(null));
 
       group.append(row);
-      rows.push({ name, input, value });
+      rows.push({ name, input, value, stiffness });
     }
     host.append(group);
   }
 
-  let shownRevision = state.revision;
+  let shownRevision = -1;
   return {
     refresh() {
       if (state.revision === shownRevision) return;
       shownRevision = state.revision;
-      for (const { name, input, value } of rows) {
+      for (const { name, input, value, stiffness } of rows) {
+        const st = state.getStiffness(name);
+        stiffness.style.opacity = String(0.25 + 0.75 * st);
+        stiffness.classList.toggle('on', st > 0);
+        stiffness.title = `stiffness ${st.toFixed(2)}`;
         const v = state.get(name);
         if (name === 'HeadPitch') {
           // El rango cambia con HeadYaw (anti-colisión)
@@ -107,12 +107,4 @@ function el(tag: string, className: string, text?: string): HTMLElement {
   if (className) e.className = className;
   if (text !== undefined) e.textContent = text;
   return e;
-}
-
-function button(label: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.textContent = label;
-  b.addEventListener('click', onClick);
-  return b;
 }

@@ -1,6 +1,6 @@
-// Parser mínimo de URDF: solo lo que necesita la cinemática (árbol de joints, orígenes, ejes,
-// límites y mimic). Las geometrías <visual>/<collision> del URDF se ignoran: apuntan a las mallas
-// oficiales (CC BY-NC-ND), que no usamos.
+// Parser mínimo de URDF: lo que necesitan la cinemática (árbol de joints, orígenes, ejes, límites y
+// mimic) y el centro de masa (<inertial>). Las geometrías <visual>/<collision> se ignoran: apuntan a
+// las mallas oficiales (CC BY-NC-ND), que no usamos.
 
 export type Vec3 = [number, number, number];
 
@@ -21,11 +21,19 @@ export interface UrdfJoint {
   mimic?: { joint: string; multiplier: number; offset: number };
 }
 
+export interface UrdfLink {
+  name: string;
+  /** kg (0 si el link no declara <inertial>) */
+  mass: number;
+  /** Centro de masa en el frame del link (m) */
+  com: Vec3;
+}
+
 export interface UrdfRobot {
   name: string;
   /** Link que nunca es hijo de ningún joint (base_link en el NAO) */
   root: string;
-  links: string[];
+  links: UrdfLink[];
   joints: UrdfJoint[];
 }
 
@@ -53,7 +61,15 @@ export function parseUrdf(xml: string): UrdfRobot {
   // Solo hijos directos: <link>/<joint> también aparecen dentro de <gazebo> y <transmission>
   const direct = (tag: string) => Array.from(robot.children).filter((el) => el.tagName === tag);
 
-  const links = direct('link').map((el) => el.getAttribute('name')!);
+  const links = direct('link').map((el): UrdfLink => {
+    const inertial = el.querySelector(':scope > inertial');
+    const mass = inertial?.querySelector(':scope > mass');
+    return {
+      name: el.getAttribute('name')!,
+      mass: mass ? num(mass, 'value', 0) : 0,
+      com: vec3(inertial?.querySelector(':scope > origin')?.getAttribute('xyz'), [0, 0, 0]),
+    };
+  });
   const joints = direct('joint').map((el): UrdfJoint => {
     const origin = el.querySelector(':scope > origin');
     const limit = el.querySelector(':scope > limit');
@@ -85,7 +101,7 @@ export function parseUrdf(xml: string): UrdfRobot {
   });
 
   const children = new Set(joints.map((j) => j.child));
-  const root = links.find((l) => !children.has(l));
+  const root = links.find((l) => !children.has(l.name))?.name;
   if (!root) throw new Error('URDF sin link raíz');
 
   return { name: robot.getAttribute('name') ?? '', root, links, joints };

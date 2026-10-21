@@ -1,4 +1,4 @@
-// Estado articular del robot: la única verdad que comparten NAOqi (escribe) y la escena 3D (lee).
+// Estado del robot: la única verdad que comparten NAOqi (escribe) y la escena 3D (lee).
 // Aplica las mismas restricciones que el robot real: límites V6, anti-colisión de la cabeza y el
 // motor compartido HipYawPitch.
 
@@ -6,8 +6,21 @@ import { COUPLED, JOINT_BY_NAME, JOINTS, headPitchLimits } from './naoV6';
 
 const MASTER_OF = new Map(Object.entries(COUPLED));
 
+/**
+ * Orientación del cuerpo respecto al suelo. En el robot real la decide la gravedad (y la mide la
+ * IMU); sin física la fija quien mueve el robot. APPROX hasta tener simulación física.
+ */
+export interface BodySupport {
+  /** 1 = el torso se orienta para que el pie de apoyo quede plano; 0 = se usa `pitch` */
+  footSupport: number;
+  /** Inclinación fija del torso (rad, + hacia delante). LyingBack = -π/2, LyingBelly = +π/2 */
+  pitch: number;
+}
+
 export class RobotState {
   private readonly values = new Map<string, number>(JOINTS.map((s) => [s.name, 0]));
+  private readonly stiffness = new Map<string, number>(JOINTS.map((s) => [s.name, 0]));
+  private readonly support: BodySupport = { footSupport: 1, pitch: 0 };
 
   /** Se incrementa en cada cambio: los lectores (escena, UI) solo recalculan si cambió */
   revision = 0;
@@ -51,6 +64,32 @@ export class RobotState {
 
   snapshot(): Record<string, number> {
     return Object.fromEntries(this.values);
+  }
+
+  /** 0 = motor apagado (el joint no obedece comandos), 1 = rígido */
+  getStiffness(name: string): number {
+    const v = this.stiffness.get(MASTER_OF.get(name) ?? name);
+    if (v === undefined) throw new Error(`Joint desconocido: ${name}`);
+    return v;
+  }
+
+  setStiffness(name: string, value: number): void {
+    const master = MASTER_OF.get(name) ?? name;
+    if (!this.stiffness.has(master)) throw new Error(`Joint desconocido: ${name}`);
+    const v = Math.min(Math.max(value, 0), 1);
+    this.stiffness.set(master, v);
+    for (const [slave, m] of MASTER_OF) if (m === master) this.stiffness.set(slave, v);
+    this.revision++;
+  }
+
+  get body(): Readonly<BodySupport> {
+    return this.support;
+  }
+
+  setBody(patch: Partial<BodySupport>): void {
+    if (patch.footSupport !== undefined) this.support.footSupport = Math.min(Math.max(patch.footSupport, 0), 1);
+    if (patch.pitch !== undefined) this.support.pitch = patch.pitch;
+    this.revision++;
   }
 
   private write(name: string, value: number): number {
