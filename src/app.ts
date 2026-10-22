@@ -23,6 +23,7 @@ import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
 import { attachSettings } from './ui/settings';
+import { me } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
 import { createTranscript } from './ui/transcript';
 import { attachSoundControl } from './ui/soundControl';
@@ -221,6 +222,8 @@ attachSettings(hud.settingsButton, user, {
     Object.assign(user, u);
     hud.setUser(u);
   },
+  // La biblioteca terminó de guardar algo: el servidor ya lo cobró
+  onSpent: () => void me().then((u) => u && hud.setSpent(u.spentTodayUsd)),
 });
 const transcript = createTranscript();
 // Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla

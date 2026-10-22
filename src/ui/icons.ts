@@ -21,5 +21,21 @@ export const ICONS = {
   flip: svg('<path d="M4 7h11a5 5 0 0 1 0 10H9"/><path d="m7 4-3 3 3 3"/><path d="M8 20h.01"/>'),
   settings: svg('<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
   camera: svg('<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>'),
+  upload: svg('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>'),
+  trash: svg('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>'),
+  download: svg('<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>'),
+  library: svg('<path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="m16 5 3.5-1 2.5 15.5-3.5 1z"/>'),
   center: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>'),
+};
+
+/** Íconos de archivo de la biblioteca (a color, 40×48): PDF rojo, Excel verde, documento azul, imagen morada */
+const fileIcon = (color: string, mark: string) =>
+  `<svg viewBox="0 0 40 48" width="40" height="48" aria-hidden="true"><path d="M6 2h20l10 10v32a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="${color}"/><path d="M26 2v8a2 2 0 0 0 2 2h8" fill="rgba(255,255,255,.35)"/>${mark}</svg>`;
+
+export const FILE_ICONS = {
+  pdf: fileIcon('#e5484d', '<text x="20" y="35" text-anchor="middle" font-size="10" font-weight="800" fill="#fff" font-family="system-ui,sans-serif">PDF</text>'),
+  excel: fileIcon('#1f9d55', '<path d="M11 22h18v16H11zM11 30h18M20 22v16" fill="none" stroke="#fff" stroke-width="2"/>'),
+  word: fileIcon('#3a7bff', '<path d="M11 24h18M11 30h18M11 36h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>'),
+  text: fileIcon('#5b6b85', '<path d="M11 24h18M11 30h18M11 36h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>'),
+  image: fileIcon('#8b5cf6', '<circle cx="15" cy="27" r="3" fill="#fff"/><path d="m10 39 7-8 5 5 4-4 5 7z" fill="#fff"/>'),
 };

@@ -5,13 +5,18 @@
 
 import { ApiError, type User, type UserPatch, logout, updateMe } from '../net/api';
 import { ICONS } from './icons';
+import { createLibrary } from './library';
 
 const SAVE_DELAY = 3000;
 const RETRY_DELAY = 5000;
 const AVATAR_SIZE = 256;
 const ROLE: Record<User['role'], string> = { admin: 'Administrador', teacher: 'Docente', student: 'Estudiante' };
 
-export function attachSettings(button: HTMLButtonElement, user: User, { onChange }: { onChange(user: User): void }): void {
+export function attachSettings(
+  button: HTMLButtonElement,
+  user: User,
+  { onChange, onSpent }: { onChange(user: User): void; onSpent(): void },
+): void {
   const modal = document.createElement('div');
   modal.className = 'settings-modal';
   modal.hidden = true;
@@ -19,10 +24,14 @@ export function attachSettings(button: HTMLButtonElement, user: User, { onChange
     <div class="st-card" role="dialog" aria-modal="true" aria-labelledby="st-title">
       <header class="st-head">
         <h2 id="st-title">${ICONS.settings}<span>Ajustes</span></h2>
+        <nav class="st-tabs" role="tablist">
+          <button type="button" role="tab" data-tab="general" aria-selected="true">General</button>
+          <button type="button" role="tab" data-tab="library" aria-selected="false">Biblioteca</button>
+        </nav>
         <span class="st-saved" aria-live="polite"></span>
         <button type="button" class="st-x" title="Cerrar" aria-label="Cerrar">${ICONS.close}</button>
       </header>
-      <div class="st-body">
+      <div class="st-body" data-panel="general">
         <section class="st-profile">
           <h3>Tu perfil</h3>
           <button type="button" class="st-avatar" title="Cambiar foto" aria-label="Cambiar foto">
@@ -44,6 +53,7 @@ export function attachSettings(button: HTMLButtonElement, user: User, { onChange
           <p class="st-help"><span>Se suma a las instrucciones base del NAO cuando converse con la IA.</span><span class="st-count"></span></p>
         </section>
       </div>
+      <div class="st-library" data-panel="library" hidden></div>
       <footer class="st-foot"><button type="button" class="st-close">Cerrar</button></footer>
     </div>`;
   document.body.append(modal);
@@ -154,6 +164,18 @@ export function attachSettings(button: HTMLButtonElement, user: User, { onChange
     paintAvatar('');
     queue({ avatar: '' });
   });
+
+  // ─── Pestañas ───────────────────────────────────────────────────────────────
+  const library = createLibrary({ onSpent });
+  $('.st-library').append(library.element);
+  const tabs = [...modal.querySelectorAll<HTMLButtonElement>('[role=tab]')];
+  const selectTab = (name: string) => {
+    for (const t of tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
+    for (const p of modal.querySelectorAll<HTMLElement>('[data-panel]')) p.hidden = p.dataset.panel !== name;
+    modal.querySelector('.st-card')!.classList.toggle('wide', name === 'library');
+    if (name === 'library') library.show();
+  };
+  for (const t of tabs) t.addEventListener('click', () => selectTab(t.dataset.tab!));
 
   // ─── Abrir y cerrar ─────────────────────────────────────────────────────────
   const close = () => {

@@ -350,3 +350,68 @@ body.panel-visible #transcript { left: calc(50% - var(--panel-w) / 2); width: mi
   .st-body { grid-template-columns: 1fr; }
   .st-profile { border-right: 0; border-bottom: 1px solid var(--glass-line); }
 }
+
+/* ─── Ajustes: pestañas y biblioteca ─── */
+.st-tabs { display: flex; gap: 4px; margin-left: 18px; padding: 4px; border-radius: 999px; background: rgba(0, 0, 0, .3); border: 1px solid var(--glass-line); }
+.st-tabs button { border: 0; border-radius: 999px; padding: 7px 16px; background: transparent; color: var(--muted); font: 800 13px system-ui, sans-serif; letter-spacing: .04em; cursor: pointer; }
+.st-tabs button[aria-selected="true"] { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(58, 160, 255, .35); }
+.st-body[hidden], .st-library[hidden] { display: none; }
+.st-card.wide { width: min(1120px, 100%); }
+.st-library { height: min(620px, calc(100vh - 220px)); }
+.lib { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+.lib-side { display: flex; flex-direction: column; min-height: 0; padding: 18px 16px 0 20px; border-right: 1px solid var(--glass-line); }
+.lib-drop {
+  display: grid; justify-items: center; gap: 4px; padding: 16px 12px; border-radius: 16px; cursor: pointer; text-align: center;
+  border: 1.5px dashed rgba(58, 160, 255, .45); background: rgba(58, 160, 255, .06); transition: background .15s, border-color .15s;
+}
+.lib-drop:hover, .lib-drop.over { background: rgba(58, 160, 255, .14); border-color: var(--accent); }
+.lib-drop svg { color: var(--accent); width: 26px; height: 26px; }
+.lib-drop b { font-size: 14.5px; }
+.lib-drop span { font-size: 12px; color: var(--muted); }
+.lib-quota { margin: 10px 2px 6px; font-size: 11.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.lib-list { list-style: none; margin: 0 -8px 0 0; padding: 0 8px 16px 0; overflow-y: auto; flex: 1; display: grid; align-content: start; gap: 6px; }
+.lib-item { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; cursor: pointer; border: 1px solid transparent; outline: none; }
+.lib-item:hover, .lib-item:focus-visible { background: rgba(255, 255, 255, .05); }
+.lib-item.selected { background: rgba(58, 160, 255, .12); border-color: rgba(58, 160, 255, .45); }
+.lib-item.local { cursor: default; opacity: .85; }
+.lib-icon { flex: none; width: 44px; height: 48px; display: grid; place-items: center; }
+.lib-icon.thumb img { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; box-shadow: 0 0 0 1px var(--glass-line); }
+.lib-meta { min-width: 0; display: grid; gap: 3px; }
+.lib-meta b { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-meta > span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.lib-st { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.lib-st svg { width: 13px; height: 13px; }
+.lib-st.ok { color: var(--ok); }
+.lib-st.bad { color: #ff7676; }
+.lib-st.busy { color: var(--accent); }
+.lib-st.busy i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: lib-spin .8s linear infinite; }
+@keyframes lib-spin { to { transform: rotate(360deg); } }
+.lib-del { position: absolute; right: 8px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .45); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .15s; }
+.lib-del svg { width: 16px; height: 16px; }
+.lib-item:hover .lib-del, .lib-item:focus-within .lib-del, .lib-item.failed .lib-del { opacity: 1; }
+.lib-del:hover { color: #ff7676; }
+.lib-empty { padding: 18px 8px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.lib-view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.lib-blank, .lib-cant { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); text-align: center; }
+.lib-blank svg { width: 42px; height: 42px; opacity: .5; }
+.lib-blank p, .lib-cant p { margin: 0; font-size: 15px; font-weight: 700; }
+.lib-view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--glass-line); }
+.lib-view-head > div { min-width: 0; display: grid; gap: 2px; }
+.lib-view-head b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-view-head > div > span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.lib-dl { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--glass-line); color: var(--text); text-decoration: none; font: 700 13px system-ui, sans-serif; flex: none; }
+.lib-dl:hover { border-color: rgba(58, 160, 255, .6); box-shadow: var(--glow); }
+.lib-dl svg { width: 16px; height: 16px; }
+.lib-dl.big { padding: 11px 22px; background: linear-gradient(180deg, #4fb0ff, #1f7fe0); border: 0; color: #fff; font-size: 14px; }
+.lib-error { margin: 12px 20px 0; padding: 10px 14px; border-radius: 12px; background: rgba(255, 118, 118, .1); border: 1px solid rgba(255, 118, 118, .3); color: #ff9a9a; font-size: 13.5px; }
+.lib-view-body { flex: 1; min-height: 0; display: flex; padding: 16px 20px 20px; }
+.lib-view-body img { margin: auto; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, .4); }
+.lib-view-body iframe { flex: 1; border: 0; border-radius: 12px; background: #fff; }
+.lib-view-body pre { flex: 1; margin: 0; overflow: auto; padding: 16px 18px; border-radius: 12px; background: rgba(0, 0, 0, .35); border: 1px solid var(--glass-line); font: 13px/1.6 ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 900px) {
+  .lib { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .lib-side { border-right: 0; border-bottom: 1px solid var(--glass-line); max-height: 45%; padding-bottom: 8px; }
+}
+.lib-view-body.lib-cant { display: grid; place-content: center; justify-items: center; align-content: center; gap: 14px; }
+.lib-view-body.lib-cant > svg { width: 60px; height: 72px; transform: none; margin: 0 0 4px; }
+.lib-view-body.lib-cant .lib-dl.big { justify-self: center; }
