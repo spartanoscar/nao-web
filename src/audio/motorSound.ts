@@ -14,7 +14,8 @@ import type { Impact, MotorTelemetry } from '../physics/physics';
 const IMPACT_SOUND: Record<Impact['kind'], { clack: number; knock: number; decay: number; fullSpeed: number; level: number }> = {
   heavy: { clack: 1700, knock: 165, decay: 0.13, fullSpeed: 1.3, level: 1 },
   limb: { clack: 2600, knock: 290, decay: 0.08, fullSpeed: 1.2, level: 0.7 },
-  foot: { clack: 3200, knock: 380, decay: 0.05, fullSpeed: 0.45, level: 0.28 },
+  // Pies con suela de goma: la mitad de volumen y un "toc" sordo (sin el clac agudo del plástico)
+  foot: { clack: 1500, knock: 300, decay: 0.045, fullSpeed: 0.45, level: 0.14 },
 };
 
 /** Tono base por modelo de motor (doc motors_naov6): los grandes de las piernas suenan más graves */
