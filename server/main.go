@@ -4,6 +4,7 @@
 //   - Sala del teléfono por QR: relay WebSocket entre el escritorio y el móvil (relay.go, patrón de hv).
 //   - Base de datos PostgreSQL (schema.sql): usuarios, sesiones, control de costos, conversaciones, rostros…
 //   - Biblioteca: archivos del jugador → texto → embeddings (library.go, extract.go, gemini.go).
+//   - Cerebro: conversación con Gemini y function calling hacia las habilidades del robot (brain.go, prompt.go).
 //
 // Subcomandos:
 //
@@ -69,6 +70,7 @@ func main() {
 	mux.HandleFunc("GET /api/documents/{id}/file", auth.handleDocumentFile)
 	mux.HandleFunc("GET /api/documents/{id}/thumb", auth.handleDocumentThumb)
 	mux.HandleFunc("DELETE /api/documents/{id}", auth.handleDeleteDocument)
+	mux.HandleFunc("POST /api/brain", newBrain(auth).handle)
 	mux.HandleFunc("POST /api/rooms", relay.handleCreateRoom)
 	mux.HandleFunc("GET /api/ws", relay.handleWS)
 

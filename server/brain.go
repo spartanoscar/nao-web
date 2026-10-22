@@ -1,0 +1,425 @@
+package main
+
+// Cerebro del NAO: conversación por turnos con Gemini y function calling (POST /api/brain).
+//
+//   - Un turno empieza con lo que dijo o escribió la persona, el estado del robot y una foto pequeña de sus
+//     cámaras. Gemini responde con texto (lo que el NAO dice) y/o llamadas a habilidades (prompt.go).
+//   - El navegador ejecuta las habilidades con NAOqi y vuelve con sus resultados (y una foto si la pidió): el
+//     mismo turno sigue hasta que Gemini ya no pide nada. Así encadena "ve a la caja, empújala, vuelve y siéntate"
+//     revisando cada resultado (si se cayó, se levanta).
+//   - El turno en curso vive en memoria del servidor (con las firmas de pensamiento que exige Gemini 3): el
+//     navegador solo manda resultados, nunca arma el historial. Un turno nuevo del mismo usuario cancela el anterior.
+//   - Contexto: los últimos 20 mensajes de la conversación (BD) en texto; las fotos solo viajan en el turno actual.
+//   - Cada llamada se cobra con los tokens reales y respeta el tope diario.
+//
+// Petición:  {turn?, text?, source?, state, image?, results?: [{id, name, response}]}
+// Respuesta: {turn, say, calls: [{id, name, args}], done, spentTodayUsd}
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+const (
+	historyMessages = 20
+	maxBrainBody    = 1 << 20
+	maxBrainText    = 600
+	maxBrainImage   = 400 << 10
+	maxBrainState   = 4 << 10
+	maxSteps        = 12 // llamadas a Gemini por turno: tope para que un error no gaste en bucle
+	turnTTL         = 3 * time.Minute
+	// Una conversación sigue si su último mensaje tiene menos de esto; si no, empieza otra
+	conversationGap = 2 * time.Hour
+)
+
+// Modelo (medido 2026-10-22 con "ve a la caja gris, empújala un metro, vuelve y siéntate", que está detrás del robot):
+// gemini-3.8-flash con razonamiento bajo hizo scan → girar 180° → scan → approach → push → volver → sentarse, bien, en
+// 5 llamadas y US$0.019, ~3 s por respuesta. Los rápidos (~1.5 s) fallan en la percepción: 3.5-flash-lite se rindió
+// sin buscar y 3-flash-preview fue a una caja de cartón diciendo que era "grisácea". 3.8-flash no acepta "minimal".
+//
+// Precios por millón de tokens (página oficial de precios de Gemini, 2026-10; 3.8-flash sube a 1.50/7.50 el
+// 2027-01-01). APPROX: lo leído de caché se cobra al 10% de la entrada.
+var brainPrices = map[string][2]float64{
+	"gemini-3.5-flash-lite":  {0.30, 2.50},
+	"gemini-3-flash-preview": {0.50, 3.00},
+	"gemini-3.1-flash-lite":  {0.25, 1.50},
+	"gemini-3.8-flash":       {0.75, 3.75},
+}
+
+type brainTurn struct {
+	mu           sync.Mutex // un paso a la vez
+	id           string
+	userID       int64
+	conversation int64
+	system       string
+	history      []any // contenidos de la BD (texto)
+	contents     []any // el turno actual: usuario, modelo (crudo, con firmas), respuestas de funciones…
+	said         []string
+	actions      []string
+	steps        int
+	updated      time.Time
+}
+
+type brain struct {
+	auth     *auth
+	model    string
+	thinking string
+	mu       sync.Mutex
+	turns    map[string]*brainTurn
+}
+
+func newBrain(a *auth) *brain {
+	return &brain{
+		auth:     a,
+		model:    envOr("NAO_BRAIN_MODEL", "gemini-3.8-flash"),
+		thinking: envOr("NAO_BRAIN_THINKING", "low"),
+		turns:    map[string]*brainTurn{},
+	}
+}
+
+type brainRequest struct {
+	Turn    string          `json:"turn"`
+	Text    string          `json:"text"`
+	Source  string          `json:"source"`
+	State   json.RawMessage `json:"state"`
+	Image   string          `json:"image"`
+	Results []struct {
+		ID       string          `json:"id"`
+		Name     string          `json:"name"`
+		Response json.RawMessage `json:"response"`
+	} `json:"results"`
+}
+
+type brainCall struct {
+	ID   string          `json:"id"`
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
+}
+
+func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
+	u, err := b.auth.current(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "inicia sesión")
+		return
+	}
+	var req brainRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBrainBody)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "petición inválida")
+		return
+	}
+	if len(req.State) > maxBrainState {
+		writeError(w, http.StatusBadRequest, "estado demasiado grande")
+		return
+	}
+	image, err := decodeJPEG(req.Image)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx := r.Context()
+	spent, limit, err := spending(ctx, b.auth.db, u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "no se pudo consultar el consumo")
+		return
+	}
+	if spent >= limit {
+		writeError(w, http.StatusPaymentRequired, "se acabaron los tokens de hoy: vuelven mañana")
+		return
+	}
+
+	var t *brainTurn
+	var parts []any
+	if req.Turn == "" {
+		text := strings.TrimSpace(req.Text)
+		if text == "" || utf8.RuneCountInString(text) > maxBrainText {
+			writeError(w, http.StatusBadRequest, "el mensaje debe tener entre 1 y 600 caracteres")
+			return
+		}
+		if t, err = b.start(ctx, u, text); err != nil {
+			log.Printf("cerebro %s: %v", u.Username, err)
+			writeError(w, http.StatusInternalServerError, "no se pudo abrir la conversación")
+			return
+		}
+		parts = append(parts, map[string]any{"text": "[estado] " + string(req.State)}, map[string]any{"text": text})
+		if image != nil {
+			parts = append(parts, map[string]any{"text": "[lo que ves ahora]"}, inlineJPEG(image))
+		}
+	} else {
+		if t = b.get(req.Turn, u.ID); t == nil {
+			writeError(w, http.StatusGone, "el turno ya terminó")
+			return
+		}
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if len(req.Results) == 0 {
+			writeError(w, http.StatusBadRequest, "faltan los resultados")
+			return
+		}
+		for _, res := range req.Results {
+			fr := map[string]any{"name": res.Name, "response": json.RawMessage(res.Response)}
+			if res.ID != "" {
+				fr["id"] = res.ID
+			}
+			parts = append(parts, map[string]any{"functionResponse": fr})
+			t.actions = append(t.actions, summarizeAction(res.Name, res.Response))
+		}
+		if len(req.State) > 0 {
+			parts = append(parts, map[string]any{"text": "[estado] " + string(req.State)})
+		}
+		if image != nil {
+			parts = append(parts, map[string]any{"text": "[foto nueva]"}, inlineJPEG(image))
+		}
+	}
+	t.contents = append(t.contents, map[string]any{"role": "user", "parts": parts})
+
+	say, calls, spentNow, err := b.step(ctx, u, t)
+	if err != nil {
+		log.Printf("cerebro %s: %v", u.Username, err)
+		b.drop(t.id)
+		writeError(w, http.StatusBadGateway, "no pude pensar: "+err.Error())
+		return
+	}
+	done := len(calls) == 0
+	if !done && t.steps >= maxSteps {
+		done, calls = true, nil
+		say = strings.TrimSpace(say + " Me detengo aquí: eran demasiados pasos seguidos.")
+	}
+	if say != "" {
+		t.said = append(t.said, say)
+	}
+	if done {
+		b.finish(t)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"turn": t.id, "say": say, "calls": calls, "done": done, "spentTodayUsd": spentNow})
+}
+
+// start: turno nuevo (cancela el anterior del mismo usuario) con la conversación vigente y su historial
+func (b *brain) start(ctx context.Context, u *user, text string) (*brainTurn, error) {
+	db := b.auth.db
+	var conv int64
+	err := db.QueryRow(ctx, `
+		SELECT c.id FROM conversations c
+		WHERE c.user_id = $1 AND c.ended_at IS NULL
+		  AND COALESCE((SELECT max(created_at) FROM messages WHERE conversation_id = c.id), c.started_at) > now() - $2::interval
+		ORDER BY c.started_at DESC LIMIT 1`, u.ID, fmt.Sprintf("%d seconds", int(conversationGap.Seconds()))).Scan(&conv)
+	if err != nil {
+		if err := db.QueryRow(ctx, `INSERT INTO conversations (user_id) VALUES ($1) RETURNING id`, u.ID).Scan(&conv); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := db.Query(ctx, `
+		SELECT speaker, text FROM (
+		  SELECT id, speaker, text FROM messages WHERE conversation_id = $1 AND speaker IN ('user', 'nao')
+		  ORDER BY id DESC LIMIT $2) m ORDER BY id`, conv, historyMessages)
+	if err != nil {
+		return nil, err
+	}
+	var history []any
+	for rows.Next() {
+		var speaker, msg string
+		if err := rows.Scan(&speaker, &msg); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		role := "user"
+		if speaker == "nao" {
+			role = "model"
+		}
+		history = append(history, map[string]any{"role": role, "parts": []any{map[string]any{"text": msg}}})
+	}
+	rows.Close()
+	if _, err := db.Exec(ctx, `INSERT INTO messages (conversation_id, speaker, text) VALUES ($1, 'user', $2)`, conv, text); err != nil {
+		return nil, err
+	}
+
+	buf := make([]byte, 12)
+	_, _ = rand.Read(buf)
+	t := &brainTurn{
+		id: base64.RawURLEncoding.EncodeToString(buf), userID: u.ID, conversation: conv,
+		system: systemPrompt(u), history: history, updated: time.Now(),
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, old := range b.turns {
+		if old.userID == u.ID || time.Since(old.updated) > turnTTL {
+			delete(b.turns, id)
+		}
+	}
+	b.turns[t.id] = t
+	return t, nil
+}
+
+func (b *brain) get(id string, userID int64) *brainTurn {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	t := b.turns[id]
+	if t == nil || t.userID != userID || time.Since(t.updated) > turnTTL {
+		return nil
+	}
+	t.updated = time.Now()
+	return t
+}
+
+func (b *brain) drop(id string) {
+	b.mu.Lock()
+	delete(b.turns, id)
+	b.mu.Unlock()
+}
+
+// finish guarda lo que dijo el NAO (con un resumen de lo que hizo, para que lo recuerde en los próximos turnos)
+func (b *brain) finish(t *brainTurn) {
+	b.drop(t.id)
+	text := strings.Join(t.said, " ")
+	if len(t.actions) > 0 {
+		text = strings.TrimSpace(text + " [hice: " + strings.Join(t.actions, ", ") + "]")
+	}
+	if text == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := b.auth.db.Exec(ctx, `INSERT INTO messages (conversation_id, speaker, text) VALUES ($1, 'nao', $2)`, t.conversation, text); err != nil {
+		log.Printf("cerebro: no se pudo guardar la respuesta: %v", err)
+	}
+}
+
+type geminiPart struct {
+	Text         string     `json:"text"`
+	Thought      bool       `json:"thought"`
+	FunctionCall *brainCall `json:"functionCall"`
+}
+
+// step: una llamada a Gemini con todo el contexto; devuelve lo que dice el NAO y las habilidades que pide
+func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brainCall, float64, error) {
+	t.steps++
+	contents := append(append([]any{}, t.history...), t.contents...)
+	gen := map[string]any{"mediaResolution": "MEDIA_RESOLUTION_LOW", "temperature": 0.7}
+	if b.thinking != "" {
+		gen["thinkingConfig"] = map[string]any{"thinkingLevel": b.thinking}
+	}
+	payload := map[string]any{
+		"systemInstruction": map[string]any{"parts": []any{map[string]any{"text": t.system}}},
+		"contents":          contents,
+		"tools":             brainTools,
+		"generationConfig":  gen,
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	raw, err := geminiPost(callCtx, b.model+":generateContent", payload)
+	if err != nil {
+		return "", nil, 0, err
+	}
+	var parsed struct {
+		Candidates []struct {
+			Content      json.RawMessage `json:"content"`
+			FinishReason string          `json:"finishReason"`
+		} `json:"candidates"`
+		UsageMetadata struct {
+			PromptTokenCount        int `json:"promptTokenCount"`
+			CandidatesTokenCount    int `json:"candidatesTokenCount"`
+			ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
+			CachedContentTokenCount int `json:"cachedContentTokenCount"`
+		} `json:"usageMetadata"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return "", nil, 0, err
+	}
+	um := parsed.UsageMetadata
+	price, ok := brainPrices[b.model]
+	if !ok {
+		price = brainPrices["gemini-3.8-flash"]
+	}
+	out := um.CandidatesTokenCount + um.ThoughtsTokenCount
+	cost := (float64(um.PromptTokenCount-um.CachedContentTokenCount)+0.1*float64(um.CachedContentTokenCount))*price[0]/1e6 +
+		float64(out)*price[1]/1e6
+	chargeCtx, cancelCharge := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCharge()
+	spent, err := charge(chargeCtx, b.auth.db, u.ID, usage{
+		Feature: "conversacion", Model: b.model, InputTokens: um.PromptTokenCount, OutputTokens: out, CostUSD: cost,
+	})
+	if err != nil {
+		log.Printf("cerebro %s: no se pudo registrar el consumo: %v", u.Username, err)
+	}
+	log.Printf("cerebro %s: paso %d · %d tokens de entrada (%d en caché), %d de salida · US$%.6f",
+		u.Username, t.steps, um.PromptTokenCount, um.CachedContentTokenCount, out, cost)
+
+	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content) == 0 {
+		return "", nil, spent, errors.New("Gemini no respondió nada")
+	}
+	content := parsed.Candidates[0].Content
+	var c struct {
+		Parts []geminiPart `json:"parts"`
+	}
+	if err := json.Unmarshal(content, &c); err != nil {
+		return "", nil, spent, err
+	}
+	// El contenido del modelo vuelve tal cual (con thoughtSignature) en la siguiente llamada del turno
+	t.contents = append(t.contents, content)
+	var say strings.Builder
+	var calls []brainCall
+	for i, p := range c.Parts {
+		switch {
+		case p.FunctionCall != nil:
+			call := *p.FunctionCall
+			if call.ID == "" {
+				call.ID = "c" + strconv.Itoa(t.steps) + "_" + strconv.Itoa(i)
+			}
+			if len(call.Args) == 0 {
+				call.Args = json.RawMessage(`{}`)
+			}
+			calls = append(calls, call)
+		case p.Text != "" && !p.Thought:
+			say.WriteString(p.Text)
+		}
+	}
+	return strings.TrimSpace(say.String()), calls, spent, nil
+}
+
+func decodeJPEG(dataURL string) ([]byte, error) {
+	if dataURL == "" {
+		return nil, nil
+	}
+	b64, ok := strings.CutPrefix(dataURL, "data:image/jpeg;base64,")
+	if !ok {
+		return nil, errors.New("la foto debe ser JPEG")
+	}
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil || len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+		return nil, errors.New("foto inválida")
+	}
+	if len(data) > maxBrainImage {
+		return nil, errors.New("foto demasiado grande")
+	}
+	return data, nil
+}
+
+func inlineJPEG(data []byte) map[string]any {
+	return map[string]any{"inline_data": map[string]string{"mime_type": "image/jpeg", "data": base64.StdEncoding.EncodeToString(data)}}
+}
+
+// summarizeAction: "push ✓" o "approach ✗" según el campo ok del resultado
+func summarizeAction(name string, response json.RawMessage) string {
+	var r struct {
+		OK *bool `json:"ok"`
+	}
+	_ = json.Unmarshal(response, &r)
+	switch {
+	case r.OK == nil:
+		return name
+	case *r.OK:
+		return name + " ✓"
+	default:
+		return name + " ✗"
+	}
+}

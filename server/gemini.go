@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -56,6 +57,7 @@ func geminiPost(ctx context.Context, method string, payload any) ([]byte, error)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := geminiHTTP.Do(req)
 	if err != nil {
+		log.Printf("gemini %s: %v", method, err)
 		return nil, errors.New("no se pudo conectar con Gemini")
 	}
 	defer res.Body.Close()
