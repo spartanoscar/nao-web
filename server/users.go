@@ -35,7 +35,11 @@ func userCommand(ctx context.Context, db *pgxpool.Pool, args []string) {
 		}
 		_ = fs.Parse(args[3:])
 		username := strings.ToLower(strings.TrimSpace(args[1]))
-		password := newPassword()
+		// NAO_PASSWORD: contraseña elegida (por entorno, para que no quede en el historial); si no, una al azar
+		password := os.Getenv("NAO_PASSWORD")
+		if password == "" {
+			password = newPassword()
+		}
 		hash := mustHash(password)
 		var robotName *string
 		if *robot != "" {

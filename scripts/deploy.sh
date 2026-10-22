@@ -161,7 +161,8 @@ cmd_user() {
   _require
   local args="" a
   for a in "$@"; do args+=" $(printf '%q' "$a")"; done
-  _remote "cd $API_DIR && ./$API_NAME user$args" || die "nao-api user falló"
+  # NAO_PASSWORD (opcional) viaja por stdin, no en la línea de comandos del servidor
+  printf '%s' "${NAO_PASSWORD:-}" | _remote "cd $API_DIR && NAO_PASSWORD=\"\$(cat)\" ./$API_NAME user$args" || die "nao-api user falló"
 }
 
 cmd_status() {
