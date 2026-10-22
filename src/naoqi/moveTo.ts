@@ -46,8 +46,36 @@ export function robotPose(state: RobotState): Pose2D | null {
 }
 
 interface GaitControl {
+  readonly active: boolean;
   setVelocity(v: Velocity): void;
   stop(): Promise<void>;
+}
+
+/** Piernas quietas: ningún joint se mueve más rápido que esto (rad/s) */
+const SETTLED_SPEED = 0.03;
+const SETTLE_TIMEOUT = 2.5;
+const LEG_JOINTS = ['HipYawPitch', 'HipRoll', 'HipPitch', 'KneePitch', 'AnklePitch', 'AnkleRoll'].flatMap((j) => [`L${j}`, `R${j}`]);
+
+/**
+ * Espera a que las piernas estén quietas (el robot bien apoyado) antes de dar el primer paso. Medido: justo al
+ * terminar goToPosture("StandInit") desde Stand las caderas aún se acomodan (HipRoll 0.03 rad) y girar en ese momento
+ * lo tumba; ~1 s después gira bien. Se mide la velocidad y no el error contra el comando: el peso deja un desfase
+ * fijo (HipYawPitch ~0.02 rad) que es normal. Devuelve false si se cancela o no se aquieta a tiempo.
+ */
+export async function waitSettled(engine: MotionEngine, state: RobotState, cancelled: () => boolean): Promise<boolean> {
+  const until = engine.time + SETTLE_TIMEOUT;
+  let previous = LEG_JOINTS.map((j) => state.get(j));
+  let since = engine.time;
+  while (engine.time < until) {
+    await new Promise<void>((r) => engine.schedule(engine.time + TICK, r));
+    if (cancelled()) return false;
+    const now = LEG_JOINTS.map((j) => state.get(j));
+    const dt = Math.max(engine.time - since, 1e-3);
+    if (now.every((v, i) => Math.abs(v - previous[i]) / dt < SETTLED_SPEED)) return true;
+    previous = now;
+    since = engine.time;
+  }
+  return false;
 }
 
 /**
@@ -63,6 +91,7 @@ export async function moveToPose(
   theta: number,
   cancelled: () => boolean,
 ): Promise<boolean> {
+  if (!gait.active && !(await waitSettled(engine, state, cancelled))) return false;
   const start = robotPose(state);
   if (!start) return false;
   const [c, s] = [Math.cos(start.theta), Math.sin(start.theta)];
