@@ -3,6 +3,7 @@
 //   - Login solo para usuarios registrados: contraseña bcrypt y sesión en cookie HttpOnly (auth.go).
 //   - Sala del teléfono por QR: relay WebSocket entre el escritorio y el móvil (relay.go, patrón de hv).
 //   - Base de datos PostgreSQL (schema.sql): usuarios, sesiones, control de costos, conversaciones, rostros…
+//   - Biblioteca: archivos del jugador → texto → embeddings (library.go, extract.go, gemini.go).
 //
 // Subcomandos:
 //
@@ -54,6 +55,7 @@ func main() {
 	}
 	auth := newAuth(db)
 	relay := newRelay(auth)
+	startLibraryWorker(db)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) })
@@ -62,6 +64,11 @@ func main() {
 	mux.HandleFunc("GET /api/me", auth.handleMe)
 	mux.HandleFunc("PATCH /api/me", auth.handlePatchMe)
 	mux.HandleFunc("GET /api/avatar", auth.handleAvatar)
+	mux.HandleFunc("GET /api/documents", auth.handleListDocuments)
+	mux.HandleFunc("POST /api/documents", auth.handleUploadDocument)
+	mux.HandleFunc("GET /api/documents/{id}/file", auth.handleDocumentFile)
+	mux.HandleFunc("GET /api/documents/{id}/thumb", auth.handleDocumentThumb)
+	mux.HandleFunc("DELETE /api/documents/{id}", auth.handleDeleteDocument)
 	mux.HandleFunc("POST /api/rooms", relay.handleCreateRoom)
 	mux.HandleFunc("GET /api/ws", relay.handleWS)
 

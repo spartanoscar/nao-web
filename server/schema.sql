@@ -126,6 +126,22 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Biblioteca del jugador (modal de ajustes → Biblioteca): el archivo original (≤ 4 MB, las imágenes ya reducidas en el
+-- navegador) vive aquí mismo para que lo cubra el respaldo de la BD. Estados: pending → processing → ready | error.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'text';  -- image | pdf | excel | word | text
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT '';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS size_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS content BYTEA;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS thumb BYTEA;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS extracted_text TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS error TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12, 6) NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS documents_owner ON documents (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS documents_queue ON documents (updated_at) WHERE status IN ('pending', 'processing');
+
 CREATE TABLE IF NOT EXISTS document_chunks (
   id          BIGSERIAL PRIMARY KEY,
   document_id BIGINT NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
