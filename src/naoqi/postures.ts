@@ -24,7 +24,18 @@ const FAMILY: Record<PostureName, string> = {
   LyingBack: 'LyingBack',
 };
 
-export const POSTURE_FAMILIES = [...new Set(Object.values(FAMILY))];
+/** Acostado de lado: familias de la doc sin postura predefinida (solo se sale de ellas rodando) */
+export type SideFamily = 'LyingLeft' | 'LyingRight';
+export type LyingFamily = 'LyingBelly' | 'LyingBack' | SideFamily;
+
+export const POSTURE_FAMILIES = [...new Set(Object.values(FAMILY)), 'LyingLeft', 'LyingRight'];
+
+/** Por debajo de este error (rad) se considera que el robot está en la postura. APPROX. */
+export const IN_POSTURE = 0.1;
+/** Por debajo de este error se considera de la misma familia. APPROX. */
+export const IN_FAMILY = 0.5;
+/** Más inclinado que esto respecto a la vertical, el torso está acostado. APPROX. */
+const LYING_TILT = (60 * Math.PI) / 180;
 
 // APPROX: en el robot real la orientación del torso sale de la gravedad. De pie y agachado manda el
 // pie plano en el suelo; sentado y acostado, el cuerpo reposa donde su centro de masa es más bajo
@@ -83,13 +94,16 @@ export function moveToPosture(engine: MotionEngine, name: PostureName, speed: nu
  */
 export function nearestPosture(state: RobotState): { name: PostureName; error: number } {
   let best: { name: PostureName; error: number } = { name: 'Crouch', error: Infinity };
-  const pitch = torsoPitch(state);
+  const g = gravityInTorso(state);
   for (const name of POSTURE_NAMES) {
     // Con física la inclinación real no es la sugerida: de pie el torso se inclina lo justo para
     // que los pies queden planos, y sentado se reclina. Solo distingue de pie / sentado / acostado.
-    const pitchError = Math.abs(pitch - SUPPORT[name].pitch);
-    const tolerance = state.root ? (familyOf(name) === 'Sitting' ? 0.8 : 0.4) : 0;
-    let error = Math.max(0, pitchError - tolerance);
+    // Error = ángulo entre la gravedad medida y la esperada (inclinación hacia delante, sin alabeo):
+    // de lado no se parece a ninguna postura aunque las articulaciones coincidan.
+    const p = SUPPORT[name].pitch;
+    const tilt = g ? Math.acos(Math.min(1, Math.max(-1, g[0] * Math.sin(p) - g[2] * Math.cos(p)))) : Math.abs(state.body.pitch - p);
+    const tolerance = g ? (familyOf(name) === 'Sitting' ? 0.8 : 0.4) : 0;
+    let error = Math.max(0, tilt - tolerance);
     for (const { name: joint } of JOINTS) {
       if (joint.endsWith('Hand')) continue;
       error = Math.max(error, Math.abs(state.get(joint) - POSTURES[name][joint]));
@@ -103,15 +117,35 @@ export function familyOf(name: PostureName): string {
   return FAMILY[name];
 }
 
-/** Inclinación del torso (rad, + hacia delante): de la física (IMU) o del apoyo cinemático */
-function torsoPitch(state: RobotState): number {
+/**
+ * Gravedad en el marco del torso, como la mide la IMU (vector unitario; X adelante, Y izquierda, Z arriba):
+ * no depende de hacia dónde mire el robot. null sin física.
+ */
+function gravityInTorso(state: RobotState): [number, number, number] | null {
   const root = state.root;
-  if (!root) return state.body.pitch;
+  if (!root) return null;
   const [w, x, y, z] = root.quaternion;
-  // Eje Z del torso en el mundo: R·(0,0,1)
-  const zx = 2 * (x * z + w * y);
-  const zz = 1 - 2 * (x * x + y * y);
-  return Math.atan2(zx, zz);
+  // Rᵀ·(0,0,−1) = −(tercera fila de R)
+  return [2 * (w * y - x * z), -2 * (y * z + w * x), -(1 - 2 * (x * x + y * y))];
+}
+
+/**
+ * Acostado según la IMU (torso a más de 60° de la vertical): la cara del torso que mira al suelo da la
+ * familia de la doc. LyingLeft = apoyado en su costado izquierdo ("facing to its right side").
+ */
+export function lyingFamily(state: RobotState): LyingFamily | null {
+  const g = gravityInTorso(state);
+  if (!g || -g[2] > Math.cos(LYING_TILT)) return null;
+  if (Math.abs(g[0]) >= Math.abs(g[1])) return g[0] > 0 ? 'LyingBelly' : 'LyingBack';
+  return g[1] > 0 ? 'LyingLeft' : 'LyingRight';
+}
+
+/** Familia actual: acostado por la IMU; si no, la de la postura más cercana, o "Unknown" */
+export function postureFamily(state: RobotState): string {
+  const lying = lyingFamily(state);
+  if (lying) return lying;
+  const { name, error } = nearestPosture(state);
+  return error < IN_FAMILY ? familyOf(name) : 'Unknown';
 }
 
 // ─── Camino entre posturas (con física) ─────────────────────────────────────────
@@ -120,11 +154,19 @@ function torsoPitch(state: RobotState): number {
 // validados uno a uno en la simulación física (el robot llega sin caerse); se recorre el camino
 // más corto. Si no hay camino, goToPosture devuelve false (como NAOqi cuando no logra la postura).
 
-export type RouteStep = { posture: PostureName; part: BodyPart } | { animation: string };
+export type RouteStep =
+  | { posture: PostureName; part: BodyPart }
+  | { animation: string }
+  /** Motion net de NaoTH; `frames`: solo los primeros keyframes */
+  | { net: string; frames?: number }
+  /** Pausa (s) para que el cuerpo se asiente antes del siguiente tramo */
+  | { wait: number };
+/** Nodos del grafo: las posturas predefinidas y los costados (de los que solo se sale rodando) */
+export type RouteNode = PostureName | SideFamily;
 
 const all = (posture: PostureName): RouteStep => ({ posture, part: 'all' });
 
-const EDGES: [PostureName, PostureName, RouteStep[]][] = [
+const EDGES: [RouteNode, RouteNode, RouteStep[]][] = [
   ['Stand', 'StandInit', [all('StandInit')]],
   ['StandInit', 'Stand', [all('Stand')]],
   ['StandInit', 'StandZero', [all('StandZero')]],
@@ -140,13 +182,17 @@ const EDGES: [PostureName, PostureName, RouteStep[]][] = [
   ['SitRelax', 'LyingBack', [all('LyingBack')]],
   // Levantarse boca abajo: animación de Webots (reference/motions, diseñada para física)
   ['LyingBelly', 'StandInit', [{ animation: 'StandUpFromFront' }, all('StandInit')]],
+  // De lado: la vuelta de la rutina de NaoTH (reference/naoth, sus 3 primeros keyframes) lo deja boca abajo
+  // desde cualquiera de los dos costados; tras 1 s quieto sigue el levantamiento boca abajo, que ya funciona
+  ['LyingLeft', 'LyingBelly', [{ net: 'stand_up_from_side', frames: 3 }, { wait: 1 }]],
+  ['LyingRight', 'LyingBelly', [{ net: 'stand_up_from_side', frames: 3 }, { wait: 1 }]],
 ];
 
 /** Camino más corto (BFS) como lista de pasos, o null si no hay tramos validados que lleguen */
-export function planRoute(from: PostureName, to: PostureName): RouteStep[] | null {
+export function planRoute(from: RouteNode, to: PostureName): RouteStep[] | null {
   if (from === to) return [all(to)];
-  const prev = new Map<PostureName, [PostureName, RouteStep[]]>();
-  const queue: PostureName[] = [from];
+  const prev = new Map<RouteNode, [RouteNode, RouteStep[]]>();
+  const queue: RouteNode[] = [from];
   while (queue.length) {
     const node = queue.shift()!;
     for (const [a, b, steps] of EDGES) {
@@ -154,7 +200,7 @@ export function planRoute(from: PostureName, to: PostureName): RouteStep[] | nul
       prev.set(b, [a, steps]);
       if (b === to) {
         const route: RouteStep[] = [];
-        for (let n: PostureName = to; n !== from; n = prev.get(n)![0]) route.unshift(...prev.get(n)![1]);
+        for (let n: RouteNode = to; n !== from; n = prev.get(n)![0]) route.unshift(...prev.get(n)![1]);
         return route;
       }
       queue.push(b);
@@ -165,11 +211,8 @@ export function planRoute(from: PostureName, to: PostureName): RouteStep[] | nul
 
 /**
  * Postura de partida según el sensor inercial: acostado se decide por la orientación del torso
- * (boca arriba / boca abajo) aunque los brazos y piernas estén en cualquier posición.
+ * (boca arriba, boca abajo o de lado) aunque los brazos y piernas estén en cualquier posición.
  */
-export function startingPosture(state: RobotState): PostureName {
-  const pitch = torsoPitch(state);
-  if (state.root && pitch < -1) return 'LyingBack';
-  if (state.root && pitch > 1) return 'LyingBelly';
-  return nearestPosture(state).name;
+export function startingPosture(state: RobotState): RouteNode {
+  return lyingFamily(state) ?? nearestPosture(state).name;
 }

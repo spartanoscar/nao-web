@@ -9,7 +9,7 @@ import { ACTUATOR_COUNT, CHAINS, COUPLED, JOINTS } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
 import { type ALValue, NaoqiError, perJoint, resolveCoupled, toNames, trajectories } from './args';
 import type { MotionEngine } from './engine';
-import { familyOf, moveToPosture, nearestPosture } from './postures';
+import { moveToPosture, nearestPosture, postureFamily } from './postures';
 import { Gait, WALK_POSE } from './walk';
 
 const SERVICE = 'ALMotion';
@@ -36,8 +36,7 @@ export class ALMotion {
   async wakeUp(): Promise<boolean> {
     if (this.robotIsWakeUp()) return true;
     await this.engine.interpolateStiffness(this.stiffnessTargets(1, 0.5)).done;
-    const posture = nearestPosture(this.state);
-    if (familyOf(posture.name) !== 'Standing' || posture.error > 0.1) {
+    if (postureFamily(this.state) !== 'Standing' || nearestPosture(this.state).error > 0.1) {
       if (this.goToPosture) await this.goToPosture('StandInit', 0.5);
       else await moveToPosture(this.engine, 'StandInit', 0.5).done;
     }
@@ -47,7 +46,7 @@ export class ALMotion {
   /** "The robot rests: goes to a relaxed and safe position and sets Motor off." H25 → Crouch. */
   async rest(): Promise<void> {
     // De pie va a Crouch; sentado o acostado ya está en una posición segura
-    if (this.robotIsWakeUp() && familyOf(nearestPosture(this.state).name) === 'Standing') {
+    if (this.robotIsWakeUp() && postureFamily(this.state) === 'Standing') {
       if (this.goToPosture) await this.goToPosture('Crouch', 0.5);
       else await moveToPosture(this.engine, 'Crouch', 0.5).done;
     }
@@ -169,7 +168,7 @@ export class ALMotion {
       console.warn(`ALMotion::${method}: el robot no está despierto (motion.wakeUp())`);
       return false;
     }
-    if (familyOf(nearestPosture(this.state).name) !== 'Standing') {
+    if (postureFamily(this.state) !== 'Standing') {
       console.warn(`ALMotion::${method}: el robot no está de pie`);
       return false;
     }
