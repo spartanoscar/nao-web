@@ -37,13 +37,16 @@ const (
 	maxBrainText    = 600
 	maxBrainImage   = 400 << 10
 	maxBrainState   = 4 << 10
-	maxSteps        = 12 // llamadas a Gemini por turno: tope para que un error no gaste en bucle
+	maxSteps        = 30 // llamadas a Gemini por turno: tope para que un error no gaste en bucle (tareas de brazos piden muchas)
 	turnTTL         = 3 * time.Minute
 	// Una conversación sigue si su último mensaje tiene menos de esto; si no, empieza otra
 	conversationGap = 2 * time.Hour
 )
 
-// Modelo (medido 2026-10-22 con "ve a la caja gris, empújala un metro, vuelve y siéntate", que está detrás del robot):
+// Dos modelos: cada turno empieza con el de conversación (barato); si pide alguna habilidad, ese paso se repite con el
+// de tareas y el turno sigue con él (razonamiento medio: planear con las manos y revisar fotos lo necesita).
+//
+// Modelo de tareas (medido 2026-10-22 con "ve a la caja gris, empújala un metro, vuelve y siéntate", que está detrás:
 // gemini-3.8-flash con razonamiento bajo hizo scan → girar 180° → scan → approach → push → volver → sentarse, bien, en
 // 5 llamadas y US$0.019, ~3 s por respuesta. Los rápidos (~1.5 s) fallan en la percepción: 3.5-flash-lite se rindió
 // sin buscar y 3-flash-preview fue a una caja de cartón diciendo que era "grisácea". 3.8-flash no acepta "minimal".
@@ -68,23 +71,28 @@ type brainTurn struct {
 	said         []string
 	actions      []string
 	steps        int
-	updated      time.Time
+	// task: el turno pasó al modelo de tareas (pidió una habilidad); desde ahí sigue con él
+	task    bool
+	updated time.Time
 }
 
+// brainModel: modelo y nivel de razonamiento de Gemini 3 ("minimal", "low", "medium", "high")
+type brainModel struct{ name, thinking string }
+
 type brain struct {
-	auth     *auth
-	model    string
-	thinking string
-	mu       sync.Mutex
-	turns    map[string]*brainTurn
+	auth  *auth
+	chat  brainModel // conversación (barato y rápido)
+	task  brainModel // tareas: moverse, mirar, usar las manos
+	mu    sync.Mutex
+	turns map[string]*brainTurn
 }
 
 func newBrain(a *auth) *brain {
 	return &brain{
-		auth:     a,
-		model:    envOr("NAO_BRAIN_MODEL", "gemini-3.8-flash"),
-		thinking: envOr("NAO_BRAIN_THINKING", "low"),
-		turns:    map[string]*brainTurn{},
+		auth:  a,
+		chat:  brainModel{envOr("NAO_BRAIN_CHAT_MODEL", "gemini-3.5-flash-lite"), envOr("NAO_BRAIN_CHAT_THINKING", "minimal")},
+		task:  brainModel{envOr("NAO_BRAIN_MODEL", "gemini-3.8-flash"), envOr("NAO_BRAIN_THINKING", "medium")},
+		turns: map[string]*brainTurn{},
 	}
 }
 
@@ -184,6 +192,13 @@ func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
 	t.contents = append(t.contents, map[string]any{"role": "user", "parts": parts})
 
 	say, calls, spentNow, err := b.step(ctx, u, t)
+	if err == nil && !t.task && len(calls) > 0 {
+		// El modelo de conversación pidió hacer_tarea: se descarta y el mismo paso lo decide el de tareas, con todas
+		// las habilidades (el barato percibe peor: en la prueba de la caja gris se rindió o fue a otra caja)
+		t.contents = t.contents[:len(t.contents)-1]
+		t.task = true
+		say, calls, spentNow, err = b.step(ctx, u, t)
+	}
 	if err != nil {
 		log.Printf("cerebro %s: %v", u.Username, err)
 		b.drop(t.id)
@@ -303,20 +318,28 @@ type geminiPart struct {
 // step: una llamada a Gemini con todo el contexto; devuelve lo que dice el NAO y las habilidades que pide
 func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brainCall, float64, error) {
 	t.steps++
-	contents := append(append([]any{}, t.history...), t.contents...)
+	m := b.chat
+	if t.task {
+		m = b.task
+	}
+	contents := append(append([]any{}, t.history...), latestImageOnly(t.contents)...)
 	gen := map[string]any{"mediaResolution": "MEDIA_RESOLUTION_LOW", "temperature": 0.7}
-	if b.thinking != "" {
-		gen["thinkingConfig"] = map[string]any{"thinkingLevel": b.thinking}
+	if m.thinking != "" {
+		gen["thinkingConfig"] = map[string]any{"thinkingLevel": m.thinking}
+	}
+	system, tools := t.system, brainTools
+	if !t.task {
+		system, tools = t.system+chatRule, chatTools
 	}
 	payload := map[string]any{
-		"systemInstruction": map[string]any{"parts": []any{map[string]any{"text": t.system}}},
+		"systemInstruction": map[string]any{"parts": []any{map[string]any{"text": system}}},
 		"contents":          contents,
-		"tools":             brainTools,
+		"tools":             tools,
 		"generationConfig":  gen,
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	raw, err := geminiPost(callCtx, b.model+":generateContent", payload)
+	raw, err := geminiPost(callCtx, m.name+":generateContent", payload)
 	if err != nil {
 		return "", nil, 0, err
 	}
@@ -336,7 +359,7 @@ func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brai
 		return "", nil, 0, err
 	}
 	um := parsed.UsageMetadata
-	price, ok := brainPrices[b.model]
+	price, ok := brainPrices[m.name]
 	if !ok {
 		price = brainPrices["gemini-3.8-flash"]
 	}
@@ -346,13 +369,13 @@ func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brai
 	chargeCtx, cancelCharge := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelCharge()
 	spent, err := charge(chargeCtx, b.auth.db, u.ID, usage{
-		Feature: "conversacion", Model: b.model, InputTokens: um.PromptTokenCount, OutputTokens: out, CostUSD: cost,
+		Feature: "conversacion", Model: m.name, InputTokens: um.PromptTokenCount, OutputTokens: out, CostUSD: cost,
 	})
 	if err != nil {
 		log.Printf("cerebro %s: no se pudo registrar el consumo: %v", u.Username, err)
 	}
-	log.Printf("cerebro %s: paso %d · %d tokens de entrada (%d en caché), %d de salida · US$%.6f",
-		u.Username, t.steps, um.PromptTokenCount, um.CachedContentTokenCount, out, cost)
+	log.Printf("cerebro %s: paso %d %s · %d tokens de entrada (%d en caché), %d de salida · US$%.6f",
+		u.Username, t.steps, m.name, um.PromptTokenCount, um.CachedContentTokenCount, out, cost)
 
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content) == 0 {
 		return "", nil, spent, errors.New("Gemini no respondió nada")
@@ -384,6 +407,40 @@ func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brai
 		}
 	}
 	return strings.TrimSpace(say.String()), calls, spent, nil
+}
+
+// latestImageOnly: copia del turno con solo la última foto; las anteriores se cambian por una nota. Cada paso reenvía
+// todo el turno y las fotos viejas eran casi toda la entrada (tumbar la caja: 30 pasos, 13 000 tokens el último).
+func latestImageOnly(contents []any) []any {
+	last := -1
+	for i, c := range contents {
+		if m, ok := c.(map[string]any); ok {
+			for _, p := range m["parts"].([]any) {
+				if pm, ok := p.(map[string]any); ok && pm["inline_data"] != nil {
+					last = i
+				}
+			}
+		}
+	}
+	out := make([]any, len(contents))
+	for i, c := range contents {
+		m, ok := c.(map[string]any)
+		if !ok || i == last {
+			out[i] = c
+			continue
+		}
+		parts := m["parts"].([]any)
+		pruned := make([]any, len(parts))
+		for k, p := range parts {
+			if pm, ok := p.(map[string]any); ok && pm["inline_data"] != nil {
+				pruned[k] = map[string]any{"text": "(foto anterior, ya no se envía)"}
+			} else {
+				pruned[k] = p
+			}
+		}
+		out[i] = map[string]any{"role": m["role"], "parts": pruned}
+	}
+	return out
 }
 
 func decodeJPEG(dataURL string) ([]byte, error) {
