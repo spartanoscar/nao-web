@@ -22,9 +22,9 @@ import { attachKeyboard } from './ui/keyboard';
 import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
+import { attachSettings } from './ui/settings';
 import { attachPhoneLink } from './ui/phoneLink';
 import { createTranscript } from './ui/transcript';
-import { logout } from './net/api';
 import { attachSoundControl } from './ui/soundControl';
 import { createVoicePanel } from './ui/voicePanel';
 import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
@@ -215,8 +215,13 @@ showMeshCredit((show) => {
   nao.showPrimitives(show);
   world.invalidate(true);
 });
-const hud = createHud(user, session.service('ALAudioDevice'), {
-  onLogout: () => void logout().finally(() => location.reload()),
+const hud = createHud(user, session.service('ALAudioDevice'));
+// Ajustes: lo que se guarda se ve al instante en el HUD y en los subtítulos (leen `user` en cada uso)
+attachSettings(hud.settingsButton, user, {
+  onChange: (u) => {
+    Object.assign(user, u);
+    hud.setUser(u);
+  },
 });
 const transcript = createTranscript();
 // Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla

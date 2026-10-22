@@ -7,6 +7,18 @@ export interface User {
   robotName: string;
   dailyLimitUsd: number;
   spentTodayUsd: number;
+  /** Instrucciones propias para su NAO (se suman al prompt base cuando llegue la IA) */
+  prompt: string;
+  /** URL de la foto de perfil, o "" si no tiene */
+  avatarUrl: string;
+}
+
+/** Cambios del modal de ajustes: solo los campos que cambiaron. avatar: data URL JPEG o "" para quitarla */
+export interface UserPatch {
+  displayName?: string;
+  robotName?: string;
+  prompt?: string;
+  avatar?: string;
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -39,6 +51,7 @@ export async function me(): Promise<User | null> {
 
 export const login = (username: string, password: string) => call<User>('POST', '/api/auth/login', { username, password });
 export const logout = () => call<{ ok: boolean }>('POST', '/api/auth/logout');
+export const updateMe = (patch: UserPatch) => call<User>('PATCH', '/api/me', patch);
 /** Sala nueva para el teléfono (cierra la anterior del mismo usuario) */
 export const createRoom = () => call<{ room: string }>('POST', '/api/rooms');
 
