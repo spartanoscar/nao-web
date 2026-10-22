@@ -6,6 +6,7 @@
 import './control.css';
 import { ICONS } from '../ui/icons';
 import { wsUrl } from '../net/api';
+import { type VoiceSender, startVoice } from './voice';
 
 const TILT_HZ = 30;
 const RANGE = { x: 30, y: 25 }; // grados de inclinación para llegar a ±1
@@ -38,14 +39,20 @@ root.innerHTML = `
     <div class="c-pad" aria-hidden="true"><i></i></div>
   </section>
   <section class="c-card">
-    <div class="c-title">Voz y video</div>
-    <p class="c-hint">Para hablarle al NAO y mostrarle cosas (muy pronto).</p>
+    <div class="c-title"><span>Voz y video</span>
+      <div class="c-tools">
+        <button type="button" class="c-icon c-mic" aria-pressed="true" hidden>${ICONS.mic}</button>
+        <button type="button" class="c-icon c-flip" title="Cambiar a la cámara de selfies" aria-label="Cambiar de cámara" hidden>${ICONS.flip}</button>
+      </div>
+    </div>
+    <p class="c-hint">Habla y verás tus palabras en la pantalla del computador. Pronto el NAO te responderá.</p>
     <div class="c-row">
       <button type="button" class="c-btn c-media">${ICONS.mic}<span>Activar micrófono y cámara</span></button>
     </div>
     <div class="c-media-box" hidden>
       <video playsinline muted autoplay></video>
       <div class="c-level"><span></span></div>
+      <p class="c-caption">Escuchando…</p>
     </div>
   </section>`;
 
@@ -57,6 +64,9 @@ const motionBtn = $<HTMLButtonElement>('.c-motion');
 const centerBtn = $<HTMLButtonElement>('.c-center');
 const pad = $('.c-pad i');
 const mediaBtn = $<HTMLButtonElement>('.c-media');
+const flipBtn = $<HTMLButtonElement>('.c-flip');
+const micBtn = $<HTMLButtonElement>('.c-mic');
+const caption = $('.c-caption');
 
 const setStatus = (state: 'connecting' | 'online' | 'offline', text: string) => {
   status.dataset.state = state;
@@ -89,6 +99,12 @@ function connect() {
       setStatus('online', 'Conectado');
     } else if (m.t === 'peers') {
       if (m.screen) setStatus('online', 'Conectado');
+    } else if (m.t === 'caption') {
+      caption.textContent = m.text;
+      caption.classList.toggle('c-final', Boolean(m.final));
+    } else if (m.t === 'caption-error') {
+      caption.textContent = m.error;
+      caption.classList.add('c-error');
     } else if (m.t === 'gone' || m.t === 'replaced') {
       stopped = true;
       setStatus('offline', m.t === 'gone' ? 'El computador se desconectó' : 'Otro teléfono tomó el control');
@@ -199,30 +215,72 @@ centerBtn.addEventListener('click', () => {
 paintMotion();
 
 // ─── Micrófono y cámara (solo permisos y vista previa por ahora) ─────────────
+let stream: MediaStream | null = null;
+let facing: 'environment' | 'user' = 'environment';
+const preview = $<HTMLVideoElement>('.c-media-box video');
+
+const showPreview = () => {
+  preview.srcObject = null;
+  preview.srcObject = stream;
+  preview.classList.toggle('c-mirror', facing === 'user'); // la de selfies se ve como un espejo
+  flipBtn.title = facing === 'user' ? 'Cambiar a la cámara de atrás' : 'Cambiar a la cámara de selfies';
+};
+
+// Cambiar de cámara: se suelta la actual antes de pedir la otra (varios teléfonos no abren dos a la vez)
+flipBtn.addEventListener('click', async () => {
+  if (!stream) return;
+  const next = facing === 'user' ? 'environment' : 'user';
+  for (const t of stream.getVideoTracks()) {
+    t.stop();
+    stream.removeTrack(t);
+  }
+  try {
+    const video = await navigator.mediaDevices.getUserMedia({ video: { facingMode: next } });
+    facing = next;
+    for (const t of video.getVideoTracks()) stream.addTrack(t);
+  } catch (e) {
+    console.warn('No se pudo cambiar de cámara:', e);
+    const back = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } }).catch(() => null);
+    for (const t of back?.getVideoTracks() ?? []) stream.addTrack(t);
+  }
+  showPreview();
+});
+
+let voice: VoiceSender | null = null;
+let listening = true;
+const paintMic = () => {
+  micBtn.setAttribute('aria-pressed', String(listening));
+  micBtn.title = listening ? 'Pausar el micrófono' : 'Activar el micrófono';
+  micBtn.setAttribute('aria-label', micBtn.title);
+  if (!listening) caption.textContent = 'Micrófono en pausa';
+};
+micBtn.addEventListener('click', () => {
+  listening = !listening;
+  voice?.setEnabled(listening);
+  caption.classList.remove('c-error');
+  if (listening) caption.textContent = 'Escuchando…';
+  paintMic();
+});
+
 mediaBtn.addEventListener('click', async () => {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: 'environment' } });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: facing } });
     const box = $('.c-media-box');
     box.hidden = false;
-    $<HTMLVideoElement>('.c-media-box video').srcObject = stream;
+    showPreview();
+    flipBtn.hidden = false;
     mediaBtn.disabled = true;
     mediaBtn.querySelector('span')!.textContent = 'Micrófono y cámara listos';
     send({ t: 'media', mic: true, cam: true });
-    // Nivel del micrófono, para ver que escucha
-    const ctx = new AudioContext();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    ctx.createMediaStreamSource(stream).connect(analyser);
-    const data = new Uint8Array(analyser.fftSize);
+    // Voz → transcripción en el servidor: solo se manda lo que se habla
+    voice = await startVoice(stream, (data) => ws?.readyState === WebSocket.OPEN && ws.send(data));
     const level = $('.c-level span');
-    const tick = () => {
-      analyser.getByteTimeDomainData(data);
-      let peak = 0;
-      for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
-      level.style.width = `${Math.min(100, (peak / 128) * 160)}%`;
-      requestAnimationFrame(tick);
+    voice.onLevel = (v, speaking) => {
+      level.style.width = `${Math.round(v * 100)}%`;
+      level.classList.toggle('c-speaking', speaking);
     };
-    tick();
+    micBtn.hidden = false;
+    paintMic();
   } catch (e) {
     mediaBtn.querySelector('span')!.textContent = 'Sin permiso (actívalo en el navegador)';
     console.warn(e);

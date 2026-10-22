@@ -55,3 +55,8 @@ body { background: radial-gradient(600px 400px at 50% 0%, rgba(58, 160, 255, .16
 .c-level { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, .08); overflow: hidden; }
 .c-level span { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
 svg { flex: none; }
+.c-mirror { transform: scaleX(-1); }
+.c-level span.c-speaking { background: var(--accent); box-shadow: 0 0 10px rgba(58, 160, 255, .7); }
+.c-caption { margin: 2px 0 0; min-height: 20px; font-size: 14.5px; color: var(--muted); }
+.c-caption.c-final { color: var(--text); }
+.c-caption.c-error { color: var(--bad); }
