@@ -60,6 +60,8 @@ func main() {
 	mux.HandleFunc("POST /api/auth/login", auth.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", auth.handleLogout)
 	mux.HandleFunc("GET /api/me", auth.handleMe)
+	mux.HandleFunc("PATCH /api/me", auth.handlePatchMe)
+	mux.HandleFunc("GET /api/avatar", auth.handleAvatar)
 	mux.HandleFunc("POST /api/rooms", relay.handleCreateRoom)
 	mux.HandleFunc("GET /api/ws", relay.handleWS)
 

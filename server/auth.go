@@ -18,6 +18,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,9 @@ type user struct {
 	RobotName     string  `json:"robotName"`
 	DailyLimitUSD float64 `json:"dailyLimitUsd"`
 	SpentTodayUSD float64 `json:"spentTodayUsd"`
+	Prompt        string  `json:"prompt"`
+	// AvatarURL: "/api/avatar?v=<ms>" si tiene foto (la versión cambia con cada foto nueva), "" si no
+	AvatarURL string `json:"avatarUrl"`
 }
 
 type auth struct {
@@ -173,13 +177,19 @@ func (a *auth) current(r *http.Request) (*user, error) {
 func (a *auth) loadUser(ctx context.Context, id int64) (*user, error) {
 	u := &user{ID: id}
 	var robot *string
+	var avatarAt *time.Time
 	err := a.db.QueryRow(ctx, `
 		SELECT u.username, u.display_name, u.role, u.robot_name, u.daily_limit_usd::float8,
 		       COALESCE((SELECT d.total_usd FROM ai_daily_spending d
-		                 WHERE d.user_id = u.id AND d.day = (now() AT TIME ZONE '`+costTimeZone+`')::date), 0)::float8
-		FROM users u WHERE u.id = $1`, id).Scan(&u.Username, &u.DisplayName, &u.Role, &robot, &u.DailyLimitUSD, &u.SpentTodayUSD)
+		                 WHERE d.user_id = u.id AND d.day = (now() AT TIME ZONE '`+costTimeZone+`')::date), 0)::float8,
+		       u.prompt, CASE WHEN u.avatar IS NULL THEN NULL ELSE u.avatar_updated_at END
+		FROM users u WHERE u.id = $1`, id).Scan(&u.Username, &u.DisplayName, &u.Role, &robot, &u.DailyLimitUSD, &u.SpentTodayUSD,
+		&u.Prompt, &avatarAt)
 	if err != nil {
 		return nil, err
+	}
+	if avatarAt != nil {
+		u.AvatarURL = "/api/avatar?v=" + strconv.FormatInt(avatarAt.UnixMilli(), 10)
 	}
 	u.RobotName = "NAO"
 	if robot != nil && *robot != "" {

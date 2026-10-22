@@ -21,6 +21,12 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at   TIMESTAMPTZ
 );
 
+-- Ajustes del jugador (modal de ajustes): instrucciones propias para su NAO (se suman al prompt base cuando llegue
+-- la IA) y foto de perfil (JPEG cuadrado que el navegador ya recorta y reduce)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar BYTEA;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_updated_at TIMESTAMPTZ;
+
 -- La cookie lleva un token aleatorio; aquí solo se guarda su SHA-256 (si se filtra la tabla, no sirve)
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash   BYTEA PRIMARY KEY,
