@@ -19,6 +19,9 @@ export class KokoroSpeech implements SpeechBackend {
   private worker: Worker | null = null;
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
+  /** Volumen general del robot (ALAudioDevice), después del volumen de la voz (ALTextToSpeech.setVolume) */
+  private output: GainNode | null = null;
+  private outputGain = 1;
   private nextId = 1;
   private current = 0;
   private playing = new Set<AudioBufferSourceNode>();
@@ -47,6 +50,12 @@ export class KokoroSpeech implements SpeechBackend {
     return done;
   }
 
+  /** Ganancia general de salida (ALAudioDevice.outputGain) */
+  setOutput(gain: number): void {
+    this.outputGain = Math.min(Math.max(gain, 0), 1);
+    if (this.ctx && this.output) this.output.gain.setTargetAtTime(this.outputGain, this.ctx.currentTime, 0.05);
+  }
+
   stop(): void {
     this.current = 0;
     for (const s of this.playing) s.stop();
@@ -60,7 +69,9 @@ export class KokoroSpeech implements SpeechBackend {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.gain = this.ctx.createGain();
-      this.gain.connect(this.ctx.destination);
+      this.output = this.ctx.createGain();
+      this.output.gain.value = this.outputGain;
+      this.gain.connect(this.output).connect(this.ctx.destination);
     }
     void this.ctx.resume();
   }

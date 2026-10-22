@@ -73,6 +73,8 @@ export class MotorSound {
   private readonly voices = new Map<string, Voice>();
   private volume = 0.7;
   private enabled = true;
+  /** Volumen general del robot (ALAudioDevice), por encima del de los motores */
+  private output = 1;
 
   /** Los navegadores solo dejan sonar audio después de un gesto del usuario: llamar en el primer clic/tecla */
   start(): void {
@@ -86,7 +88,7 @@ export class MotorSound {
     compressor.threshold.value = -18;
     compressor.ratio.value = 4;
     this.master = ctx.createGain();
-    this.master.gain.value = this.enabled ? this.volume : 0;
+    this.master.gain.value = this.enabled ? this.volume * this.output : 0;
     this.master.connect(compressor).connect(ctx.destination);
     // Ruido blanco compartido (2 s en bucle) para el roce de los engranajes
     this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
@@ -161,9 +163,15 @@ export class MotorSound {
     osc.stop(now + cfg.decay + 0.02);
   }
 
+  /** Ganancia general de salida (ALAudioDevice.outputGain) */
+  setOutput(gain: number): void {
+    this.output = Math.min(Math.max(gain, 0), 1);
+    this.applyMaster();
+  }
+
   private applyMaster(): void {
     if (!this.ctx || !this.master) return;
-    this.master.gain.setTargetAtTime(this.enabled ? this.volume : 0, this.ctx.currentTime, 0.05);
+    this.master.gain.setTargetAtTime(this.enabled ? this.volume * this.output : 0, this.ctx.currentTime, 0.05);
   }
 
   private voice(m: MotorTelemetry): Voice {

@@ -3,6 +3,7 @@
 
 import { LedState } from '../robot/leds';
 import type { RobotState } from '../robot/state';
+import { ALAudioDevice } from './ALAudioDevice';
 import { ALLeds } from './ALLeds';
 import { ALMotion } from './ALMotion';
 import { ALRobotPosture } from './ALRobotPosture';
@@ -26,6 +27,7 @@ export class Session {
     this.services = {
       ALMotion: motion, ALRobotPosture: posture, ALLeds: this.ledService, ALTextToSpeech: new ALTextToSpeech(),
       ALVideoDevice: new ALVideoDevice(),
+      ALAudioDevice: new ALAudioDevice(),
     };
   }
 
@@ -34,6 +36,7 @@ export class Session {
   service(name: 'ALLeds'): ALLeds;
   service(name: 'ALTextToSpeech'): ALTextToSpeech;
   service(name: 'ALVideoDevice'): ALVideoDevice;
+  service(name: 'ALAudioDevice'): ALAudioDevice;
   service(name: string): object;
   service(name: string): object {
     const s = this.services[name];
