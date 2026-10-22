@@ -25,6 +25,21 @@ interface JointSlot {
   actuator: number;
   stallTorque: number;
   noLoadSpeed: number;
+  ratio: number;
+  motor: string;
+}
+
+/** Lo que "se escucha" de un motor en este instante (para el sonido) */
+export interface MotorTelemetry {
+  name: string;
+  /** Modelo de motor oficial (5 tipos en el NAO V6) */
+  motor: string;
+  /** Velocidad del joint (rad/s) y del rotor (rad/s, × reducción) */
+  speed: number;
+  rotorSpeed: number;
+  /** Torque que está haciendo (N·m) y torque de bloqueo de ese motor */
+  torque: number;
+  stallTorque: number;
 }
 
 interface ObjectSlot {
@@ -88,6 +103,8 @@ export class PhysicsSim {
         actuator: -1,
         stallTorque: motor.stallTorque * GEAR_EFFICIENCY,
         noLoadSpeed: motor.noLoadSpeed,
+        ratio: motor.ratio,
+        motor: motor.model,
       };
       mjJoint.delete();
       if (j.actuated) {
@@ -171,6 +188,26 @@ export class PhysicsSim {
     this.mj.mj_forward(this.model, this.data);
     this.acc = 0;
     this.syncState(true);
+  }
+
+  /** Velocidad y torque actuales de cada motor con actuador (los 24 que no son RHipYawPitch) */
+  telemetry(): MotorTelemetry[] {
+    const qvel = this.data.qvel;
+    const force = this.data.actuator_force;
+    const out: MotorTelemetry[] = [];
+    for (const s of this.joints) {
+      if (s.actuator < 0) continue;
+      const speed = this.locked ? 0 : qvel[s.dof];
+      out.push({
+        name: s.name,
+        motor: s.motor,
+        speed,
+        rotorSpeed: speed * s.ratio,
+        torque: this.locked ? 0 : force[s.actuator],
+        stallTorque: s.stallTorque,
+      });
+    }
+    return out;
   }
 
   dispose(): void {

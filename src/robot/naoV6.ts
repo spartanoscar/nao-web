@@ -115,6 +115,8 @@ export interface MotorSpec {
   stallTorque: number;
   /** Velocidad sin carga a la salida (rad/s): a esta velocidad el torque disponible es 0 */
   noLoadSpeed: number;
+  /** Reducción de la caja de engranajes (velocidad del rotor = velocidad del joint × ratio) */
+  ratio: number;
 }
 
 export function motorOf(joint: string): MotorSpec {
@@ -123,7 +125,7 @@ export function motorOf(joint: string): MotorSpec {
   if (!entry) throw new Error(`Sin motor documentado: ${joint}`);
   const [type, ratio] = entry;
   const m = MOTOR_TYPES[type];
-  return { model: m.model, stallTorque: (m.stallMNm / 1000) * ratio, noLoadSpeed: (m.noLoadRpm * 2 * Math.PI) / 60 / ratio };
+  return { model: m.model, stallTorque: (m.stallMNm / 1000) * ratio, noLoadSpeed: (m.noLoadRpm * 2 * Math.PI) / 60 / ratio, ratio };
 }
 
 const GROUPS: Readonly<Record<string, readonly string[]>> = {

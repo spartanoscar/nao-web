@@ -140,7 +140,7 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - **Planificador:** Gemini descompone la orden en herramientas: `goTo(lugar)`, `explore(objetivo)`,
   `lookAt(objeto)`, `say(texto)`, `goToPosture(...)`.
 
-### F14 — Sonido
+### F14 — Sonido  (✅ motores sintetizados en vivo, 2026-10-21; faltan golpes/caídas)
 - **Motores sintetizados en vivo** (WebAudio, sin archivos): un "zumbido de reductora" por cada uno de los 24
   actuadores, alimentado por la física de MuJoCo. Tono ∝ velocidad del rotor (velocidad del joint × reducción de su
   motor, `naoV6.motorOf`), volumen ∝ velocidad y torque (corriente). Así suena como el real según la carga: quieto

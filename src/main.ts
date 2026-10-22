@@ -2,6 +2,7 @@ import './ui/styles.css';
 import urdfXml from '../reference/urdf/naoV50.urdf?raw';
 import { postureJoints } from './naoqi/postures';
 import { Session } from './naoqi/session';
+import { MotorSound } from './audio/motorSound';
 import type { PhysicsSim } from './physics/physics';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
@@ -14,6 +15,7 @@ import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { attachMeshLicense } from './ui/meshLicense';
+import { attachSoundControl } from './ui/soundControl';
 import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
@@ -53,6 +55,13 @@ const joints = createJointPanel(panelHost, state, session.engine, {
   },
 });
 attachHiddenPanel();
+
+// Sonido de los motores (sintetizado desde la física). El audio solo puede arrancar tras un gesto.
+const sound = new MotorSound();
+attachSoundControl(behavior.slot, sound);
+const startAudio = () => sound.start();
+window.addEventListener('pointerdown', startAudio, { once: true });
+window.addEventListener('keydown', startAudio, { once: true });
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));
 
@@ -116,6 +125,7 @@ import('./physics/physics')
 world.onFrame((dt) => {
   session.update(dt);
   if (physics?.step(dt)) world.invalidate(true);
+  if (physics) sound.update(physics.telemetry(), world.camera.position.distanceTo(world.controls.target));
   let ledsChanged = false;
   for (const v of ledViews) ledsChanged = v.update(session.leds) || ledsChanged;
   if (ledsChanged) world.invalidate();
@@ -130,4 +140,4 @@ world.onFrame((dt) => {
 // Acceso desde la consola del navegador mientras llega la consola de comandos (F4):
 //   const motion = nao.session.service('ALMotion')
 //   await motion.angleInterpolation('HeadYaw', [1, -1, 0], [1, 2, 3], true)
-Object.assign(window, { nao: { session, state, model: nao, world, ledViews, get physics() { return physics; } } });
+Object.assign(window, { nao: { session, state, model: nao, world, ledViews, sound, get physics() { return physics; } } });

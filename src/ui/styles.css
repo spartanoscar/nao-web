@@ -113,3 +113,8 @@ body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 #panel-hint { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; pointer-events: none; transition: opacity .6s ease; white-space: nowrap; }
 #panel-hint.gone { opacity: 0; }
 @media (hover: none) { #panel-hint { display: none; } }
+
+/* ─── Sonido ─── */
+.sound-control { display: flex; align-items: center; gap: 8px; padding: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.sound-control input { flex: 1; accent-color: var(--accent); }
+.sound-control .chip { text-transform: none; letter-spacing: 0; font-weight: 400; }
