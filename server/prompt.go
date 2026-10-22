@@ -27,7 +27,8 @@ TU MUNDO:
 CÓMO HABLAS:
 - En español, con frases cortas y naturales: todo lo que escribes se convierte en tu voz. Nada de emojis, markdown, listas ni símbolos.
 - Normalmente una o dos frases; más solo si te piden explicar algo.
-- En tu primera respuesta de cada turno SIEMPRE di algo, aunque también uses herramientas: si es una tarea, avisa en pocas palabras ("¡Claro, voy!") y hazla. Al terminar una tarea cuenta en una frase cómo te fue.
+- En tu primera respuesta de cada turno SIEMPRE di algo, aunque también uses herramientas: si es una tarea, avisa en pocas palabras ("¡Claro, voy!") y hazla.
+- Al terminar no repitas lo que ya anunciaste ("ya saludé"): eso sobra. Habla solo si algo salió distinto, falló o te preguntaron un resultado (por ejemplo, cuántas cajas hay). Si con tus últimas acciones terminas, añade finish en esa misma respuesta.
 - Si te preguntan qué ves, responde con la imagen que ya tienes ("[lo que ves ahora]") sin moverte; usa scan solo si hace falta mirar a los lados.
 - No inventes lo que no ves. Si no estás seguro, mira (look) o pregunta.
 - Si te piden responder solo con un gesto, haz el gesto y no hables.
@@ -101,16 +102,18 @@ func tool(name, desc string, params schema) schema {
 	return t
 }
 
-// chatTools y chatRule: el modelo de conversación solo decide si hay que actuar (una herramienta). Medido con
-// gemini-3.5-flash-lite: con todas las habilidades a veces decía "¡Claro, voy!" sin pedir ninguna y el turno se
-// quedaba en nada; con esta sola herramienta clasificó bien 10 de 10 frases de prueba en ~0.9 s.
+// chatTools y chatRule: el modelo de conversación solo decide si responde o pasa a actuar, y está obligado a elegir una
+// de las dos herramientas (functionCallingConfig ANY). Medido con gemini-3.5-flash-lite: con todas las habilidades a veces
+// decía "¡Claro, voy!" sin pedir ninguna; con hacer_tarea sola, en producción respondió "lo intentaré" con texto y no
+// actuó. Con la elección obligada acertó 16 de 16 frases de prueba (~1 s).
 var chatTools = []any{schema{"functionDeclarations": []any{
 	tool("hacer_tarea", "Pasa la petición a tu modo de acción (moverte, mirar, usar el cuerpo).", nil),
+	tool("responder", "Responde en voz alta sin moverte.", object(schema{"texto": schema{"type": "string", "description": "lo que dices"}}, "texto")),
 }}}
 
 const chatRule = `
 
-MODO CONVERSACIÓN: si la persona te pide hacer CUALQUIER cosa con el cuerpo (moverte, caminar, girar, mirar alrededor, buscar, contar cosas que no ves ahora, tocar, empujar, gestos, brazos, cabeza, luces, posturas), NO respondas con texto: llama hacer_tarea. Si solo conversa o pregunta algo que puedes responder con lo que ya ves, responde con texto.`
+MODO CONVERSACIÓN: decide con una herramienta. Si la persona te pide hacer CUALQUIER cosa con el cuerpo o que necesite moverte o mirar (moverte, caminar, girar, patear, mirar alrededor, buscar, contar cosas, tocar, empujar, gestos, brazos, cabeza, luces, colores, posturas), o te pide intentarlo de nuevo, llama hacer_tarea, sin prometer nada. Si solo conversa o pregunta algo que puedes responder sin moverte, llama responder con lo que dirías.`
 
 // brainTools: lo que el navegador sabe hacer (src/ai/skills.ts). Mismo nombre en los dos lados.
 var brainTools = []any{schema{"functionDeclarations": []any{
@@ -124,6 +127,11 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 			"box_2d": schema{"type": "array", "items": schema{"type": "integer"}, "description": "[ymin, xmin, ymax, xmax] de 0 a 1000 en la última imagen"},
 			"what":   schema{"type": "string", "description": "qué es, en pocas palabras"},
 		}, "box_2d", "what")),
+	tool("locate", "Mide dónde está algo de la ÚLTIMA imagen respecto a tus pies, en metros (adelante y a tu izquierda), y dónde están tus pies. Úsalo para acomodarte con precisión (patear, empujar, alcanzar).",
+		object(schema{
+			"box_2d": schema{"type": "array", "items": schema{"type": "integer"}, "description": "[ymin, xmin, ymax, xmax] de 0 a 1000 en la última imagen"},
+			"what":   schema{"type": "string", "description": "qué es"},
+		}, "box_2d")),
 	tool("push", "Empuja lo que tienes justo enfrente caminando hacia adelante (antes usa approach).", object(schema{"meters": number("metros a empujar")}, "meters")),
 	tool("posture", "Va a una postura. Si estás en el suelo, primero te levantas.",
 		object(schema{"name": enum("postura", "Stand", "StandInit", "Sit", "SitRelax", "Crouch")}, "name")),
@@ -165,7 +173,7 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 		})),
 	tool("look_at", "Mueve la cabeza a un ángulo.", object(schema{"yaw_deg": number("positivo = izquierda, de -119 a 119"), "pitch_deg": number("positivo = abajo, de -38 a 29")}, "yaw_deg", "pitch_deg")),
 	tool("animation", "Animación del cuerpo entero (de pie).",
-		object(schema{"name": enum("HandWave = saludar con la mano, Shoot = patear, TaiChi = tai chi, WipeForehead = secarse la frente", "HandWave", "Shoot", "TaiChi", "WipeForehead")}, "name")),
+		object(schema{"name": enum("HandWave = saludar con la mano, Shoot = patear SOLO con el pie izquierdo (el derecho te sostiene): la patada alcanza lo que está justo delante de tu pie izquierdo; usa locate para acomodarte, TaiChi = tai chi, WipeForehead = secarse la frente", "HandWave", "Shoot", "TaiChi", "WipeForehead")}, "name")),
 	tool("leds", "Cambia por un momento el color de tus luces (para expresarte; no se guarda). Las orejas solo son azules: ahí el color marca el brillo.",
 		object(schema{
 			"part":  enum("dónde", "eyes", "ears", "chest", "feet", "head", "all"),
@@ -180,4 +188,5 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 	tool("scan", "Mira alrededor girando la cabeza a la izquierda, al centro y a la derecha y devuelve un mosaico. Con full=true además gira el cuerpo 180° y mira detrás: 360° en una imagen de dos filas (úsalo para buscar o contar cosas en todo el entorno).",
 		object(schema{"full": schema{"type": "boolean", "description": "true = vuelta completa (360°, tarda ~20 s)"}})),
 	tool("stop", "Detén cualquier movimiento ya.", nil),
+	tool("finish", "Inclúyela al final de una respuesta cuando lo que pides en ella termina la tarea y no necesitas ver cómo salió. Si todo sale bien, el turno termina ahí sin volver a consultarte (más rápido y barato); si algo falla, recibes los resultados.", nil),
 }}}

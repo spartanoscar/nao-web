@@ -97,11 +97,13 @@ func newBrain(a *auth) *brain {
 }
 
 type brainRequest struct {
-	Turn    string          `json:"turn"`
-	Text    string          `json:"text"`
-	Source  string          `json:"source"`
-	State   json.RawMessage `json:"state"`
-	Image   string          `json:"image"`
+	Turn   string          `json:"turn"`
+	Text   string          `json:"text"`
+	Source string          `json:"source"`
+	State  json.RawMessage `json:"state"`
+	Image  string          `json:"image"`
+	// Final: las últimas acciones incluían finish y todas salieron bien: se guardan y el turno termina sin consultar
+	Final   bool `json:"final"`
 	Results []struct {
 		ID       string          `json:"id"`
 		Name     string          `json:"name"`
@@ -190,6 +192,11 @@ func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	t.contents = append(t.contents, map[string]any{"role": "user", "parts": parts})
+	if req.Turn != "" && req.Final {
+		b.finish(t)
+		writeJSON(w, http.StatusOK, map[string]any{"turn": t.id, "say": "", "calls": nil, "done": true, "spentTodayUsd": spent})
+		return
+	}
 
 	say, calls, spentNow, err := b.step(ctx, u, t)
 	if err == nil && !t.task && len(calls) > 0 {
@@ -337,6 +344,10 @@ func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brai
 		"tools":             tools,
 		"generationConfig":  gen,
 	}
+	if !t.task {
+		// Elegir sí o sí responder o hacer_tarea: sin texto suelto que prometa algo sin hacerlo
+		payload["toolConfig"] = map[string]any{"functionCallingConfig": map[string]any{"mode": "ANY"}}
+	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	raw, err := geminiPost(callCtx, m.name+":generateContent", payload)
@@ -404,6 +415,20 @@ func (b *brain) step(ctx context.Context, u *user, t *brainTurn) (string, []brai
 			calls = append(calls, call)
 		case p.Text != "" && !p.Thought:
 			say.WriteString(p.Text)
+		}
+	}
+	// Modo conversación: "responder" es solo la forma obligada de hablar, no una habilidad del navegador
+	if !t.task {
+		for i := 0; i < len(calls); i++ {
+			if calls[i].Name == "responder" {
+				var a struct {
+					Texto string `json:"texto"`
+				}
+				_ = json.Unmarshal(calls[i].Args, &a)
+				say.WriteString(a.Texto)
+				calls = append(calls[:i], calls[i+1:]...)
+				i--
+			}
 		}
 	}
 	return strings.TrimSpace(say.String()), calls, spent, nil
