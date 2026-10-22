@@ -78,6 +78,9 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   WebSocket en el servidor Go (`/api/ws`).
 - El teléfono envía audio del micrófono, frames de su cámara y texto; recibe la transcripción y el estado.
 - Controles táctiles de respaldo (joystick) para cuando no se quiere hablar.
+- **Hecho (2026-10-22):** sala creada por el servidor para el usuario logueado, QR, `control.html` con la vista del
+  NAO en vivo, inclinación para mover la vista del mundo y permisos de micrófono/cámara. Pendiente: enviar audio y
+  video del teléfono a la IA (F8).
 
 ### F8 — Voz y conversación en tiempo real
 - **Escucha:** Gemini Live con audio de entrada y transcripción de entrada y salida.
@@ -116,6 +119,9 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - Por usuario en BD: nombre, nombre que le puso al robot, últimas 50 conversaciones, consumo del día,
   **estado del mundo** (pose del robot, objetos movidos) y **lugares aprendidos** ("baño" → x, y).
 - Al entrar desde otro equipo: el robot aparece donde quedó, sabe tu nombre y te saluda.
+- **Hecho (2026-10-22):** BD `nao` (PostgreSQL 12 + pgvector) con usuarios, sesiones, control de costos,
+  conversaciones, rostros, memoria del mundo y RAG (estructura); login con contraseña bcrypt y cookie de sesión;
+  usuarios Oscar y Nelson con tope de US$2/día. Ver CLAUDE.md "Servidor, base de datos y login".
 
 ### F11 — Reconocer a las personas (opcional, con consentimiento)
 - Fotos de rostro desde la cámara del teléfono → embeddings con el mismo stack de Rondax
