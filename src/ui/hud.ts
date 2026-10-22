@@ -11,7 +11,12 @@ export interface Hud {
   /** Botón "Conectar móvil" (lo maneja ui/phoneLink.ts) */
   phoneButton: HTMLButtonElement;
   setPhoneState(state: 'idle' | 'waiting' | 'connected'): void;
+  /** Gasto del día actualizado (de /api/me o del servidor durante la transcripción) */
+  setSpent(spentTodayUsd: number): void;
 }
+
+/** Tokens del juego: 1 token = US$0.001 del tope diario de IA (US$2 → 2000 tokens) */
+export const TOKENS_PER_USD = 1000;
 
 export function createHud(user: User, audio: ALAudioDevice, { onLogout }: { onLogout(): void }): Hud {
   // Volumen recordado en este navegador
@@ -39,7 +44,8 @@ export function createHud(user: User, audio: ALAudioDevice, { onLogout }: { onLo
     <div class="hud-names">
       <span class="hud-user"></span>
       <span class="hud-robot">${ICONS.robot}<span></span></span>
-    </div>`;
+    </div>
+    <div class="hud-tokens" title="Tokens disponibles hoy (1 token = US$0.001 de IA; se renuevan cada día)">${ICONS.token}<span></span></div>`;
   player.querySelector('.hud-avatar')!.textContent = user.displayName.trim().charAt(0).toUpperCase();
   player.querySelector('.hud-user')!.textContent = user.displayName;
   player.querySelector('.hud-robot span')!.textContent = user.robotName;
@@ -102,5 +108,13 @@ export function createHud(user: User, audio: ALAudioDevice, { onLogout }: { onLo
     phoneButton.innerHTML = `${ICONS.phone}<span>${label}</span>${state === 'connected' ? '<i class="hud-dot"></i>' : ''}`;
   };
   setPhoneState('idle');
-  return { phoneButton, setPhoneState };
+
+  const tokens = player.querySelector<HTMLElement>('.hud-tokens span')!;
+  const setSpent = (spentTodayUsd: number) => {
+    const left = Math.max(0, Math.floor((user.dailyLimitUsd - spentTodayUsd) * TOKENS_PER_USD));
+    tokens.textContent = left.toLocaleString('es-CO');
+    player.classList.toggle('hud-low', left < user.dailyLimitUsd * TOKENS_PER_USD * 0.1);
+  };
+  setSpent(user.spentTodayUsd);
+  return { phoneButton, setPhoneState, setSpent };
 }

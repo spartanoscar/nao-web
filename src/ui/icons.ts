@@ -17,5 +17,7 @@ export const ICONS = {
   check: svg('<path d="m5 12 5 5 9-10"/>'),
   move: svg('<path d="m5 9-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>'),
   pause: svg('<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>'),
+  token: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><path d="M12 9.5v5"/>'),
+  flip: svg('<path d="M4 7h11a5 5 0 0 1 0 10H9"/><path d="m7 4-3 3 3 3"/><path d="M8 20h.01"/>'),
   center: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>'),
 };

@@ -221,6 +221,13 @@ body:not(.panel-visible) #panel #hud { display: block; }
 .hud-user { font-weight: 800; font-size: 15px; }
 .hud-robot { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--nao); letter-spacing: .04em; text-transform: uppercase; }
 .hud-robot svg { width: 14px; height: 14px; }
+.hud-tokens {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; padding: 5px 10px; border-radius: 999px;
+  font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; color: #ffd166;
+  background: rgba(255, 209, 102, .1); border: 1px solid rgba(255, 209, 102, .28);
+}
+.hud-tokens svg { width: 16px; height: 16px; }
+.hud-low .hud-tokens { color: #ff7676; background: rgba(255, 118, 118, .1); border-color: rgba(255, 118, 118, .35); }
 .hud-actions { position: fixed; top: 16px; right: 16px; z-index: 5; display: flex; gap: 8px; align-items: center; }
 body.panel-visible .hud-actions { right: calc(var(--panel-w) + 16px); }
 .hud-btn {
@@ -266,6 +273,9 @@ body.panel-visible #transcript { left: calc(50% - var(--panel-w) / 2); width: mi
   animation: line-in .35s ease both; transition: opacity .8s ease;
 }
 #transcript .line.fade { opacity: 0; }
+#transcript .line.interim > span:last-child { opacity: .75; }
+#transcript .line.notice { border-left-color: #ff7676; }
+#transcript .line.notice .who { color: #ff7676; }
 #transcript .who { font-weight: 800; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin-right: 8px; }
 #transcript .user { border-left: 3px solid var(--user); }
 #transcript .user .who { color: var(--user); }

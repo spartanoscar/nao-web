@@ -23,7 +23,7 @@ import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
 import { attachPhoneLink } from './ui/phoneLink';
-import { createTranscript, playDemo } from './ui/transcript';
+import { createTranscript } from './ui/transcript';
 import { logout } from './net/api';
 import { attachSoundControl } from './ui/soundControl';
 import { createVoicePanel } from './ui/voicePanel';
@@ -218,9 +218,25 @@ showMeshCredit((show) => {
 const hud = createHud(user, session.service('ALAudioDevice'), {
   onLogout: () => void logout().finally(() => location.reload()),
 });
-attachPhoneLink(hud, session.service('ALVideoDevice'), { tilt: (x, y) => Object.assign(tilt, { x, y, at: performance.now() / 1000 }) });
 const transcript = createTranscript();
-playDemo(transcript, user.displayName, user.robotName);
+// Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla
+let naoLine = 0;
+tts.onSay = (text) => transcript.show(`nao-${naoLine++}`, 'nao', user.robotName, text, true);
+let captionError = '';
+attachPhoneLink(hud, session.service('ALVideoDevice'), {
+  tilt: (x, y) => Object.assign(tilt, { x, y, at: performance.now() / 1000 }),
+  connected: () => void tts.say('Bienvenido').catch((e) => console.warn('Voz:', e)),
+  caption: (id, text, final) => transcript.show(`user-${id}`, 'user', user.displayName, text, final),
+  usage: (spent) => hud.setSpent(spent),
+  captionError: (message) => {
+    if (message === captionError) return; // un aviso por motivo, no uno por frase
+    captionError = message;
+    transcript.notice(message);
+  },
+});
+// La voz se descarga y se calienta en segundo plano (la primera frase salía con varios segundos de espera);
+// después del primer cuadro del mundo, para no competir con lo que se ve
+setTimeout(() => speech.preload(tts.getVoice()), 1500);
 attachHiddenPanel();
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));

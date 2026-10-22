@@ -5,7 +5,9 @@
 //   teléfono → escritorio: {t:'tilt', x, y} (−1..1, ~30/s) · {t:'view', on, cameras: [0, 1]} · {t:'media', mic, cam}
 //   escritorio → teléfono: binario = [cámara (1 byte)] + JPEG de la vista del NAO (ALVideoDevice, 320×240,
 //   5/s por cámara)
-//   servidor → ambos: {t:'peers', screen, phone} · {t:'replaced'} · {t:'gone'}
+//   teléfono → servidor (binario, no llega a la pantalla): voz para la transcripción (control/voice.ts)
+//   servidor → ambos: {t:'peers', screen, phone} · {t:'replaced'} · {t:'gone'} · {t:'caption', id, text, final} ·
+//   {t:'usage', spentTodayUsd} · {t:'caption-error', error}
 
 import qrcode from 'qrcode-generator';
 import type { ALVideoDevice } from '../naoqi/ALVideoDevice';
@@ -23,7 +25,18 @@ const MAX_BUFFERED = 256 << 10;
 export interface PhoneHooks {
   /** Inclinación del teléfono (−1..1): gira la cámara del mundo, no al robot */
   tilt(x: number, y: number): void;
+  /** El teléfono acaba de conectarse (tras mostrar "¡Teléfono conectado!" y cerrar el diálogo) */
+  connected(): void;
+  /** Subtítulo de lo que se dice al teléfono (transcripción del servidor); el mismo `id` se actualiza */
+  caption(id: number, text: string, final: boolean): void;
+  /** El servidor cobró: gasto del día actualizado */
+  usage(spentTodayUsd: number): void;
+  /** La transcripción no pudo seguir (sin tokens, sin clave…) */
+  captionError(message: string): void;
 }
+
+/** Cuánto se ve "¡Teléfono conectado!" antes de cerrar el diálogo */
+const CONNECTED_MS = 2000;
 
 export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHooks): void {
   let room: string | null = null;
@@ -107,10 +120,18 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
       if (m.t === 'peers') {
         const was = phone;
         phone = Boolean(m.phone);
-        if (phone && !was) setTimeout(close, 1200);
+        if (phone && !was) {
+          setTimeout(() => {
+            close();
+            hooks.connected();
+          }, CONNECTED_MS);
+        }
         if (!phone) stopView();
         paint();
-      } else if (m.t === 'replaced') {
+      } else if (m.t === 'caption') hooks.caption(Number(m.id), String(m.text ?? ''), Boolean(m.final));
+      else if (m.t === 'usage') hooks.usage(Number(m.spentTodayUsd));
+      else if (m.t === 'caption-error') hooks.captionError(String(m.error ?? ''));
+      else if (m.t === 'replaced') {
         displaced = true;
         room = null;
       } else if (m.t === 'tilt') hooks.tilt(clamp(Number(m.x)), clamp(Number(m.y)));
