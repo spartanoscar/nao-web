@@ -6,6 +6,7 @@ import type { RobotState } from '../robot/state';
 import { ALLeds } from './ALLeds';
 import { ALMotion } from './ALMotion';
 import { ALRobotPosture } from './ALRobotPosture';
+import { ALTextToSpeech } from './ALTextToSpeech';
 import { MotionEngine } from './engine';
 
 export class Session {
@@ -21,12 +22,13 @@ export class Session {
     const posture = new ALRobotPosture(this.engine, state, motion);
     motion.goToPosture = (name, speed) => posture.goToPosture(name, speed);
     this.ledService = new ALLeds(this.leds);
-    this.services = { ALMotion: motion, ALRobotPosture: posture, ALLeds: this.ledService };
+    this.services = { ALMotion: motion, ALRobotPosture: posture, ALLeds: this.ledService, ALTextToSpeech: new ALTextToSpeech() };
   }
 
   service(name: 'ALMotion'): ALMotion;
   service(name: 'ALRobotPosture'): ALRobotPosture;
   service(name: 'ALLeds'): ALLeds;
+  service(name: 'ALTextToSpeech'): ALTextToSpeech;
   service(name: string): object;
   service(name: string): object {
     const s = this.services[name];
