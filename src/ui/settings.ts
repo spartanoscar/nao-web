@@ -10,6 +10,8 @@ import { createLibrary } from './library';
 const SAVE_DELAY = 3000;
 const RETRY_DELAY = 5000;
 const AVATAR_SIZE = 256;
+/** Colores de fábrica (textureNAO.png "Colored part" y los ojos por defecto de ALLeds) para mostrar en el selector */
+const FACTORY = { shellColor: '#0826e0', eyeColor: '#d1d1ff' } as const;
 const ROLE: Record<User['role'], string> = { admin: 'Administrador', teacher: 'Docente', student: 'Estudiante' };
 
 export function attachSettings(
@@ -46,6 +48,14 @@ export function attachSettings(
         <section class="st-nao">
           <h3>Tu NAO</h3>
           <label class="st-field">Nombre del NAO<input name="robotName" maxlength="24" placeholder="NAO" /></label>
+          <div class="st-colors">
+            <div class="st-color" data-field="shellColor"><span>Carcasa</span>
+              <label class="st-swatch" title="Elegir color"><input type="color" /></label>
+              <button type="button" class="st-link" hidden>Original</button></div>
+            <div class="st-color" data-field="eyeColor"><span>Ojos</span>
+              <label class="st-swatch" title="Elegir color"><input type="color" /></label>
+              <button type="button" class="st-link" hidden>Original</button></div>
+          </div>
           <label class="st-field st-prompt">Personalidad e instrucciones
             <textarea name="prompt" maxlength="2000" rows="9"
               placeholder="Ej.: Eres curioso y paciente. Me ayudas a estudiar física. Llámame por mi nombre y hazme preguntas para repasar."></textarea>
@@ -127,7 +137,31 @@ export function attachSettings(
     count.textContent = `${promptInput.value.length} / 2000`;
     $('.st-meta').textContent = `@${user.username} · ${ROLE[user.role]}`;
     paintAvatar(user.avatarUrl);
+    for (const row of colorRows) paintColor(row, user[row.field]);
   };
+
+  // Apariencia del NAO (paleta libre): se ve al instante y se guarda con el resto
+  const colorRows = [...modal.querySelectorAll<HTMLElement>('.st-color')].map((el) => ({
+    field: el.dataset.field as keyof typeof FACTORY,
+    input: el.querySelector<HTMLInputElement>('input')!,
+    swatch: el.querySelector<HTMLElement>('.st-swatch')!,
+    reset: el.querySelector<HTMLButtonElement>('.st-link')!,
+  }));
+  const paintColor = (row: (typeof colorRows)[number], value: string) => {
+    row.input.value = value || FACTORY[row.field];
+    row.swatch.style.setProperty('--swatch', row.input.value);
+    row.reset.hidden = !value;
+  };
+  for (const row of colorRows) {
+    const pick = (value: string) => {
+      paintColor(row, value);
+      onChange({ ...user, [row.field]: value }); // vista previa inmediata (HUD y NAO)
+      user = { ...user, [row.field]: value };
+      queue({ [row.field]: value });
+    };
+    row.input.addEventListener('input', () => pick(row.input.value));
+    row.reset.addEventListener('click', () => pick(''));
+  }
 
   nameInput.addEventListener('input', () => {
     const name = nameInput.value.trim();

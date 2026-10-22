@@ -16,11 +16,19 @@ export interface SkillResult {
   image?: Snapshot;
 }
 
+/** Apariencia guardada del NAO ("#rrggbb" o "" = la de fábrica) */
+export interface Appearance {
+  shell: string;
+  eyes: string;
+}
+
 export interface SkillContext {
   session: Session;
   vision: Vision;
   /** El turno se canceló (la persona dijo otra cosa): no seguir */
   cancelled(): boolean;
+  /** Cambia y guarda la apariencia (carcasa y ojos) del NAO del usuario */
+  appearance?: (patch: Partial<Appearance>) => Promise<Appearance>;
 }
 
 type Args = Record<string, unknown>;
@@ -33,8 +41,15 @@ const APPROACH_LEG = 1.2;
 const APPROACH_MAX = 5;
 const ANIMATIONS = ['HandWave', 'Shoot', 'TaiChi', 'WipeForehead'];
 const POSTURES = ['Stand', 'StandInit', 'Sit', 'SitRelax', 'Crouch'];
-const LED_GROUPS: Record<string, string> = { eyes: 'FaceLeds', ears: 'EarLeds', chest: 'ChestLeds', all: 'AllLeds' };
-const LED_COLORS = ['white', 'red', 'green', 'blue', 'yellow', 'magenta', 'cyan'];
+const LED_GROUPS: Record<string, string> = { eyes: 'FaceLeds', ears: 'EarLeds', chest: 'ChestLeds', feet: 'FeetLeds', head: 'BrainLeds', all: 'AllLeds' };
+/** Paleta libre: "#rrggbb" (también se aceptan los nombres de fadeRGB) → 0x00RRGGBB */
+const NAMED = { white: 0xffffff, red: 0xff0000, green: 0x00ff00, blue: 0x0000ff, yellow: 0xffff00, magenta: 0xff00ff, cyan: 0x00ffff } as Record<string, number>;
+const parseColor = (v: unknown): number | null => {
+  const t = String(v ?? '').trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(t)) return parseInt(t.slice(1), 16);
+  return NAMED[t] ?? null;
+};
+const hexOf = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 /** Gestos de cabeza: [HeadYaw, HeadPitch] por keyframe y sus tiempos (s) */
 const GESTURES: Record<string, { yaw: number[]; pitch: number[]; times: number[] }> = {
   nod: { yaw: [0, 0, 0, 0, 0], pitch: [0.35, -0.05, 0.35, -0.05, 0], times: [0.3, 0.6, 0.9, 1.2, 1.5] },
@@ -108,12 +123,14 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     if (ok) motion.setMoveArmsEnabled(true, true);
     return ok;
   };
+  /** Caído = el torso acostado según la IMU (familias Lying*); una pose rara de pie (p. ej. tras patear) no lo es */
+  const fallen = () => posture.getPostureFamily().startsWith('Lying');
   const notStanding = () => ({ ok: false, error: `no pude ponerme de pie: ${posture.lastFailure || posture.getPostureFamily()}` });
   const moveResult = (ok: boolean, extra: Args = {}) => ({
     ok,
     ...extra,
     ...where(),
-    ...(ok ? {} : { postura: posture.getPostureFamily(), nota: posture.getPostureFamily() === 'Standing' ? 'me interrumpieron o no llegué' : 'me caí' }),
+    ...(ok ? {} : { postura: posture.getPostureFamily(), nota: fallen() ? 'me caí' : 'me interrumpieron o no llegué' }),
   });
   /** moveTo acepta theta en ]-π, π]: los giros más grandes van en dos tramos */
   const turnBy = async (rad: number): Promise<boolean> => {
@@ -250,16 +267,23 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     }
     case 'arm_joints': {
       // Ángulos directos (grados) del brazo izquierdo; el derecho se refleja (mismo gesto en espejo)
-      const sides = armSides(args.side);
+      // Por brazo (left/right, valores distintos en la misma orden) o los mismos ángulos sueltos para `side`
+      const perSide = (sd: string): Args | null => {
+        const own = args[sd === 'L' ? 'left' : 'right'];
+        if (own && typeof own === 'object') return own as Args;
+        return armSides(args.side).includes(sd) && !args.left && !args.right ? args : null;
+      };
+      const sides = ['L', 'R'].filter((sd) => perSide(sd));
       await wakeLegs();
       holdArms(sides);
       const fields: [string, string][] = [['shoulder_pitch_deg', 'ShoulderPitch'], ['shoulder_roll_deg', 'ShoulderRoll'], ['elbow_yaw_deg', 'ElbowYaw'], ['elbow_roll_deg', 'ElbowRoll'], ['wrist_yaw_deg', 'WristYaw']];
       const names: string[] = [];
       const angles: number[] = [];
       for (const sd of sides) {
+        const values = perSide(sd)!;
         for (const [field, joint] of fields) {
-          if (typeof args[field] !== 'number') continue;
-          const v = (args[field] as number) * DEG;
+          if (typeof values[field] !== 'number') continue;
+          const v = (values[field] as number) * DEG;
           names.push(sd + joint);
           angles.push(sd === 'R' && joint !== 'ShoulderPitch' && joint !== 'WristYaw' ? -v : v);
         }
@@ -309,16 +333,32 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       motion.setMoveArmsEnabled(true, true);
       await playMotion(motion, clip);
       await new Promise((r) => setTimeout(r, 500));
-      const family = posture.getPostureFamily();
-      return { response: { ok: family === 'Standing', postura: family, ...(family === 'Standing' ? {} : { nota: 'me caí' }) } };
+      const down = fallen();
+      return { response: { ok: !down, postura: posture.getPostureFamily(), ...(down ? { nota: 'me caí' } : {}) } };
     }
     case 'leds': {
       const group = LED_GROUPS[String(args.part)];
-      const color = String(args.color);
-      if (!group || (color !== 'off' && !LED_COLORS.includes(color))) return { response: { ok: false, error: 'color o parte desconocidos' } };
-      const leds = session.service('ALLeds');
-      await (color === 'off' ? leds.fadeRGB(group, 0x000000, 0.3) : leds.fadeRGB(group, color, 0.3));
-      return { response: { ok: true } };
+      const off = String(args.color).toLowerCase() === 'off';
+      const color = off ? 0 : parseColor(args.color);
+      if (!group || color === null) return { response: { ok: false, error: 'parte desconocida o color inválido (usa #rrggbb u off)' } };
+      await session.service('ALLeds').fadeRGB(group, color, 0.3);
+      return { response: { ok: true, color: off ? 'off' : hexOf(color) } };
+    }
+    case 'my_colors': {
+      if (!ctx.appearance) return { response: { ok: false, error: 'no puedo guardar mi apariencia ahora' } };
+      const patch: Partial<Appearance> = {};
+      for (const [field, key] of [['shell', 'shell'], ['eyes', 'eyes']] as const) {
+        if (args[field] === undefined) continue;
+        if (String(args[field]).toLowerCase() === 'original') patch[key] = '';
+        else {
+          const c = parseColor(args[field]);
+          if (c === null) return { response: { ok: false, error: `color inválido para ${field}: usa #rrggbb` } };
+          patch[key] = hexOf(c);
+        }
+      }
+      if (!Object.keys(patch).length) return { response: { ok: false, error: 'di shell o eyes' } };
+      const now = await ctx.appearance(patch);
+      return { response: { ok: true, carcasa: now.shell || 'original', ojos: now.eyes || 'original' } };
     }
     case 'look':
       return { response: { ok: true, nota: 'foto nueva adjunta (arriba frente, abajo boca)' }, image: vision.view() };

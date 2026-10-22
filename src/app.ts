@@ -23,7 +23,7 @@ import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
 import { attachSettings } from './ui/settings';
-import { me } from './net/api';
+import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
 import { createTranscript } from './ui/transcript';
 import { attachSoundControl } from './ui/soundControl';
@@ -131,6 +131,15 @@ const follow = () => {
   followed = [x, y];
 };
 
+// Apariencia del NAO del usuario (paleta libre, guardada en su cuenta): carcasa (mallas oficiales, pintado en memoria) y
+// ojos (ALLeds). "" = la de fábrica.
+const shell: { paint: ((hex: string) => Promise<void>) | null } = { paint: null };
+const paintEyes = (hex: string) => {
+  const leds = session.service('ALLeds');
+  if (hex) void leds.fadeRGB('FaceLeds', parseInt(hex.slice(1), 16), 0.4);
+  else leds.reset('FaceLeds');
+};
+
 // Mallas oficiales del NAO: se descargan solo con la licencia aceptada (pantalla de entrada, ui/boot.ts)
 const loadModel = async (onProgress: (loaded: number, total: number) => void) => {
   const { loadOfficialMeshes, setShellColor, SHELL_COLORS } = await import('./sim/officialMeshes');
@@ -140,6 +149,7 @@ const loadModel = async (onProgress: (loaded: number, total: number) => void) =>
     await setShellColor(meshes.values(), color);
     world.invalidate();
   };
+  shell.paint = (hex) => paint(hex ? { id: 'custom', label: 'Personalizado', hex: parseInt(hex.slice(1), 16) } : SHELL_COLORS[0]);
   const initial = rememberedShellColor(SHELL_COLORS);
   await paint(initial); // siempre: también pone la lente oscura de los ojos
   createShellColorPicker(behavior.slot, SHELL_COLORS, initial, (c) => void paint(c));
@@ -219,9 +229,17 @@ showMeshCredit((show) => {
   world.invalidate(true);
 });
 const hud = createHud(user, session.service('ALAudioDevice'));
+// La apariencia guardada en la cuenta gana sobre la del panel (que es solo de este navegador)
+if (user.shellColor) void shell.paint?.(user.shellColor);
+if (user.eyeColor) paintEyes(user.eyeColor);
+const applyAppearance = (prev: { shellColor: string; eyeColor: string }, next: User) => {
+  if (next.shellColor !== prev.shellColor) void shell.paint?.(next.shellColor);
+  if (next.eyeColor !== prev.eyeColor) paintEyes(next.eyeColor);
+};
 // Ajustes: lo que se guarda se ve al instante en el HUD y en los subtítulos (leen `user` en cada uso)
 attachSettings(hud.settingsButton, user, {
   onChange: (u) => {
+    applyAppearance(user, u);
     Object.assign(user, u);
     hud.setUser(u);
   },
@@ -241,6 +259,14 @@ const brain = new Brain(session, state, vision, {
   spent: (usd) => hud.setSpent(usd),
   error: (message) => transcript.notice(message),
   action: (name, args, response) => console.info('NAO ▶', name, args, '→', response),
+  appearance: () => ({ shell: user.shellColor, eyes: user.eyeColor }),
+  setAppearance: async (patch) => {
+    const u = await updateMe({ ...(patch.shell !== undefined ? { shellColor: patch.shell } : {}), ...(patch.eyes !== undefined ? { eyeColor: patch.eyes } : {}) });
+    applyAppearance(user, u);
+    Object.assign(user, u);
+    hud.setUser(u);
+    return { shell: u.shellColor, eyes: u.eyeColor };
+  },
 });
 attachChat(
   () => user.robotName,

@@ -10,7 +10,7 @@ import { ApiError } from '../net/api';
 import type { Session } from '../naoqi/session';
 import { robotPose } from '../naoqi/moveTo';
 import type { RobotState } from '../robot/state';
-import { runSkill } from './skills';
+import { type Appearance, runSkill } from './skills';
 import type { Snapshot, Vision } from './vision';
 
 const CONVERSATION_WINDOW = 20_000;
@@ -36,6 +36,9 @@ export interface BrainHooks {
   thinking(on: boolean): void;
   spent(usd: number): void;
   error(message: string): void;
+  /** Apariencia actual y cambiarla (guardada en la cuenta) */
+  appearance(): Appearance;
+  setAppearance(patch: Partial<Appearance>): Promise<Appearance>;
   /** Para depurar: cada habilidad que ejecuta y su resultado */
   action?(name: string, args: Record<string, unknown>, response: Record<string, unknown>): void;
 }
@@ -87,7 +90,7 @@ export class Brain {
         let image: Snapshot | undefined;
         for (const call of reply.calls) {
           if (cancelled()) return;
-          const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled }).catch(
+          const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled, appearance: (p) => this.hooks.setAppearance(p) }).catch(
             (e: unknown) => ({ response: { ok: false, error: e instanceof Error ? e.message : String(e) } as Record<string, unknown>, image: undefined }),
           );
           this.hooks.action?.(call.name, call.args ?? {}, r.response);
@@ -144,6 +147,7 @@ export class Brain {
       ...(pose ? { posicion: { x: round(pose.x), y: round(pose.y) }, rumbo_grados: Math.round(pose.theta * DEG) } : {}),
       cabeza: { yaw: Math.round(yaw * DEG), pitch: Math.round(pitch * DEG) },
       quieto_seg: Math.round((performance.now() - this.stillSince) / 1000),
+      colores: { carcasa: this.hooks.appearance().shell || 'original', ojos: this.hooks.appearance().eyes || 'original' },
       ...(origin ? { origen: origin } : {}),
     };
   }

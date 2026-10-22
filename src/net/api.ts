@@ -11,6 +11,9 @@ export interface User {
   prompt: string;
   /** URL de la foto de perfil, o "" si no tiene */
   avatarUrl: string;
+  /** Apariencia de su NAO: "#rrggbb" o "" (la original de fábrica) */
+  shellColor: string;
+  eyeColor: string;
 }
 
 /** Cambios del modal de ajustes: solo los campos que cambiaron. avatar: data URL JPEG o "" para quitarla */
@@ -19,6 +22,8 @@ export interface UserPatch {
   robotName?: string;
   prompt?: string;
   avatar?: string;
+  shellColor?: string;
+  eyeColor?: string;
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
