@@ -9,6 +9,7 @@ import { ACTUATOR_COUNT, CHAINS, COUPLED, JOINTS } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
 import { type ALValue, NaoqiError, perJoint, resolveCoupled, toNames, trajectories } from './args';
 import type { MotionEngine } from './engine';
+import { moveToPose, robotPose } from './moveTo';
 import { moveToPosture, nearestPosture, postureFamily } from './postures';
 import { Gait, WALK_POSE } from './walk';
 
@@ -18,6 +19,8 @@ export class ALMotion {
   /** La pone Session: wakeUp/rest usan ALRobotPosture (y su camino entre posturas) */
   goToPosture: ((name: string, speed: number) => Promise<boolean>) | null = null;
   private readonly gait: Gait;
+  /** Cambia con cada orden de marcha: un moveTo en curso ve que lo interrumpieron */
+  private moveRun = 0;
 
   constructor(
     private readonly engine: MotionEngine,
@@ -144,11 +147,37 @@ export class ALMotion {
   moveToward(x: number, y: number, theta: number): void {
     // Ya caminando no se revisa: a mitad de un paso la pose no parece "de pie"
     if ((x || y || theta) && !this.gait.active && !this.canWalk('moveToward')) return;
+    this.moveRun++; // una orden de velocidad interrumpe un moveTo en curso
     this.gait.setVelocity({ x, y, theta });
+  }
+
+  /**
+   * Blocking. "Makes the robot move to the given pose in the ground plane, relative to FRAME_ROBOT."
+   * x, y en metros, theta en radianes. "True if the moveTo terminated successfully, False if it was interrupted."
+   * APPROX: navegación en lazo cerrado con la marcha de Webots (moveTo.ts); necesita la física (odometría).
+   */
+  async moveTo(x: number, y: number, theta: number): Promise<boolean> {
+    if (!this.canWalk('moveTo')) return false;
+    if (!this.state.root) {
+      console.warn('ALMotion::moveTo: sin física no hay odometría');
+      return false;
+    }
+    const run = ++this.moveRun;
+    return moveToPose(this.engine, this.state, this.gait, x, y, theta, () => run !== this.moveRun);
+  }
+
+  /**
+   * "Gets the World Absolute Robot Position": [x (m), y (m), theta (rad, ]-π, π])]. Con y sin sensores se usa la
+   * pose medida del torso (APPROX: el robot real distingue odometría comandada y medida).
+   */
+  getRobotPosition(_useSensors: boolean): number[] {
+    const p = robotPose(this.state);
+    return p ? [p.x, p.y, p.theta] : [0, 0, 0];
   }
 
   /** Blocking. Detiene la marcha al terminar el paso en curso. */
   async stopMove(): Promise<boolean> {
+    this.moveRun++;
     await this.gait.stop();
     return true;
   }
@@ -189,6 +218,7 @@ export class ALMotion {
 
   /** Detiene todas las tareas de movimiento */
   killAll(): void {
+    this.moveRun++;
     this.gait.abort();
     this.engine.stopAll();
   }
