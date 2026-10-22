@@ -28,7 +28,7 @@ export function runBoot(hooks: BootHooks): Promise<User> {
           <div><h1>NAO Web</h1><p>Gemelo digital del robot NAO V6</p></div>
         </header>
         <p class="boot-welcome" hidden></p>
-        <form class="boot-form" novalidate>
+        <form class="boot-form" novalidate hidden>
           <label class="boot-field boot-cred">Usuario
             <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
           </label>
@@ -69,6 +69,8 @@ export function runBoot(hooks: BootHooks): Promise<User> {
     let model: 'waiting' | 'loading' | 'done' | 'failed' = 'waiting';
     let modelProgress = 0;
     let entering = false;
+    /** Aún no se sabe si hay sesión (cookie): el formulario no se muestra para que no parpadee */
+    let checking = true;
 
     const render = () => {
       const p =
@@ -94,12 +96,15 @@ export function runBoot(hooks: BootHooks): Promise<User> {
       ];
       detail.textContent = parts.join(' · ');
       if (user) {
+        // Con sesión: solo el saludo y la carga. Si falta aceptar la licencia queda únicamente la casilla (al
+        // marcarla se entra solo); el botón vuelve solo para reintentar una descarga fallida.
         welcome.hidden = false;
         welcome.textContent = `¡Hola, ${user.displayName}! Preparando tu universo…`;
         root.querySelectorAll<HTMLElement>('.boot-cred').forEach((el) => (el.hidden = true));
         form.hidden = licenseAccepted() && model !== 'failed';
-        play.textContent = model === 'failed' ? 'Reintentar' : 'Entrar';
-      }
+        play.hidden = model !== 'failed';
+        play.textContent = 'Reintentar';
+      } else form.hidden = checking;
       tryEnter();
     };
 
@@ -188,10 +193,13 @@ export function runBoot(hooks: BootHooks): Promise<User> {
     me()
       .then((u) => {
         user = u;
-        if (!u) username.focus();
+        checking = false;
         render();
+        if (!u) username.focus();
       })
       .catch(() => {
+        checking = false;
+        render();
         error.textContent = 'No hay conexión con el servidor. Recarga la página en un momento.';
       });
     render();
