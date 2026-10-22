@@ -16,7 +16,7 @@ import { createBehaviorPanel } from './ui/behaviorPanel';
 import { attachCameraViews } from './ui/cameraViews';
 import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
-import { attachPoseRecorder } from './ui/poseRecorder';
+import { attachPoseRecorder, bootsLyingBack } from './ui/poseRecorder';
 import { attachKeyboard } from './ui/keyboard';
 import { attachMeshLicense } from './ui/meshLicense';
 import { attachSoundControl } from './ui/soundControl';
@@ -55,23 +55,22 @@ const behavior = createBehaviorPanel(panelHost, session, state, {
 });
 // Grabador de poses (enseñar movimientos a mano, p. ej. levantarse de espaldas): parte boca arriba, en el centro
 const LYING_BACK = postureJoints('LyingBack');
-attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, {
-  startLyingBack: async () => {
-    if (!physics) return false;
-    const motion = session.service('ALMotion');
-    session.engine.stopAll();
-    motion.setStiffnesses('Body', 0);
-    state.setMany(LYING_BACK);
-    // Girado 90° hacia atrás sobre el eje Y del mundo (Z arriba): la espalda queda en el suelo
-    const [w, x, y, z] = bootRoot.quaternion;
-    const [c, s] = [Math.SQRT1_2, -Math.SQRT1_2];
-    const quaternion: [number, number, number, number] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
-    physics.reset({ position: [bootRoot.position[0], bootRoot.position[1], 0.08], quaternion }, LYING_BACK);
-    await new Promise((r) => setTimeout(r, 1200)); // que se asiente antes de encender los motores
-    motion.setStiffnesses('Body', 1);
-    return true;
-  },
-});
+const startLyingBack = async (): Promise<boolean> => {
+  if (!physics) return false;
+  const motion = session.service('ALMotion');
+  session.engine.stopAll();
+  motion.setStiffnesses('Body', 0);
+  state.setMany(LYING_BACK);
+  // Girado 90° hacia atrás sobre el eje Y del mundo (Z arriba): la espalda queda en el suelo
+  const [w, x, y, z] = bootRoot.quaternion;
+  const [c, s] = [Math.SQRT1_2, -Math.SQRT1_2];
+  const quaternion: [number, number, number, number] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
+  physics.reset({ position: [bootRoot.position[0], bootRoot.position[1], 0.08], quaternion }, LYING_BACK);
+  await new Promise((r) => setTimeout(r, 1200)); // que se asiente antes de encender los motores
+  motion.setStiffnesses('Body', 1);
+  return true;
+};
+attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, { startLyingBack });
 const joints = createJointPanel(panelHost, state, session.engine, {
   onHover: (joint) => {
     nao.highlight(joint);
@@ -150,6 +149,7 @@ import('./physics/physics')
     session.engine.onManual = (name, value) => sim.placeJoint(name, value);
     setMode('física MuJoCo');
     world.invalidate(true);
+    if (bootsLyingBack()) void startLyingBack();
   })
   .catch((e) => {
     console.warn('Física no disponible, modo cinemático:', e);

@@ -8,6 +8,16 @@ import type { MotionEngine } from '../naoqi/engine';
 import { COUPLED, JOINTS } from '../robot/naoV6';
 
 const STORAGE_KEY = 'nao.poseRecorder';
+const BOOT_KEY = 'nao.bootLyingBack';
+
+/** ¿Arrancar boca arriba al abrir la página? (opción del grabador, recordada en este navegador) */
+export function bootsLyingBack(): boolean {
+  try {
+    return localStorage.getItem(BOOT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 const DEG = Math.PI / 180;
 /** Todas las articulaciones menos RHipYawPitch (es el mismo motor que LHipYawPitch) */
 const NAMES = JOINTS.map((j) => j.name).filter((n) => !(n in COUPLED));
@@ -144,7 +154,21 @@ export function attachPoseRecorder(
     }),
   );
 
-  section.append(summary, help, buttons, status, list);
+  const boot = document.createElement('label');
+  boot.className = 'boot-option';
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.checked = bootsLyingBack();
+  check.addEventListener('change', () => {
+    try {
+      localStorage.setItem(BOOT_KEY, check.checked ? '1' : '0');
+    } catch {
+      /* modo privado */
+    }
+  });
+  boot.append(check, ' Arrancar boca arriba al abrir la página');
+
+  section.append(summary, help, boot, buttons, status, list);
   host.append(section);
   render();
 }
