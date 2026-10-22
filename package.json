@@ -15,6 +15,7 @@
     "@mujoco/mujoco": "^3.16.0",
     "kokoro-js": "^1.2.1",
     "phonemizer": "^1.2.1",
+    "qrcode-generator": "^1.4.4",
     "three": "^0.186.1"
   },
   "devDependencies": {

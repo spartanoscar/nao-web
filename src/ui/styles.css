@@ -78,27 +78,13 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; margin-right: 2p
 /* Sin teclado físico (táctil) la leyenda no aplica */
 @media (hover: none) { #keys { display: none; } }
 
-/* ─── Licencia del modelo oficial ─── */
-#mesh-license {
-  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-  width: min(440px, calc(100vw - 32px)); box-sizing: border-box; z-index: 3;
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, .35); font-size: 13px;
-}
-#mesh-license h2 { margin: 0 0 6px; font-size: 14px; }
-#mesh-license p { margin: 0 0 8px; color: var(--muted); line-height: 1.45; }
-#mesh-license strong { color: var(--text); font-weight: 600; }
-.ml-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0 !important; }
-.ml-actions button { border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid var(--line); background: #1f2632; color: var(--text); }
-.ml-actions .ml-accept { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-#mesh-license a, #mesh-credit a { color: var(--accent); }
-.ml-progress { margin: 0 !important; color: var(--text) !important; }
+/* ─── Atribución del modelo oficial ─── */
+#mesh-credit a { color: var(--accent); }
 #mesh-credit { position: fixed; right: 12px; bottom: 12px; font-size: 11.5px; color: var(--muted); }
 body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 #mesh-credit a { color: var(--muted); }
 #mesh-credit button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 @media (max-width: 720px) {
-  #mesh-license { left: 50%; width: calc(100vw - 32px); }
   #mesh-credit { right: auto; left: 16px; bottom: 12px; max-width: calc(100vw - 150px); }
 }
 
@@ -110,7 +96,7 @@ body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 .swatch[aria-pressed="true"] { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
 
 /* Aviso de la tecla del panel (una vez) */
-#panel-hint { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; pointer-events: none; transition: opacity .6s ease; white-space: nowrap; }
+#panel-hint { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 2; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; pointer-events: none; transition: opacity .6s ease; white-space: nowrap; }
 #panel-hint.gone { opacity: 0; }
 @media (hover: none) { #panel-hint { display: none; } }
 
@@ -125,14 +111,14 @@ body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 .voice-panel select { width: 100%; margin: 4px 0 6px; background: #11161d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; }
 
 /* ─── Cámaras del NAO (siempre visibles) ─── */
-#camera-views { position: fixed; left: 16px; top: 16px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-body.panel-visible #camera-views { top: 72px; }
+#camera-views { position: fixed; left: 16px; top: 82px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+body:not(.in-world) #camera-views { visibility: hidden; }
 .cam-view { margin: 0; width: 160px; }
 .cam-image { aspect-ratio: 4 / 3; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); }
 .cam-view figcaption { margin-top: 2px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .cam-tech { display: none; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10.5px; }
 body.panel-visible .cam-tech { display: inline; }
-@media (max-width: 720px) { #camera-views { left: 12px; top: 12px; gap: 6px; } .cam-view { width: 112px; } }
+@media (max-width: 720px) { #camera-views { left: 12px; top: 74px; gap: 6px; } .cam-view { width: 112px; } }
 
 /* ─── Grabador de poses ─── */
 .keyframes { margin: 4px 0 8px; padding-left: 22px; font-size: 12.5px; color: var(--muted); }
@@ -142,3 +128,147 @@ body.panel-visible .cam-tech { display: inline; }
 .keyframes .chip { padding: 2px 8px; font-size: 11.5px; }
 .boot-option { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); padding: 0 0 8px; cursor: pointer; }
 .boot-option input { accent-color: var(--accent); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Interfaz estilo juego (CLAUDE.md "UI estilo juego"): paneles de vidrio, textos cortos, íconos, colores por rol
+   ════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --glass: rgba(14, 19, 28, 0.72);
+  --glass-line: rgba(255, 255, 255, 0.09);
+  --user: #5ad7ff;   /* quien habla */
+  --nao: #ffb547;    /* el NAO */
+  --ok: #4ade80;
+  --glow: 0 0 0 1px rgba(58, 160, 255, .45), 0 6px 24px rgba(58, 160, 255, .25);
+}
+.glass, .hud-player, .hud-btn, .hud-volume { background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+
+/* El título técnico vive dentro del panel oculto */
+#panel #hud { position: static; padding: 14px 0 6px; pointer-events: auto; }
+#panel #hud h1 { font-size: 15px; }
+body:not(.panel-visible) #panel #hud { display: block; }
+
+/* ─── Pantalla de entrada ─── */
+#boot {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; box-sizing: border-box;
+  background:
+    radial-gradient(1200px 700px at 50% 35%, rgba(58, 160, 255, .16), transparent 60%),
+    linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px) 0 0 / 44px 44px,
+    #0a0d12;
+  transition: opacity .6s ease, transform .6s ease;
+}
+#boot.boot-out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+.boot-card {
+  width: min(400px, 100%); box-sizing: border-box; padding: 26px 26px 22px; border-radius: 20px;
+  background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+}
+.boot-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.boot-brand img { width: 56px; height: 56px; object-fit: contain; border-radius: 14px; background: #fff; padding: 6px; box-sizing: border-box; }
+.boot-brand h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -.01em; }
+.boot-brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.boot-welcome { margin: 0 0 14px; font-size: 17px; font-weight: 700; }
+.boot-form { display: grid; gap: 12px; }
+.boot-form[hidden] { display: none; }
+.boot-field { display: grid; gap: 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.boot-field[hidden] { display: none; }
+.boot-field input {
+  font: 500 15px system-ui, -apple-system, 'Segoe UI', sans-serif; text-transform: none; letter-spacing: 0; color: var(--text);
+  background: rgba(0, 0, 0, .35); border: 1px solid var(--glass-line); border-radius: 12px; padding: 11px 13px; outline: none;
+}
+.boot-field input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+.boot-license { display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; color: var(--muted); cursor: pointer; }
+.boot-license input { margin-top: 2px; width: 17px; height: 17px; accent-color: var(--accent); flex: none; }
+.boot-license a { color: var(--accent); }
+.boot-error { margin: 0; min-height: 18px; color: #ff7676; font-size: 13px; }
+.boot-play {
+  font: 800 15px system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #fff;
+  border: 0; border-radius: 14px; padding: 13px; cursor: pointer;
+  background: linear-gradient(180deg, #4fb0ff, #1f7fe0); box-shadow: 0 8px 24px rgba(31, 127, 224, .45), inset 0 1px 0 rgba(255, 255, 255, .35);
+  transition: transform .12s ease, filter .12s ease;
+}
+.boot-play:hover { filter: brightness(1.08); }
+.boot-play:active { transform: translateY(1px) scale(.99); }
+.boot-play:disabled { filter: grayscale(.5) brightness(.8); cursor: wait; }
+.boot-loading { margin-top: 18px; }
+.boot-bar { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.boot-bar span {
+  display: block; height: 100%; width: 0; border-radius: inherit; transition: width .35s ease;
+  background: linear-gradient(90deg, #3aa0ff, #5ad7ff, #3aa0ff) 0 0 / 200% 100%; animation: boot-shimmer 1.6s linear infinite;
+}
+@keyframes boot-shimmer { to { background-position: -200% 0; } }
+.boot-status { margin: 10px 0 2px; font-size: 13.5px; font-weight: 700; letter-spacing: .02em; }
+.boot-detail { margin: 0; font-size: 12px; color: var(--muted); }
+.boot-footer { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 11.5px; color: var(--muted); }
+
+/* ─── Solo pantallas grandes (en el teléfono) ─── */
+.phone-only { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: radial-gradient(700px 500px at 50% 30%, rgba(58, 160, 255, .18), transparent 60%), #0a0d12; }
+.phone-only-card { max-width: 360px; text-align: center; padding: 28px 22px; border-radius: 20px; background: var(--glass); border: 1px solid var(--glass-line); }
+.phone-only-logo { width: 64px; height: 64px; object-fit: contain; border-radius: 16px; background: #fff; padding: 7px; box-sizing: border-box; }
+.phone-only h1 { margin: 12px 0 6px; font-size: 26px; font-weight: 800; }
+.phone-only p { margin: 8px 0; color: var(--muted); line-height: 1.5; }
+.phone-only-lead { color: var(--text) !important; font-size: 17px; font-weight: 700; }
+.phone-only-hint { font-size: 13px; padding-top: 10px; border-top: 1px solid var(--glass-line); }
+.phone-only strong { color: var(--text); }
+
+/* ─── HUD ─── */
+.hud-player { position: fixed; top: 16px; left: 16px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; }
+.hud-avatar {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 17px;
+  background: linear-gradient(135deg, #5ad7ff, #3a6fff); box-shadow: 0 0 0 2px rgba(255, 255, 255, .12);
+}
+.hud-names { display: grid; line-height: 1.2; }
+.hud-user { font-weight: 800; font-size: 15px; }
+.hud-robot { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--nao); letter-spacing: .04em; text-transform: uppercase; }
+.hud-robot svg { width: 14px; height: 14px; }
+.hud-actions { position: fixed; top: 16px; right: 16px; z-index: 5; display: flex; gap: 8px; align-items: center; }
+body.panel-visible .hud-actions { right: calc(var(--panel-w) + 16px); }
+.hud-btn {
+  height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+  color: var(--text); font: 700 13.5px system-ui, -apple-system, 'Segoe UI', sans-serif; transition: border-color .15s, box-shadow .15s, transform .1s;
+}
+.hud-btn:hover { border-color: rgba(58, 160, 255, .6); box-shadow: var(--glow); }
+.hud-btn:active { transform: scale(.97); }
+.hud-icon { width: 44px; padding: 0; justify-content: center; }
+.hud-phone[data-state="waiting"] { border-color: rgba(58, 160, 255, .7); animation: hud-pulse 1.6s ease-in-out infinite; }
+.hud-phone[data-state="connected"] { border-color: rgba(74, 222, 128, .6); }
+.hud-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+@keyframes hud-pulse { 50% { box-shadow: 0 0 0 4px rgba(58, 160, 255, .18); } }
+.hud-volume { height: 44px; display: inline-flex; align-items: center; gap: 2px; padding-right: 14px; border-radius: 999px; }
+.hud-volume .hud-btn { background: none; border: 0; backdrop-filter: none; box-shadow: none; }
+.hud-volume input {
+  width: 92px; height: 4px; -webkit-appearance: none; appearance: none; border-radius: 4px; cursor: pointer;
+  background: linear-gradient(90deg, var(--accent) var(--fill, 70%), rgba(255, 255, 255, .15) var(--fill, 70%));
+}
+.hud-volume input::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+.hud-volume input::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
+@media (max-width: 900px) { .hud-phone span { display: none; } .hud-phone { width: 44px; padding: 0; justify-content: center; } }
+
+/* ─── Conectar el teléfono (QR) ─── */
+.phone-modal { position: fixed; inset: 0; z-index: 15; display: grid; place-items: center; background: rgba(4, 6, 10, .6); backdrop-filter: blur(4px); }
+.phone-modal[hidden] { display: none; }
+.pm-card { position: relative; width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 24px; border-radius: 20px; text-align: center; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px); box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
+.pm-card h2 { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 8px; font-size: 20px; font-weight: 800; }
+.pm-lead { margin: 0 0 16px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.pm-qr { width: 232px; height: 232px; margin: 0 auto; padding: 10px; border-radius: 16px; background: #fff; box-sizing: border-box; }
+.pm-qr svg { display: block; width: 100%; height: 100%; }
+.pm-status { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 14px 0 0; min-height: 20px; font-weight: 700; font-size: 14px; color: var(--muted); }
+.pm-status.ok { color: var(--ok); }
+.pm-close { position: absolute; top: 12px; right: 12px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--glass-line); background: transparent; color: var(--muted); cursor: pointer; }
+.pm-close:hover { color: var(--text); }
+
+/* ─── Subtítulos de la conversación ─── */
+#transcript { position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%); z-index: 4; width: min(720px, calc(100vw - 32px)); display: grid; gap: 6px; justify-items: center; pointer-events: none; }
+body.panel-visible #transcript { left: calc(50% - var(--panel-w) / 2); width: min(640px, calc(100vw - var(--panel-w) - 32px)); }
+#transcript .line {
+  margin: 0; max-width: 100%; padding: 8px 14px; border-radius: 14px; font-size: 15.5px; line-height: 1.4; text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
+  background: rgba(8, 11, 17, .72); border: 1px solid var(--glass-line); backdrop-filter: blur(8px);
+  animation: line-in .35s ease both; transition: opacity .8s ease;
+}
+#transcript .line.fade { opacity: 0; }
+#transcript .who { font-weight: 800; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin-right: 8px; }
+#transcript .user { border-left: 3px solid var(--user); }
+#transcript .user .who { color: var(--user); }
+#transcript .nao { border-left: 3px solid var(--nao); }
+#transcript .nao .who { color: var(--nao); }
+@keyframes line-in { from { opacity: 0; transform: translateY(8px); } }
