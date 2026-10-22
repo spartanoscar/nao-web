@@ -39,6 +39,7 @@ CÓMO ACTÚAS:
 - Para empujar algo: primero approach hasta tenerlo justo enfrente y luego push.
 - Coordenadas del mundo: x e y en metros; rumbo en grados (0 = eje x, positivo = giro a la izquierda). Tu estado trae tu posición y "origen", donde estabas al recibir la orden, para volver con go_to.
 - Si te dicen "para", "quieto" o "detente", usa stop.
+- Si te piden una pose o un movimiento que no tienes como herramienta, invéntalo tú con arm_joints, look_at y walk/turn según lo que imagines, y luego mírate si hace falta. Intenta siempre lo que te pidan.
 - Tus brazos los controlas tú, con libertad (tus piernas siguen sus patrones de marcha para no caerte). Sabes siempre dónde están tus manos: las herramientas de brazos te lo dicen en metros respecto a tus pies. Mientras caminas o giras, los brazos se quedan donde los pusiste (por ejemplo, estira un brazo y gira el cuerpo para barrer algo con la mano).
 - Para tareas con las manos sé un experimentador: primero mira el lugar de trabajo (look_at_point o scan), planea en una frase, pon la mano (reach o arm_joints), revisa con look_at_point hand que quedó donde querías, corrige ("quedó muy arriba, bajo un poco") y entonces actúa. Mira el resultado y, si no funcionó, cambia la estrategia (altura, lado, velocidad, distancia, otro brazo) en vez de repetir lo mismo. Cuidado con el equilibrio: si te caes, no cuenta como logrado.
 - Los objetos tienen física real: una caja empujada abajo se desliza; empujada arriba puede volcarse. Un golpe rápido (speed alto) da más impulso que empujar despacio.
@@ -79,6 +80,17 @@ func number(desc string) schema { return schema{"type": "number", "description":
 
 func enum(desc string, values ...string) schema {
 	return schema{"type": "string", "description": desc, "enum": values}
+}
+
+// armAngles: los ángulos de un brazo, con la convención de arm_joints
+func armAngles(desc string) schema {
+	return schema{"type": "object", "description": desc, "properties": schema{
+		"shoulder_pitch_deg": number("hombro adelante/atrás"),
+		"shoulder_roll_deg":  number("hombro abrir/cerrar"),
+		"elbow_yaw_deg":      number("giro del antebrazo"),
+		"elbow_roll_deg":     number("doblar el codo"),
+		"wrist_yaw_deg":      number("giro de la mano"),
+	}}
 }
 
 func tool(name, desc string, params schema) schema {
@@ -132,14 +144,16 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 			"apart_m":   number("con los dos brazos: separación entre las manos (por defecto 0.22)"),
 			"speed":     number("fracción de la velocidad máxima, 0.05 a 1 (rápido = golpe)"),
 		}, "forward_m", "height_m")),
-	tool("arm_joints", "Control fino de los ángulos del brazo en grados (como el brazo izquierdo; el derecho se refleja solo). shoulder_pitch: 90 = abajo, 0 = al frente, -90 = arriba. shoulder_roll: + = abrir hacia afuera. elbow_roll: 0 = recto, -88 = doblado. Devuelve dónde quedaron tus manos.",
+	tool("arm_joints", "Mueve tus brazos como quieras, ángulo por ángulo y en grados, con la misma convención para los dos brazos (el derecho se refleja solo: abrir es hacia afuera en ambos). Puedes dar valores distintos a cada brazo en la misma orden con left y right, o los mismos a los dos con side y los ángulos sueltos. Los ángulos que no des se quedan como están. Devuelve dónde quedaron tus manos.",
 		object(schema{
-			"side":               enum("brazo", "both", "left", "right"),
-			"shoulder_pitch_deg": number("de -119 a 119"),
-			"shoulder_roll_deg":  number("de -18 a 76"),
-			"elbow_yaw_deg":      number("de -119 a 119"),
-			"elbow_roll_deg":     number("de -88 a -2"),
-			"wrist_yaw_deg":      number("de -104 a 104"),
+			"left":               armAngles("brazo izquierdo"),
+			"right":              armAngles("brazo derecho"),
+			"side":               enum("con los ángulos sueltos: a qué brazo", "both", "left", "right"),
+			"shoulder_pitch_deg": number("90 = abajo pegado al cuerpo, 0 = al frente, -90 = arriba (de -119 a 119)"),
+			"shoulder_roll_deg":  number("0 = pegado al costado, 76 = abierto hacia afuera, -18 = cruzado hacia adentro"),
+			"elbow_yaw_deg":      number("gira el antebrazo sobre el brazo: -90 = el codo se dobla hacia arriba/adelante (como de pie), 0 = se dobla hacia el pecho (de -119 a 119)"),
+			"elbow_roll_deg":     number("-2 = recto, -88 = doblado del todo"),
+			"wrist_yaw_deg":      number("gira la mano: 0 = palma hacia adentro, ±90 = palma hacia abajo o arriba (de -104 a 104)"),
 			"speed":              number("fracción de la velocidad máxima, 0.05 a 1"),
 		})),
 	tool("look_at_point", "Mira tu propia mano (hand) o un punto respecto a tus pies (adelante, izquierda, altura en metros) y toma una foto. Úsalo para revisar dónde quedó tu mano respecto al objeto antes y después de moverla.",
@@ -152,11 +166,16 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 	tool("look_at", "Mueve la cabeza a un ángulo.", object(schema{"yaw_deg": number("positivo = izquierda, de -119 a 119"), "pitch_deg": number("positivo = abajo, de -38 a 29")}, "yaw_deg", "pitch_deg")),
 	tool("animation", "Animación del cuerpo entero (de pie).",
 		object(schema{"name": enum("HandWave = saludar con la mano, Shoot = patear, TaiChi = tai chi, WipeForehead = secarse la frente", "HandWave", "Shoot", "TaiChi", "WipeForehead")}, "name")),
-	tool("leds", "Cambia el color de tus luces.",
+	tool("leds", "Cambia por un momento el color de tus luces (para expresarte; no se guarda). Las orejas solo son azules: ahí el color marca el brillo.",
 		object(schema{
-			"part":  enum("dónde", "eyes", "ears", "chest", "all"),
-			"color": enum("color", "white", "red", "green", "blue", "yellow", "magenta", "cyan", "off"),
+			"part":  enum("dónde", "eyes", "ears", "chest", "feet", "head", "all"),
+			"color": schema{"type": "string", "description": "cualquier color en #rrggbb (por ejemplo #ff8800) u off para apagar"},
 		}, "part", "color")),
+	tool("my_colors", "Cambia tu apariencia y la guarda como tuya (la verás igual al volver y te distingue de otros NAO): el color de tu carcasa y el de tus ojos. Paleta libre.",
+		object(schema{
+			"shell": schema{"type": "string", "description": "color de la carcasa en #rrggbb, u original para el azul de fábrica"},
+			"eyes":  schema{"type": "string", "description": "color de tus ojos en #rrggbb, u original para el de fábrica"},
+		})),
 	tool("look", "Toma una foto nueva con tus dos cámaras.", nil),
 	tool("scan", "Mira alrededor girando la cabeza a la izquierda, al centro y a la derecha y devuelve un mosaico. Con full=true además gira el cuerpo 180° y mira detrás: 360° en una imagen de dos filas (úsalo para buscar o contar cosas en todo el entorno).",
 		object(schema{"full": schema{"type": "boolean", "description": "true = vuelta completa (360°, tarda ~20 s)"}})),

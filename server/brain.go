@@ -44,7 +44,7 @@ const (
 )
 
 // Dos modelos: cada turno empieza con el de conversación (barato); si pide alguna habilidad, ese paso se repite con el
-// de tareas y el turno sigue con él (razonamiento medio: planear con las manos y revisar fotos lo necesita).
+// de tareas y el turno sigue con él. Razonamiento bajo: el medio pensaba hasta 1 500 tokens por paso y tardaba en actuar.
 //
 // Modelo de tareas (medido 2026-10-22 con "ve a la caja gris, empújala un metro, vuelve y siéntate", que está detrás:
 // gemini-3.8-flash con razonamiento bajo hizo scan → girar 180° → scan → approach → push → volver → sentarse, bien, en
@@ -91,7 +91,7 @@ func newBrain(a *auth) *brain {
 	return &brain{
 		auth:  a,
 		chat:  brainModel{envOr("NAO_BRAIN_CHAT_MODEL", "gemini-3.5-flash-lite"), envOr("NAO_BRAIN_CHAT_THINKING", "minimal")},
-		task:  brainModel{envOr("NAO_BRAIN_MODEL", "gemini-3.8-flash"), envOr("NAO_BRAIN_THINKING", "medium")},
+		task:  brainModel{envOr("NAO_BRAIN_MODEL", "gemini-3.8-flash"), envOr("NAO_BRAIN_THINKING", "low")},
 		turns: map[string]*brainTurn{},
 	}
 }

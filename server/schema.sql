@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar BYTEA;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_updated_at TIMESTAMPTZ;
+-- Apariencia de su NAO (paleta libre, '#rrggbb'; null = la original): carcasa y ojos. Así cada uno se distingue en el
+-- mundo compartido y su NAO se ve igual en cualquier equipo
+ALTER TABLE users ADD COLUMN IF NOT EXISTS shell_color TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS eye_color TEXT;
 
 -- La cookie lleva un token aleatorio; aquí solo se guarda su SHA-256 (si se filtra la tabla, no sirve)
 CREATE TABLE IF NOT EXISTS sessions (

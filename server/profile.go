@@ -2,16 +2,20 @@ package main
 
 // Ajustes del jugador (modal de ajustes, sin botón de guardar: el navegador manda los cambios con 3 s de pausa).
 // PATCH /api/me con solo los campos que cambiaron: displayName, robotName ("" = "NAO"), prompt, avatar (data URL
-// JPEG ya recortado y reducido en el navegador, o "" para quitarla). GET /api/avatar devuelve la foto.
+// JPEG ya recortado y reducido en el navegador, o "" para quitarla), shellColor y eyeColor ("#rrggbb" o "" = el
+// original). GET /api/avatar devuelve la foto.
 
 import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 const (
 	maxDisplayName = 40
@@ -32,6 +36,8 @@ func (a *auth) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 		RobotName   *string `json:"robotName"`
 		Prompt      *string `json:"prompt"`
 		Avatar      *string `json:"avatar"`
+		ShellColor  *string `json:"shellColor"`
+		EyeColor    *string `json:"eyeColor"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPatchBody)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "petición inválida")
@@ -90,6 +96,27 @@ func (a *auth) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if _, err := a.db.Exec(ctx, `UPDATE users SET avatar = $1, avatar_updated_at = now() WHERE id = $2`, img, u.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "no se pudo guardar")
+			return
+		}
+	}
+	for _, c := range []struct {
+		value  *string
+		column string
+	}{{body.ShellColor, "shell_color"}, {body.EyeColor, "eye_color"}} {
+		if c.value == nil {
+			continue
+		}
+		var color *string
+		if *c.value != "" {
+			if !hexColor.MatchString(*c.value) {
+				writeError(w, http.StatusBadRequest, "el color debe ser #rrggbb")
+				return
+			}
+			lower := strings.ToLower(*c.value)
+			color = &lower
+		}
+		if _, err := a.db.Exec(ctx, `UPDATE users SET `+c.column+` = $1 WHERE id = $2`, color, u.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "no se pudo guardar")
 			return
 		}

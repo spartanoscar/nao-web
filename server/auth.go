@@ -51,6 +51,9 @@ type user struct {
 	Prompt        string  `json:"prompt"`
 	// AvatarURL: "/api/avatar?v=<ms>" si tiene foto (la versión cambia con cada foto nueva), "" si no
 	AvatarURL string `json:"avatarUrl"`
+	// Apariencia de su NAO: "#rrggbb" o "" (la original)
+	ShellColor string `json:"shellColor"`
+	EyeColor   string `json:"eyeColor"`
 }
 
 type auth struct {
@@ -182,9 +185,10 @@ func (a *auth) loadUser(ctx context.Context, id int64) (*user, error) {
 		SELECT u.username, u.display_name, u.role, u.robot_name, u.daily_limit_usd::float8,
 		       COALESCE((SELECT d.total_usd FROM ai_daily_spending d
 		                 WHERE d.user_id = u.id AND d.day = (now() AT TIME ZONE '`+costTimeZone+`')::date), 0)::float8,
-		       u.prompt, CASE WHEN u.avatar IS NULL THEN NULL ELSE u.avatar_updated_at END
+		       u.prompt, CASE WHEN u.avatar IS NULL THEN NULL ELSE u.avatar_updated_at END,
+		       COALESCE(u.shell_color, ''), COALESCE(u.eye_color, '')
 		FROM users u WHERE u.id = $1`, id).Scan(&u.Username, &u.DisplayName, &u.Role, &robot, &u.DailyLimitUSD, &u.SpentTodayUSD,
-		&u.Prompt, &avatarAt)
+		&u.Prompt, &avatarAt, &u.ShellColor, &u.EyeColor)
 	if err != nil {
 		return nil, err
 	}
