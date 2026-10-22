@@ -157,6 +157,27 @@ export class NaoModel {
     }
   }
 
+  /**
+   * Articulación que mueve la pieza `object` (una malla del robot): la primera articulación móvil subiendo por el árbol.
+   * Los dedos (mimic de LHand/RHand) cuentan como la mano. null si es el torso o algo que no es del robot.
+   */
+  jointAt(object: THREE.Object3D): string | null {
+    for (let o: THREE.Object3D | null = object; o && o !== this.root; o = o.parent) {
+      const m = this.movable.find((j) => j.motion === o);
+      if (m) return m.joint.mimic?.joint ?? m.joint.name;
+    }
+    return null;
+  }
+
+  /** Mallas visibles del robot, para apuntarles con el cursor */
+  pickables(): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    this.root.traverseVisible((o) => {
+      if (o instanceof THREE.Mesh) out.push(o);
+    });
+    return out;
+  }
+
   /** Frame de un link del URDF (p. ej. CameraTop_frame para la cámara virtual) */
   frame(link: string): THREE.Object3D | undefined {
     return this.frames.get(link);

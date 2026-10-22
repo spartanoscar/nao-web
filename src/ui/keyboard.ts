@@ -59,7 +59,8 @@ export function attachKeyboard(session: Session, onStatus: (text: string) => voi
   window.addEventListener('keydown', (e) => {
     shift = e.shiftKey;
     if (e.key === 'Shift') return void update(); // girar ↔ paso lateral con A/D ya apretada
-    if (!HANDLED.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target)) return;
+    // En el modo animador (ui/animator.ts) las teclas mueven piezas, no hacen caminar al robot
+    if (!HANDLED.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target) || document.body.classList.contains('animating')) return;
     e.preventDefault(); // las flechas no deben desplazar la página
     held.add(e.code);
     void update();

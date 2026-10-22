@@ -12,6 +12,26 @@ const DEG = Math.PI / 180;
 /** Todas las articulaciones menos RHipYawPitch (es el mismo motor que LHipYawPitch) */
 const NAMES = JOINTS.map((j) => j.name).filter((n) => !(n in COUPLED));
 
+/** Desde dónde se enseña: "Probar" reinicia ahí y "Copiar" nombra el movimiento según eso */
+export type PoseOrigin = 'back' | 'sit' | 'stand';
+
+/** Lo que el modo animador (ui/animator.ts) usa del grabador: mismas poses, mismo formato */
+export interface PoseRecorder {
+  start(origin: PoseOrigin): Promise<boolean>;
+  readonly origin: PoseOrigin;
+  /** Guarda la pose actual (comandos); devuelve cuántas hay */
+  add(): number;
+  /** Borra la última; devuelve cuántas quedan */
+  removeLast(): number;
+  /** Reinicia en el origen y reproduce todo; devuelve la duración o null si no hay poses */
+  play(): Promise<number | null>;
+  copy(): Promise<boolean>;
+  count(): number;
+  duration(): number;
+  /** Lo pone app.ts: abre el modo animador (botón del grabador) */
+  openAnimator?: () => void;
+}
+
 interface Keyframe {
   /** Segundos para llegar a esta pose desde la anterior */
   duration: number;
@@ -23,24 +43,24 @@ export function attachPoseRecorder(
   host: HTMLElement,
   motion: ALMotion,
   engine: MotionEngine,
-  { startLyingBack, startSitting }: { startLyingBack(): Promise<boolean>; startSitting(): Promise<boolean> },
-): void {
+  starts: Record<PoseOrigin, () => Promise<boolean>>,
+): PoseRecorder {
   let frames: Keyframe[] = [];
-  /** Desde dónde se enseña: "Probar" reinicia ahí y "Copiar" nombra el movimiento según eso */
-  let origin: 'back' | 'sit' = 'back';
+  let origin: PoseOrigin = 'back';
   try {
-    origin = localStorage.getItem(`${STORAGE_KEY}.origin`) === 'sit' ? 'sit' : 'back';
+    const o = localStorage.getItem(`${STORAGE_KEY}.origin`);
+    if (o === 'sit' || o === 'stand') origin = o;
   } catch {
     /* sin almacenamiento */
   }
-  const startAt = (o: 'back' | 'sit') => {
+  const startAt = (o: PoseOrigin) => {
     origin = o;
     try {
       localStorage.setItem(`${STORAGE_KEY}.origin`, o);
     } catch {
       /* sin almacenamiento */
     }
-    return o === 'sit' ? startSitting() : startLyingBack();
+    return starts[o]();
   };
   try {
     frames = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
@@ -62,7 +82,7 @@ export function attachPoseRecorder(
   const help = document.createElement('p');
   help.className = 'joint-note';
   help.textContent =
-    'Mueve las articulaciones con los sliders de abajo y guarda cada pose. "Probar" reinicia boca arriba y reproduce todo.';
+    'Mueve las articulaciones con los sliders de abajo (o con el modo animador: toca la pieza y usa las flechas) y guarda cada pose. "Probar" reinicia donde empezaste y reproduce todo.';
   const status = document.createElement('div');
   status.className = 'activity';
   const list = document.createElement('ol');
@@ -118,42 +138,27 @@ export function attachPoseRecorder(
   const buttons = document.createElement('div');
   buttons.className = 'chips';
   buttons.append(
+    chip('Modo animador', 'Toca la pieza del robot y muévela con las flechas (sin sliders)', () => api.openAnimator?.()),
     chip('Empezar boca arriba', 'Acuesta al robot de espaldas, con los motores encendidos', async () => {
       say((await startAt('back')) ? 'Boca arriba, motores encendidos' : 'Hace falta la física (MuJoCo)', false);
     }),
     chip('Empezar sentado', 'Sienta al robot (postura Sit), con los motores encendidos', async () => {
       say((await startAt('sit')) ? 'Sentado, motores encendidos' : 'Hace falta la física (MuJoCo)', false);
     }),
-    chip('Guardar pose', 'Añade la pose actual como keyframe', () => {
-      frames.push({ duration: frames.length ? 0.8 : 1, angles: current() });
-      save();
-      render();
-      say(`Pose ${frames.length} guardada`);
+    chip('Empezar de pie', 'Pone al robot en StandInit, con los motores encendidos', async () => {
+      say((await startAt('stand')) ? 'De pie, motores encendidos' : 'Hace falta la física (MuJoCo)', false);
     }),
-    chip('Probar', 'Reinicia donde empezaste (boca arriba o sentado) y reproduce toda la secuencia', async () => {
+    chip('Guardar pose', 'Añade la pose actual como keyframe', () => {
+      say(`Pose ${api.add()} guardada`);
+    }),
+    chip('Probar', 'Reinicia donde empezaste (boca arriba, sentado o de pie) y reproduce toda la secuencia', async () => {
       if (!frames.length) return say('Primero guarda alguna pose', true);
-      if (!(await startAt(origin))) return say('Hace falta la física (MuJoCo)', true);
       say('▶ angleInterpolation…');
-      let t = 0;
-      const times = frames.map((k) => (t += k.duration));
-      await motion.angleInterpolation(NAMES, NAMES.map((n) => frames.map((k) => k.angles[n])), NAMES.map(() => times), true);
-      say(`Listo (${t.toFixed(1)} s)`);
+      const t = await api.play();
+      say(t === null ? 'Hace falta la física (MuJoCo)' : `Listo (${t.toFixed(1)} s)`, t === null);
     }),
     chip('Copiar', 'Copia la secuencia en JSON (grados) para pegarla en el chat', async () => {
-      const json = JSON.stringify({
-        name: origin === 'sit' ? 'StandUpFromSit' : 'StandUpFromBack',
-        joints: NAMES,
-        keyframes: frames.map((k) => ({
-          duration: k.duration,
-          angles: NAMES.map((n) => (n.endsWith('Hand') ? +k.angles[n].toFixed(2) : +(k.angles[n] / DEG).toFixed(1))),
-        })),
-      });
-      try {
-        await navigator.clipboard.writeText(json);
-        say(`Copiado: ${frames.length} poses`);
-      } catch {
-        say('No pude usar el portapapeles', true);
-      }
+      say((await api.copy()) ? `Copiado: ${frames.length} poses` : 'No pude usar el portapapeles', !frames.length);
     }),
     chip('Borrar todo', 'Borra todas las poses guardadas', () => {
       if (!frames.length || !confirm(`¿Borrar las ${frames.length} poses?`)) return;
@@ -163,9 +168,55 @@ export function attachPoseRecorder(
     }),
   );
 
+  const api: PoseRecorder = {
+    start: startAt,
+    get origin() {
+      return origin;
+    },
+    add() {
+      frames.push({ duration: frames.length ? 0.8 : 1, angles: current() });
+      save();
+      render();
+      return frames.length;
+    },
+    removeLast() {
+      frames.pop();
+      save();
+      render();
+      return frames.length;
+    },
+    async play() {
+      if (!frames.length || !(await startAt(origin))) return null;
+      let t = 0;
+      const times = frames.map((k) => (t += k.duration));
+      await motion.angleInterpolation(NAMES, NAMES.map((n) => frames.map((k) => k.angles[n])), NAMES.map(() => times), true);
+      return t;
+    },
+    async copy() {
+      if (!frames.length) return false;
+      const json = JSON.stringify({
+        name: origin === 'sit' ? 'StandUpFromSit' : origin === 'back' ? 'StandUpFromBack' : 'TaughtMotion',
+        joints: NAMES,
+        keyframes: frames.map((k) => ({
+          duration: k.duration,
+          angles: NAMES.map((n) => (n.endsWith('Hand') ? +k.angles[n].toFixed(2) : +(k.angles[n] / DEG).toFixed(1))),
+        })),
+      });
+      try {
+        await navigator.clipboard.writeText(json);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    count: () => frames.length,
+    duration: () => frames.reduce((t, k) => t + k.duration, 0),
+  };
+
   section.append(summary, help, buttons, status, list);
   host.append(section);
   render();
+  return api;
 }
 
 function chip(label: string, title: string, onClick: () => void): HTMLButtonElement {

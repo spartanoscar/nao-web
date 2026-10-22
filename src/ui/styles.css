@@ -304,6 +304,37 @@ body.panel-visible #transcript { left: calc(50% - var(--panel-w) / 2); width: mi
 .st-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
 .st-color .st-link[hidden] { display: none; }
 
+/* ─── Modo animador ─── */
+#animator {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 6; width: min(980px, calc(100vw - 32px));
+  display: grid; gap: 8px; padding: 12px 16px; box-sizing: border-box; border-radius: 18px; font-size: 13px; color: var(--text);
+  background: var(--glass); border: 1px solid rgba(245, 165, 36, .55); backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 4px rgba(245, 165, 36, .1), 0 16px 44px rgba(0, 0, 0, .5); animation: line-in .2s ease both;
+}
+#animator[hidden] { display: none; }
+body.animating #chat, body.animating #transcript { display: none; }
+#animator .an-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+#animator .an-title { font-weight: 800; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--nao); }
+#animator .an-part { font-weight: 800; font-size: 15px; }
+#animator .an-axes { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); }
+#animator .an-axes b { color: var(--text); font-weight: 700; margin-left: 4px; font-variant-numeric: tabular-nums; }
+#animator kbd {
+  display: inline-block; min-width: 18px; padding: 1px 6px; margin-right: 3px; border-radius: 6px; text-align: center;
+  font: 700 11px/1.5 system-ui, sans-serif; color: var(--text); background: rgba(255, 255, 255, .08); border: 1px solid var(--glass-line);
+}
+#animator .an-keys { color: var(--muted); }
+#animator .an-count { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+#animator .an-msg { color: var(--ok); font-weight: 700; }
+#animator .an-starts { display: inline-flex; align-items: center; gap: 6px; }
+#animator .an-starts > span { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+#animator button {
+  padding: 5px 11px; border-radius: 999px; cursor: pointer; font: 700 12px/1 system-ui, sans-serif; color: var(--text);
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--glass-line);
+}
+#animator button:hover { border-color: rgba(245, 165, 36, .7); }
+#animator .an-mirror { margin-left: auto; }
+#animator .an-mirror[aria-pressed="true"] { background: rgba(245, 165, 36, .22); border-color: var(--nao); color: #fff; }
+
 /* ─── Chat con el NAO ─── */
 #chat [hidden] { display: none !important; }
 body.chatting #transcript { bottom: 84px; }

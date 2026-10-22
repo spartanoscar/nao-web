@@ -18,6 +18,7 @@ import { attachCameraViews } from './ui/cameraViews';
 import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachPoseRecorder } from './ui/poseRecorder';
+import { attachAnimator } from './ui/animator';
 import { attachKeyboard } from './ui/keyboard';
 import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
@@ -102,7 +103,24 @@ const startSitting = async (): Promise<boolean> => {
   await new Promise((r) => setTimeout(r, 200));
   return session.service('ALRobotPosture').goToPosture('Sit', 1);
 };
-attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, { startLyingBack, startSitting });
+// De pie: desde el arranque, wakeUp → StandInit
+const startStanding = async (): Promise<boolean> => {
+  if (!physics) return false;
+  session.engine.stopAll();
+  session.service('ALMotion').setStiffnesses('Body', 0);
+  state.setMany(BOOT_POSTURE);
+  physics.reset(bootRoot, BOOT_POSTURE);
+  await new Promise((r) => setTimeout(r, 1000));
+  return session.service('ALMotion').wakeUp();
+};
+const recorder = attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, {
+  back: startLyingBack,
+  sit: startSitting,
+  stand: startStanding,
+});
+// Modo animador: tocar la pieza y moverla con las flechas, en vez de 25 sliders (mismas poses que el grabador)
+const animator = attachAnimator(world, nao, session, recorder);
+recorder.openAnimator = () => animator.open();
 const joints = createJointPanel(panelHost, state, session.engine, {
   onHover: (joint) => {
     nao.highlight(joint);
