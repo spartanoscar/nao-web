@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@mujoco/mujoco": "^3.16.0",
+    "kokoro-js": "^1.2.1",
+    "phonemizer": "^1.2.1",
     "three": "^0.186.1"
   },
   "devDependencies": {
