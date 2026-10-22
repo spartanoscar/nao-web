@@ -2,8 +2,9 @@
 // El escritorio es la "pantalla" de la sala; el teléfono entra con el enlace del QR (control.html#r=<sala>).
 //
 // Mensajes (JSON con `t`, como hv):
-//   teléfono → escritorio: {t:'tilt', x, y} (−1..1, ~30/s) · {t:'view', on, camera} · {t:'media', mic, cam}
-//   escritorio → teléfono: binario = [cámara (1 byte)] + JPEG de la vista del NAO (ALVideoDevice, 320×240, 5/s)
+//   teléfono → escritorio: {t:'tilt', x, y} (−1..1, ~30/s) · {t:'view', on, cameras: [0, 1]} · {t:'media', mic, cam}
+//   escritorio → teléfono: binario = [cámara (1 byte)] + JPEG de la vista del NAO (ALVideoDevice, 320×240,
+//   5/s por cámara)
 //   servidor → ambos: {t:'peers', screen, phone} · {t:'replaced'} · {t:'gone'}
 
 import qrcode from 'qrcode-generator';
@@ -28,7 +29,7 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
   let room: string | null = null;
   let ws: WebSocket | null = null;
   let phone = false;
-  let view: { camera: number; timer: number } | null = null;
+  let view: { cameras: number[]; timer: number } | null = null;
   /** Otra pestaña abrió su propia sala: esta deja de reconectar (si no, se quitarían la sala sin fin) */
   let displaced = false;
   const handles = new Map<number, string>();
@@ -113,7 +114,11 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
         displaced = true;
         room = null;
       } else if (m.t === 'tilt') hooks.tilt(clamp(Number(m.x)), clamp(Number(m.y)));
-      else if (m.t === 'view') (m.on ? startView(Number(m.camera) === 1 ? 1 : 0) : stopView());
+      else if (m.t === 'view') {
+        const cameras = (Array.isArray(m.cameras) ? m.cameras : [m.camera]).map(Number).filter((c) => c === 0 || c === 1);
+        if (m.on && cameras.length) startView([...new Set(cameras)]);
+        else stopView();
+      }
     };
     sock.onclose = (e) => {
       if (ws !== sock) return;
@@ -155,9 +160,9 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
     canvas.toBlob((jpeg) => jpeg && ws?.readyState === WebSocket.OPEN && ws.send(new Blob([Uint8Array.of(camera), jpeg])), 'image/jpeg', 0.6);
   };
 
-  const startView = (camera: number) => {
+  const startView = (cameras: number[]) => {
     stopView();
-    view = { camera, timer: window.setInterval(() => sendFrame(camera), 1000 / VIEW_FPS) };
+    view = { cameras, timer: window.setInterval(() => cameras.forEach(sendFrame), 1000 / VIEW_FPS) };
   };
   const stopView = () => {
     if (view) clearInterval(view.timer);
