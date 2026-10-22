@@ -125,7 +125,11 @@ import('./physics/physics')
 world.onFrame((dt) => {
   session.update(dt);
   if (physics?.step(dt)) world.invalidate(true);
-  if (physics) sound.update(physics.telemetry(), world.camera.position.distanceTo(world.controls.target));
+  if (physics) {
+    const hearing = world.camera.position.distanceTo(world.controls.target);
+    sound.update(physics.telemetry(), hearing);
+    for (const hit of physics.takeImpacts()) sound.impact(hit, hearing);
+  }
   let ledsChanged = false;
   for (const v of ledViews) ledsChanged = v.update(session.leds) || ledsChanged;
   if (ledsChanged) world.invalidate();
