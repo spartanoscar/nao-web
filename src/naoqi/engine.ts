@@ -29,6 +29,8 @@ interface CurveTrack {
   times: number[];
   values: number[];
   slopes: number[];
+  /** Tramos rectos entre keyframes (reproductores de keyframes de RoboCup) en vez de la curva de ALMotion */
+  linear: boolean;
 }
 
 /** Seguimiento reactivo de un objetivo (setAngles): velocidad continua, aceleración limitada */
@@ -153,10 +155,11 @@ export class MotionEngine {
   /**
    * Trayectorias por keyframes, todas en paralelo. Tiempos en segundos desde ahora (estrictamente
    * crecientes, > 0); valores absolutos. Reemplaza cualquier comando previo sobre esos canales.
+   * `linear`: tramos rectos entre keyframes (como el reproductor de NaoTH) en vez de la curva suave.
    */
   interpolate(
     trajectories: Readonly<Record<string, { times: number[]; values: number[] }>>,
-    { continuous = false }: { continuous?: boolean } = {},
+    { continuous = false, linear = false }: { continuous?: boolean; linear?: boolean } = {},
   ): MotionTask {
     const task = new Task(this);
     for (const [name, { times, values }] of Object.entries(trajectories)) {
@@ -166,7 +169,7 @@ export class MotionEngine {
       const slopes = monotoneSlopes(ts, vs);
       // Encadenado: la curva nueva arranca con la velocidad que llevaba el joint (sin frenar en la unión)
       if (continuous) slopes[0] = this.tracks.get(name)?.vel ?? 0;
-      this.startTrack(name, { kind: 'curve', t: 0, times: ts, values: vs, slopes }, task, start);
+      this.startTrack(name, { kind: 'curve', t: 0, times: ts, values: vs, slopes, linear }, task, start);
     }
     if (task.remaining === 0) task.release();
     return task;
@@ -368,8 +371,9 @@ function monotoneSlopes(times: number[], values: number[]): number[] {
   });
 }
 
-function evalCurve({ times, values, slopes }: CurveTrack, t: number): number {
+function evalCurve({ times, values, slopes, linear }: CurveTrack, t: number): number {
   if (t >= times[times.length - 1]) return values[values.length - 1];
+  if (linear) return evalLinear(times, values, t);
   const i = segment(times, t);
   const dt = times[i + 1] - times[i];
   const s = clamp((t - times[i]) / dt, 0, 1);
