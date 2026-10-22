@@ -4,6 +4,9 @@ dist/
 .env
 .env.*
 *.local
+# Claves locales (p. ej. .local/gemini.json): nunca al repo; las del servidor viven en /root/nao/.env
+.local/
+local/
 
 # Mallas oficiales del NAO (CC BY-NC-ND 4.0): se descargan con scripts/fetch-nao-meshes.sh
 public/models/nao_meshes/
