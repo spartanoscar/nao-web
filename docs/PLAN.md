@@ -98,7 +98,13 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   WebGPU fp32 con respaldo WASM q8, pitchShift/doubleVoice implementados, primer sonido en ~0.5–0.8 s. Ver CLAUDE.md
   "Voz". Pendiente: `ALAnimatedSpeech`, ajustar los parámetros de oído contra videos del NAO, `speed` dentro de
   `\rspd=…\` y demás etiquetas de texto de la doc.
-- Palabra de activación "Oye NAO" o pulsar para hablar en el teléfono (reduce costo y falsos disparos).
+- **Hecho (2026-10-22): cerebro por turnos** (no Gemini Live, para conservar la voz del NAO y pagar solo al hablarle):
+  subtítulo final o chat → `POST /api/brain` → `gemini-3.8-flash` con function calling → dice y encadena habilidades de
+  alto nivel hechas con NAOqi (walk/turn/go_to = `moveTo`, approach por la caja de Gemini proyectada al suelo, push,
+  posturas, gestos, animaciones, LEDs, look, scan), revisando cada resultado. Últimos 20 mensajes, foto combinada de las
+  dos cámaras en cada turno, estado compacto. Ver CLAUDE.md "Cerebro del NAO". Siguen: vida autónoma local (con
+  `quieto_seg`: aburrirse, sentarse, bostezar), memoria espacial de objetos (`places`), rostros, biblioteca.
+- Palabra de activación: **hecho** por nombre ("NAO" o el nombre que le puso su dueño) + 20 s de conversación abierta.
 - Interrumpir al robot hablándole (barge-in).
 - Respaldo sin cuota: Web Speech API del navegador.
 
