@@ -83,6 +83,11 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   infantil como el del NAO (voz en español + subir el tono con WebAudio). Verificar voces en español con
   `tts.list_voices()`.
 - `ALTextToSpeech.say` y `ALAnimatedSpeech` (gestos sincronizados con el habla, módulo real de NAOqi).
+- **Voz "estilo NAO":** la voz original no se puede usar (motor comercial de Nuance, antes Acapela, licenciado por
+  robot y nativo del robot). Pero la doc de `ALTextToSpeech` dice que la voz oficial de cada idioma se define con
+  parámetros sobre la voz base: `pitchShift` (1–4), `doubleVoice` (1–4), `doubleVoiceLevel` (0–4),
+  `doubleVoiceTimeShift` (0–0.5 s), `speed` (50–400). Se implementan de verdad en WebAudio sobre la voz base
+  (Kokoro o la del sistema) con `setParameter`/`getParameter`, y se ajustan de oído comparando con videos del NAO.
 - Palabra de activación "Oye NAO" o pulsar para hablar en el teléfono (reduce costo y falsos disparos).
 - Interrumpir al robot hablándole (barge-in).
 - Respaldo sin cuota: Web Speech API del navegador.
@@ -136,9 +141,16 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   `lookAt(objeto)`, `say(texto)`, `goToPosture(...)`.
 
 ### F14 — Sonido
-- Sonido de servos **procedural** (WebAudio, según la velocidad de cada articulación): sin archivos externos.
-- Pasos y golpes a partir de los contactos de MuJoCo; golpe fuerte al caerse.
-- Efectos CC0 (Kenney, Freesound CC0) con su licencia anotada.
+- **Motores sintetizados en vivo** (WebAudio, sin archivos): un "zumbido de reductora" por cada uno de los 24
+  actuadores, alimentado por la física de MuJoCo. Tono ∝ velocidad del rotor (velocidad del joint × reducción de su
+  motor, `naoV6.motorOf`), volumen ∝ velocidad y torque (corriente). Así suena como el real según la carga: quieto
+  y en reposo, silencio; de pie, un zumbido leve de los motores sosteniendo el peso; al caminar, las piernas al
+  ritmo de los pasos. Cada tipo de motor (5 modelos oficiales) con su timbre.
+- **Golpes y caídas** desde los contactos de MuJoCo (impulso del contacto → volumen): sonidos CC0.
+- **Fuentes de sonidos libres:** freesound.org (filtrar CC0: "servo motor", "impact"), kenney.nl (Sci-Fi e Impact
+  Sounds, CC0), generadores sfxr.me (jsfxr) y ChipTone (lo generado es propio), ElevenLabs Sound Effects (IA,
+  revisar términos). Si alguna articulación del NAO físico aún se mueve, grabarla con el celular es lo mejor.
+- Control de sonido y volumen en el panel oculto.
 
 ### Física pendiente (en paralelo)
 - Levantarse boca arriba o desde sentado (darse vuelta y luego `StandUpFromFront`).
