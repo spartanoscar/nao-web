@@ -1,24 +1,20 @@
-// Cámaras del NAO V6 (doc family_nao_technical_video_naov6): dos OV5640 idénticas, CameraTop en la frente
-// (índice 0, AL::kTopCamera) y CameraBottom en la boca (índice 1, AL::kBottomCamera). Posición y orientación:
-// los frames ópticos del URDF (la de abajo mira 39.7° hacia el suelo). Campo de visión 56.3° H × 43.7° V (4:3).
-// Son la base de ALVideoDevice: lo que ve el robot sale de aquí.
+// Cámaras del NAO V6 en la escena: CameraTop en la frente (índice 0) y CameraBottom en la boca (índice 1),
+// colgadas de los frames ópticos del URDF (la de abajo mira 39.7° hacia el suelo). Datos: robot/cameras.ts.
+// Las usan la vista de depuración (renderTo) y ALVideoDevice (capture).
 
 import * as THREE from 'three';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { CAMERA_HFOV, CAMERA_VFOV, NAO_CAMERAS } from '../robot/cameras';
 import type { NaoModel } from './naoModel';
 
-export const NAO_CAMERAS = [
-  { index: 0, name: 'CameraTop', id: 'kTopCamera', frame: 'CameraTop_optical_frame' },
-  { index: 1, name: 'CameraBottom', id: 'kBottomCamera', frame: 'CameraBottom_optical_frame' },
-] as const;
-
-/** Campo de visión horizontal y vertical (rad), doc video_naov6 */
-export const CAMERA_HFOV = THREE.MathUtils.degToRad(56.3);
-export const CAMERA_VFOV = THREE.MathUtils.degToRad(43.7);
 /** APPROX: el lente está en la superficie de la carcasa; más cerca que esto se vería el plástico por dentro */
 const NEAR = 0.01;
 
 export class NaoCameras {
   readonly cameras: THREE.PerspectiveCamera[];
+  /** Texturas de captura por tamaño: [escena lineal (media precisión), salida de 8 bits] */
+  private readonly targets = new Map<string, [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget]>();
+  private readonly output = new OutputPass();
 
   constructor(model: NaoModel) {
     const aspect = Math.tan(CAMERA_HFOV / 2) / Math.tan(CAMERA_VFOV / 2);
@@ -47,5 +43,31 @@ export class NaoCameras {
     renderer.render(scene, this.cameras[index]);
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, renderer.domElement.clientWidth, height);
+  }
+
+  /**
+   * Imagen de la cámara `index` en RGBA de 8 bits, filas de arriba abajo, igual que se vería en pantalla.
+   * Un render a textura en three queda lineal y sin tonemapping: OutputPass aplica los mismos que el canvas.
+   */
+  capture(renderer: THREE.WebGLRenderer, scene: THREE.Scene, index: number, width: number, height: number): Uint8Array {
+    const key = `${width}x${height}`;
+    let pair = this.targets.get(key);
+    if (!pair) {
+      pair = [new THREE.WebGLRenderTarget(width, height, { type: THREE.HalfFloatType, samples: 4 }), new THREE.WebGLRenderTarget(width, height)];
+      this.targets.set(key, pair);
+    }
+    const [linear, out] = pair;
+    const previous = renderer.getRenderTarget();
+    renderer.setRenderTarget(linear);
+    renderer.render(scene, this.cameras[index]);
+    this.output.render(renderer, out, linear, 0, false);
+    const raw = new Uint8Array(width * height * 4);
+    renderer.readRenderTargetPixels(out, 0, 0, width, height, raw);
+    renderer.setRenderTarget(previous);
+    // WebGL entrega las filas de abajo arriba
+    const rgba = new Uint8Array(raw.length);
+    const row = width * 4;
+    for (let y = 0; y < height; y++) rgba.set(raw.subarray((height - 1 - y) * row, (height - y) * row), y * row);
+    return rgba;
   }
 }

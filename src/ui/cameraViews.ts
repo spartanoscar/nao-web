@@ -2,7 +2,8 @@
 // el panel oculto y se recuerda en este navegador. Se dibujan en el mismo canvas (scissor), solo cuando
 // la escena se redibuja: no rompen el render bajo demanda.
 
-import { NAO_CAMERAS, type NaoCameras } from '../sim/naoCameras';
+import { NAO_CAMERAS } from '../robot/cameras';
+import type { NaoCameras } from '../sim/naoCameras';
 import type { World } from '../sim/world';
 
 const STORAGE_KEY = 'nao.debugCameras';

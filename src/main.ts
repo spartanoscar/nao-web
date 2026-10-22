@@ -75,6 +75,7 @@ window.addEventListener('keydown', startAudio, { once: true });
 // Cámaras de la frente y la boca (frames ópticos del URDF); en depuración, recuadros a la izquierda
 const cameras = new NaoCameras(nao);
 attachCameraViews(behavior.slot, world, cameras);
+session.service('ALVideoDevice').source = { capture: (i, w, h) => cameras.capture(world.renderer, world.scene, i, w, h) };
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));
 
