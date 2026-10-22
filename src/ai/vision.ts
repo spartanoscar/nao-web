@@ -2,7 +2,8 @@
 //
 //   - Vista: una sola imagen con las dos cámaras apiladas (frente arriba, boca abajo). Juntas cubren del suelo
 //     cerca de los pies hasta el frente casi sin hueco (frente −23°…+21°, boca 18°…62° hacia abajo).
-//   - Mosaico (scan): tres vistas con la cabeza a la izquierda, al centro y a la derecha, en una imagen.
+//   - Mosaico (scan): tres vistas con la cabeza a la izquierda, al centro y a la derecha, en una imagen; con la vuelta
+//     completa, una segunda fila con lo de detrás (gira el cuerpo 180°): 360° en una sola imagen.
 //   - Cada recuadro guarda la pose de su cámara en el momento de la foto: una caja que devuelve Gemini
 //     ([ymin, xmin, ymax, xmax] de 0 a 1000) se convierte en un punto del suelo proyectando el borde inferior de la
 //     caja (donde el objeto toca el piso) con la cámara estenopeica. En el NAO real sería lo mismo con
@@ -67,20 +68,32 @@ export class Vision {
     return this.finish(tiles);
   }
 
-  /** Mosaico de tres vistas moviendo la cabeza (960×480); la cabeza vuelve al centro */
-  async scan(motion: ALMotion): Promise<Snapshot> {
+  /**
+   * Mosaico moviendo la cabeza: una fila de tres vistas (960×480), o con `turnAround` dos filas (960×960): lo de
+   * delante y, tras girar el cuerpo 180°, lo de detrás. La cabeza vuelve al centro.
+   */
+  async scan(motion: ALMotion, turnAround?: () => Promise<boolean>): Promise<Snapshot> {
     const pitch = motion.getAngles('HeadPitch', false)[0];
-    const ctx = this.prepare(W * SCAN_YAWS.length, H * 2);
+    const rows = turnAround ? 2 : 1;
+    const ctx = this.prepare(W * SCAN_YAWS.length, H * 2 * rows);
     const tiles: Tile[] = [];
-    for (const [i, yaw] of SCAN_YAWS.entries()) {
-      await motion.angleInterpolationWithSpeed(['HeadYaw', 'HeadPitch'], [yaw, 0], 0.4);
-      await nextFrame(); // que la escena dibuje la cabeza en su nueva pose
-      tiles.push(this.draw(ctx, 0, i * W, 0), this.draw(ctx, 1, i * W, H));
-      ctx.font = 'bold 15px system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(i * W + 6, 6, ctx.measureText(SCAN_LABELS[i]).width + 12, 22);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(SCAN_LABELS[i], i * W + 12, 22);
+    for (let row = 0; row < rows; row++) {
+      if (row > 0) {
+        await motion.angleInterpolationWithSpeed(['HeadYaw', 'HeadPitch'], [0, 0], 0.4);
+        if (!(await turnAround!())) break;
+      }
+      const y0 = row * H * 2;
+      for (const [i, yaw] of SCAN_YAWS.entries()) {
+        await motion.angleInterpolationWithSpeed(['HeadYaw', 'HeadPitch'], [yaw, 0], 0.4);
+        await nextFrame(); // que la escena dibuje la cabeza en su nueva pose
+        tiles.push(this.draw(ctx, 0, i * W, y0), this.draw(ctx, 1, i * W, y0 + H));
+        const label = (rows > 1 ? (row ? 'detrás · ' : 'delante · ') : '') + SCAN_LABELS[i];
+        ctx.font = 'bold 15px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(i * W + 6, y0 + 6, ctx.measureText(label).width + 12, 22);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, i * W + 12, y0 + 22);
+      }
     }
     void motion.angleInterpolationWithSpeed(['HeadYaw', 'HeadPitch'], [0, pitch], 0.4);
     return this.finish(tiles);

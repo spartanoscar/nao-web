@@ -5,6 +5,10 @@
 import type { Session } from '../naoqi/session';
 import { MOTIONS, playMotion } from '../naoqi/motionFile';
 import { wrapAngle } from '../naoqi/moveTo';
+import { postureJoints } from '../naoqi/postures';
+import { WALK_POSE } from '../naoqi/walk';
+import { invertRigid } from '../robot/kinematics';
+import { CHAINS } from '../robot/naoV6';
 import type { Snapshot, Vision } from './vision';
 
 export interface SkillResult {
@@ -39,6 +43,24 @@ const GESTURES: Record<string, { yaw: number[]; pitch: number[]; times: number[]
   doubt: { yaw: [0.35, 0.35, 0], pitch: [-0.2, -0.2, 0], times: [0.5, 1.5, 2.1] },
 };
 
+/**
+ * Poses de los brazos (brazo izquierdo, rad; el derecho es el espejo: roll y codo con signo opuesto). Dentro de los
+ * límites del URDF. "down" = los brazos de StandInit (qiBullet) y le devuelve los brazos a la marcha.
+ */
+const ARM_POSES: Record<string, { ShoulderPitch: number; ShoulderRoll: number; ElbowYaw: number; ElbowRoll: number; WristYaw: number }> = {
+  front: { ShoulderPitch: 0, ShoulderRoll: 0.05, ElbowYaw: -1.39, ElbowRoll: -0.04, WristYaw: 0 },
+  high_front: { ShoulderPitch: -0.55, ShoulderRoll: 0.05, ElbowYaw: -1.39, ElbowRoll: -0.04, WristYaw: 0 },
+  up: { ShoulderPitch: -1.5, ShoulderRoll: 0.1, ElbowYaw: -1.39, ElbowRoll: -0.04, WristYaw: 0 },
+  open: { ShoulderPitch: 0.2, ShoulderRoll: 1.3, ElbowYaw: -1.39, ElbowRoll: -0.04, WristYaw: 0 },
+};
+const STAND_INIT = postureJoints('StandInit');
+/** Eje de HeadYaw/HeadPitch sobre el torso (URDF: 0.1265 m) y altura aproximada de las cámaras sobre él */
+const HEAD_PIVOT_Z = 0.1265;
+const CAMERA_ABOVE_PIVOT = 0.05;
+const LEGS = [...CHAINS.LLeg, ...CHAINS.RLeg];
+/** Piernas listas para caminar: en StandInit o en la pose de marcha (rad, el joint más alejado) */
+const LEGS_READY = 0.15;
+
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
@@ -51,14 +73,40 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     const [x, y, theta] = motion.getRobotPosition(true);
     return { posicion: { x: round(x), y: round(y) }, rumbo_grados: Math.round(theta / DEG) };
   };
+  /** Dónde están las manos (propiocepción: getPosition en FRAME_ROBOT, con los sensores), en metros */
+  const hands = () => {
+    const at = (chain: string) => {
+      const [x, y, z] = motion.getPosition(chain, 2, true);
+      return { adelante_m: round(x), izquierda_m: round(y), altura_m: round(z) };
+    };
+    return { manos: { izquierda: at('LArm'), derecha: at('RArm') } };
+  };
+  const armSides = (side: unknown) => (side === 'left' ? ['L'] : side === 'right' ? ['R'] : ['L', 'R']);
+  /** Saca de la marcha los brazos que se van a mover (setMoveArmsEnabled), para que se queden donde se ponen */
+  const holdArms = (sides: string[]) =>
+    motion.setMoveArmsEnabled(sides.includes('L') ? false : motion.getMoveArmsEnabled('LArm'), sides.includes('R') ? false : motion.getMoveArmsEnabled('RArm'));
+
   /**
    * Listo para caminar, como en todos los ejemplos oficiales de ALMotion (walk-api): goToPosture("StandInit", 0.5)
    * antes de moverse. Desde el suelo o sentado, goToPosture primero lo levanta. false si no lo logra.
    */
-  const standUp = async (): Promise<boolean> => {
+  /**
+   * Motores encendidos en todo el cuerpo. wakeUp no hace nada si algún motor ya tiene stiffness (doc: "If the robot is
+   * already stiffened, the call returns True immediately"): con solo la cabeza encendida las piernas quedaban flojas.
+   */
+  const wakeLegs = async () => {
     if (!motion.robotIsWakeUp()) await motion.wakeUp();
-    if (posture.getPosture() === 'StandInit') return true;
-    return posture.goToPosture('StandInit', 0.5);
+    else if (Math.min(...motion.getStiffnesses(LEGS)) < 0.9) motion.setStiffnesses('Body', 1);
+  };
+  const standUp = async (): Promise<boolean> => {
+    await wakeLegs();
+    // De pie con las piernas ya listas no hace falta (y goToPosture le bajaría los brazos si los tiene al frente)
+    const near = (pose: Record<string, number>) => LEGS.every((j) => !(j in pose) || Math.abs(motion.getAngles(j, true)[0] - pose[j]) < LEGS_READY);
+    if (posture.getPostureFamily() === 'Standing' && (near(STAND_INIT) || near(WALK_POSE))) return true;
+    const ok = await posture.goToPosture('StandInit', 0.5);
+    // goToPosture mueve todo el cuerpo: los brazos vuelven a la marcha
+    if (ok) motion.setMoveArmsEnabled(true, true);
+    return ok;
   };
   const notStanding = () => ({ ok: false, error: `no pude ponerme de pie: ${posture.lastFailure || posture.getPostureFamily()}` });
   const moveResult = (ok: boolean, extra: Args = {}) => ({
@@ -127,12 +175,13 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       const [x0, y0] = motion.getRobotPosition(true);
       const ok = await motion.moveTo(meters + 0.1, 0, 0); // + lo que falta para tocarlo
       const [x1, y1] = motion.getRobotPosition(true);
-      return { response: moveResult(ok, { avance_m: round(Math.hypot(x1 - x0, y1 - y0)) }) };
+      return { response: moveResult(ok, { avance_m: round(Math.hypot(x1 - x0, y1 - y0)), ...hands() }) };
     }
     case 'posture': {
       const target = String(args.name);
       if (!POSTURES.includes(target)) return { response: { ok: false, error: `postura desconocida: ${target}` } };
       const ok = await posture.goToPosture(target, 0.6);
+      motion.setMoveArmsEnabled(true, true); // la postura también pone los brazos
       return { response: { ok, postura: posture.getPosture(), ...(ok ? {} : { error: posture.lastFailure }) } };
     }
     case 'rest':
@@ -144,12 +193,111 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     case 'gesture': {
       const g = GESTURES[String(args.name)];
       if (!g) return { response: { ok: false, error: `gesto desconocido: ${String(args.name)}` } };
-      if (!motion.robotIsWakeUp()) motion.setStiffnesses('Head', 1);
+      await wakeLegs();
       await motion.angleInterpolation(['HeadYaw', 'HeadPitch'], [g.yaw, g.pitch], [g.times, g.times], true);
       return { response: { ok: true } };
     }
+    case 'arms': {
+      const side = String(args.side ?? 'both');
+      const sides = side === 'left' ? ['L'] : side === 'right' ? ['R'] : ['L', 'R'];
+      const name = String(args.pose);
+      if (name !== 'down' && !ARM_POSES[name]) return { response: { ok: false, error: `pose de brazos desconocida: ${name}` } };
+      await wakeLegs();
+      const names: string[] = [];
+      const angles: number[] = [];
+      for (const s of sides) {
+        const mirror = s === 'R' ? -1 : 1;
+        for (const [j, v] of Object.entries(ARM_POSES[name] ?? {})) {
+          names.push(s + j);
+          angles.push(j === 'ShoulderPitch' || j === 'WristYaw' ? v : v * mirror);
+        }
+        if (name === 'down') for (const j of CHAINS[`${s}Arm` as 'LArm' | 'RArm']) if (j in STAND_INIT && !j.endsWith('Hand')) {
+          names.push(j);
+          angles.push(STAND_INIT[j]);
+        }
+      }
+      // Brazos fuera de la marcha mientras estén en una pose (como setMoveArmsEnabled en el robot real)
+      const enabled = name === 'down';
+      motion.setMoveArmsEnabled(sides.includes('L') ? enabled : motion.getMoveArmsEnabled('LArm'), sides.includes('R') ? enabled : motion.getMoveArmsEnabled('RArm'));
+      await motion.angleInterpolationWithSpeed(names, angles, 0.4);
+      return { response: { ok: true, brazos: name, lado: side, ...hands() } };
+    }
+    case 'reach': {
+      // Mano(s) a un punto de FRAME_ROBOT (x adelante, y izquierda, z alto desde el suelo) con setPositions/IK
+      const sides = armSides(args.side);
+      await wakeLegs();
+      const apart = Math.min(Math.max(num(args.apart_m, 0.22), 0), 0.5);
+      const fwd = num(args.forward_m, 0.2);
+      const height = num(args.height_m, 0.35);
+      holdArms(sides);
+      const errors: Record<string, number> = {};
+      const speed = Math.min(Math.max(num(args.speed, 0.4), 0.05), 1);
+      const names = sides.map((sd) => `${sd}Arm`);
+      const points = sides.map((sd) => {
+        const lateral = sides.length === 1 ? num(args.left_m, sd === 'L' ? 0.11 : -0.11) : (sd === 'L' ? apart : -apart) / 2;
+        return [fwd, lateral, height, 0, 0, 0];
+      });
+      const duration = 0.4 + 0.8 / speed;
+      await motion.positionInterpolations(names, sides.map(() => 2), names.length > 1 ? points : points[0], sides.map(() => 7), names.length > 1 ? sides.map(() => [duration]) : [duration]);
+      const h = hands();
+      for (const sd of sides) {
+        const hand = sd === 'L' ? h.manos.izquierda : h.manos.derecha;
+        const want = points[sides.indexOf(sd)];
+        errors[sd === 'L' ? 'izquierda' : 'derecha'] = round(Math.hypot(hand.adelante_m - want[0], hand.izquierda_m - want[1], hand.altura_m - want[2]));
+      }
+      const far = Object.values(errors).some((e) => e > 0.03);
+      return { response: { ok: !far, ...h, falta_m: errors, ...(far ? { nota: 'no alcanzo ese punto: está fuera del alcance del brazo (~0.22 m desde el hombro)' } : {}) } };
+    }
+    case 'arm_joints': {
+      // Ángulos directos (grados) del brazo izquierdo; el derecho se refleja (mismo gesto en espejo)
+      const sides = armSides(args.side);
+      await wakeLegs();
+      holdArms(sides);
+      const fields: [string, string][] = [['shoulder_pitch_deg', 'ShoulderPitch'], ['shoulder_roll_deg', 'ShoulderRoll'], ['elbow_yaw_deg', 'ElbowYaw'], ['elbow_roll_deg', 'ElbowRoll'], ['wrist_yaw_deg', 'WristYaw']];
+      const names: string[] = [];
+      const angles: number[] = [];
+      for (const sd of sides) {
+        for (const [field, joint] of fields) {
+          if (typeof args[field] !== 'number') continue;
+          const v = (args[field] as number) * DEG;
+          names.push(sd + joint);
+          angles.push(sd === 'R' && joint !== 'ShoulderPitch' && joint !== 'WristYaw' ? -v : v);
+        }
+      }
+      if (!names.length) return { response: { ok: false, error: 'no diste ningún ángulo' } };
+      const clamped = angles.map((a, i) => {
+        const spec = motion.getLimits(names[i])[0];
+        return Math.min(Math.max(a, spec[0]), spec[1]);
+      });
+      await motion.angleInterpolationWithSpeed(names, clamped, Math.min(Math.max(num(args.speed, 0.4), 0.05), 1));
+      return { response: { ok: true, ...hands() } };
+    }
+    case 'look_at_point': {
+      // Apunta la cabeza a la mano (getPosition en FRAME_TORSO) o a un punto de FRAME_ROBOT y toma una foto: para
+      // revisar dónde quedó la mano respecto al objeto. Si hace falta mirar más abajo de lo que deja HeadPitch, la
+      // cámara de la boca (39.7° más abajo) lo ve en la misma imagen.
+      await wakeLegs();
+      let p: number[];
+      if (args.hand === 'left' || args.hand === 'right') p = motion.getPosition(args.hand === 'left' ? 'LArm' : 'RArm', 0, true);
+      else {
+        const t = invertRigid(motion.getTransform('Torso', 2, true)); // FRAME_ROBOT → torso
+        const [x, y, z] = [num(args.forward_m, 0.2), num(args.left_m), num(args.height_m, 0.3)];
+        p = [t[0] * x + t[1] * y + t[2] * z + t[3], t[4] * x + t[5] * y + t[6] * z + t[7], t[8] * x + t[9] * y + t[10] * z + t[11]];
+      }
+      const [dx, dy, dz] = [p[0], p[1], p[2] - HEAD_PIVOT_Z - CAMERA_ABOVE_PIVOT];
+      const [limYaw, limPitch] = [motion.getLimits('HeadYaw')[0], motion.getLimits('HeadPitch')[0]];
+      const yaw = Math.min(Math.max(Math.atan2(dy, dx), limYaw[0]), limYaw[1]);
+      const pitch = Math.min(Math.max(Math.atan2(-dz, Math.hypot(dx, dy)), limPitch[0]), limPitch[1]);
+      await motion.angleInterpolationWithSpeed(['HeadYaw', 'HeadPitch'], [yaw, pitch], 0.3);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const [hy, hp] = motion.getAngles(['HeadYaw', 'HeadPitch'], true);
+      return {
+        response: { ok: true, cabeza: { yaw: Math.round(hy / DEG), pitch: Math.round(hp / DEG) }, ...hands(), nota: 'foto nueva adjunta (arriba frente, abajo boca)' },
+        image: vision.view(),
+      };
+    }
     case 'look_at': {
-      if (!motion.robotIsWakeUp()) motion.setStiffnesses('Head', 1);
+      await wakeLegs();
       await motion.angleInterpolationWithSpeed(['HeadYaw', 'HeadPitch'], [num(args.yaw_deg) * DEG, num(args.pitch_deg) * DEG], 0.3);
       const [yaw, pitch] = motion.getAngles(['HeadYaw', 'HeadPitch'], true);
       return { response: { ok: true, cabeza: { yaw: Math.round(yaw / DEG), pitch: Math.round(pitch / DEG) } } };
@@ -158,6 +306,7 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       const clip = MOTIONS.find((m) => m.name === args.name && ANIMATIONS.includes(m.name));
       if (!clip) return { response: { ok: false, error: `animación desconocida: ${String(args.name)}` } };
       if (!(await standUp())) return { response: notStanding() };
+      motion.setMoveArmsEnabled(true, true);
       await playMotion(motion, clip);
       await new Promise((r) => setTimeout(r, 500));
       const family = posture.getPostureFamily();
@@ -174,9 +323,24 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     case 'look':
       return { response: { ok: true, nota: 'foto nueva adjunta (arriba frente, abajo boca)' }, image: vision.view() };
     case 'scan': {
-      if (!motion.robotIsWakeUp()) motion.setStiffnesses('Head', 1);
-      const image = await vision.scan(motion);
-      return { response: { ok: true, nota: 'mosaico adjunto: izquierda, centro y derecha (cada una con frente arriba y boca abajo)' }, image };
+      await wakeLegs();
+      if (!args.full) {
+        const image = await vision.scan(motion);
+        return { response: { ok: true, nota: 'mosaico adjunto: izquierda, centro y derecha (cada una con frente arriba y boca abajo)' }, image };
+      }
+      if (!(await standUp())) return { response: notStanding() };
+      let turned = false;
+      const image = await vision.scan(motion, async () => (turned = await turnBy(Math.PI)));
+      return {
+        response: {
+          ok: turned,
+          nota: turned
+            ? 'mosaico de 360° adjunto: fila de arriba lo que tenías delante, fila de abajo lo de detrás (giraste 180° y ahora miras hacia allá). Las vistas vecinas se solapan un poco: no cuentes dos veces lo mismo.'
+            : 'no pude girar: el mosaico solo tiene lo de delante',
+          ...where(),
+        },
+        image,
+      };
     }
     case 'stop':
       await motion.stopMove();
