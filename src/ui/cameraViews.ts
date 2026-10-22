@@ -1,21 +1,15 @@
-// Depuración: lo que ven las dos cámaras del NAO en recuadros flotantes a la izquierda. Se activan desde
-// el panel oculto y se recuerda en este navegador. Se dibujan en el mismo canvas (scissor), solo cuando
-// la escena se redibuja: no rompen el render bajo demanda.
+// Lo que ven las dos cámaras del NAO, siempre en pantalla (recuadros pequeños a la izquierda): así se sabe qué
+// percibe el robot. Con el panel abierto se ve además el nombre técnico de cada cámara. Se dibujan en el mismo
+// canvas (scissor), solo cuando la escena se redibuja: no rompen el render bajo demanda.
 
 import { NAO_CAMERAS } from '../robot/cameras';
 import type { NaoCameras } from '../sim/naoCameras';
 import type { World } from '../sim/world';
 
-const STORAGE_KEY = 'nao.debugCameras';
+/** Rótulo para el público por cámara (índice 0 = frente, 1 = boca) */
+const LABELS = ['Frente', 'Boca'];
 
-export function attachCameraViews(host: HTMLElement, world: World, cameras: NaoCameras): void {
-  let on = false;
-  try {
-    on = localStorage.getItem(STORAGE_KEY) === '1';
-  } catch {
-    /* sin almacenamiento */
-  }
-
+export function attachCameraViews(world: World, cameras: NaoCameras): void {
   const dock = document.createElement('div');
   dock.id = 'camera-views';
   const images = NAO_CAMERAS.map(({ index, name, id }) => {
@@ -24,7 +18,12 @@ export function attachCameraViews(host: HTMLElement, world: World, cameras: NaoC
     const image = document.createElement('div');
     image.className = 'cam-image';
     const caption = document.createElement('figcaption');
-    caption.textContent = `${name} · ${id} (${index})`;
+    const label = document.createElement('span');
+    label.textContent = LABELS[index];
+    const tech = document.createElement('span');
+    tech.className = 'cam-tech';
+    tech.textContent = ` · ${name} · ${id} (${index})`;
+    caption.append(label, tech);
     view.append(image, caption);
     dock.append(view);
     return image;
@@ -32,7 +31,6 @@ export function attachCameraViews(host: HTMLElement, world: World, cameras: NaoC
   document.body.append(dock);
 
   world.onAfterRender(() => {
-    if (!on) return;
     const canvas = world.renderer.domElement.getBoundingClientRect();
     images.forEach((image, i) => {
       const r = image.getBoundingClientRect();
@@ -41,30 +39,7 @@ export function attachCameraViews(host: HTMLElement, world: World, cameras: NaoC
     });
   });
 
-  const row = document.createElement('div');
-  row.className = 'sound-control';
-  const label = document.createElement('span');
-  label.textContent = 'Depuración';
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'chip';
-  const apply = () => {
-    toggle.textContent = on ? 'Cámaras: sí' : 'Cámaras: no';
-    dock.hidden = !on;
-    world.invalidate();
-  };
-  toggle.addEventListener('click', () => {
-    on = !on;
-    apply();
-    try {
-      localStorage.setItem(STORAGE_KEY, on ? '1' : '0');
-    } catch {
-      /* modo privado */
-    }
-  });
-  row.append(label, toggle);
-  host.append(row);
-  apply();
+  world.invalidate();
   // Los recuadros cambian de sitio al abrir/cerrar el panel (el título ocupa la esquina)
   new MutationObserver(() => world.invalidate()).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }
