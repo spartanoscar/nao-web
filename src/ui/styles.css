@@ -133,3 +133,10 @@ body.panel-visible #camera-views { top: 72px; }
 .cam-tech { display: none; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10.5px; }
 body.panel-visible .cam-tech { display: inline; }
 @media (max-width: 720px) { #camera-views { left: 12px; top: 12px; gap: 6px; } .cam-view { width: 112px; } }
+
+/* ─── Grabador de poses ─── */
+.keyframes { margin: 4px 0 8px; padding-left: 22px; font-size: 12.5px; color: var(--muted); }
+.keyframes li { padding: 3px 0; }
+.keyframes li > * { vertical-align: middle; margin-right: 4px; }
+.keyframes input { width: 52px; background: #11161d; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 5px; font: inherit; }
+.keyframes .chip { padding: 2px 8px; font-size: 11.5px; }
