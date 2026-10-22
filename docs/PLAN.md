@@ -141,6 +141,9 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - Diferencia con Noha: allá el RAG genera SQL; aquí recupera fragmentos de documentos y el robot responde con
   base en ellos, citando la fuente.
 - Caso de uso fuerte para estudiantes: "NAO tutor" de una asignatura, que explica con gestos.
+- **Hecho (2026-10-22, en local, sin desplegar):** biblioteca por usuario en el modal de ajustes (imágenes, PDF, Word,
+  Excel, CSV, texto; ≤ 4 MB), lectura barata primero, `gemini-embedding-2` 1536 dims, trabajador con estados y cobro
+  de tokens. Falta la búsqueda cuando converse la IA.
 
 ### F13 — Mundo interactivo y tareas
 - **Entorno:** un apartamento o piso de la universidad con habitaciones, puertas, baño con letrero y objetos.
