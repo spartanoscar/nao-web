@@ -65,32 +65,42 @@ const behavior = createBehaviorPanel(panelHost, session, state, {
     physics?.reset(bootRoot, BOOT_POSTURE);
   },
 });
-// Grabador de poses (enseñar movimientos a mano, p. ej. levantarse de espaldas): parte boca arriba, en el centro
+// Grabador de poses (enseñar movimientos a mano): la pose de partida sale directa, sin ponerse de pie antes
 const LYING_BACK = postureJoints('LyingBack');
+/** Motores encendidos sosteniendo la pose en la que está (sin moverlo hacia un comando viejo) */
+const holdCurrentPose = () => {
+  const motion = session.service('ALMotion');
+  const names = motion.getBodyNames('Body').filter((j) => !j.endsWith('Hand') && j !== 'RHipYawPitch');
+  void motion.angleInterpolationWithSpeed(names, names.map((j) => state.get(j)), 0.2);
+  motion.setStiffnesses('Body', 1);
+};
+// Boca arriba: colocado 90° hacia atrás sobre el eje Y del mundo (Z arriba), la espalda en el suelo
 const startLyingBack = async (): Promise<boolean> => {
   if (!physics) return false;
-  const motion = session.service('ALMotion');
   session.engine.stopAll();
-  motion.setStiffnesses('Body', 0);
+  session.service('ALMotion').setStiffnesses('Body', 0);
   state.setMany(LYING_BACK);
-  // Girado 90° hacia atrás sobre el eje Y del mundo (Z arriba): la espalda queda en el suelo
   const [w, x, y, z] = bootRoot.quaternion;
   const [c, s] = [Math.SQRT1_2, -Math.SQRT1_2];
   const quaternion: [number, number, number, number] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
   physics.reset({ position: [bootRoot.position[0], bootRoot.position[1], 0.08], quaternion }, LYING_BACK);
   await new Promise((r) => setTimeout(r, 1200)); // que se asiente antes de encender los motores
-  motion.setStiffnesses('Body', 1);
+  holdCurrentPose();
   return true;
 };
-// Sentado (Sit) por el camino validado del grafo, con los motores encendidos: para enseñar a levantarse desde ahí
+// Sentado: desde el arranque (Crouch) con los motores encendidos, Crouch → SitRelax → Sit a velocidad máxima: 3.2 s y
+// sin ponerse de pie (5 de 5). Colocarlo de golpe en Sit no sirve: esa pose rígida se va de espaldas (medido, −40° → −87°
+// en 0.7 s); sentado se sostiene por cómo quedan los apoyos al llegar.
 const startSitting = async (): Promise<boolean> => {
   if (!physics) return false;
   session.engine.stopAll();
+  session.service('ALMotion').setStiffnesses('Body', 0);
   state.setMany(BOOT_POSTURE);
   physics.reset(bootRoot, BOOT_POSTURE);
-  await new Promise((r) => setTimeout(r, 800));
-  await session.service('ALMotion').wakeUp();
-  return session.service('ALRobotPosture').goToPosture('Sit', 0.6);
+  await new Promise((r) => setTimeout(r, 1000));
+  holdCurrentPose();
+  await new Promise((r) => setTimeout(r, 200));
+  return session.service('ALRobotPosture').goToPosture('Sit', 1);
 };
 attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, { startLyingBack, startSitting });
 const joints = createJointPanel(panelHost, state, session.engine, {
