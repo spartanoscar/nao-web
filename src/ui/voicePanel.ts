@@ -19,7 +19,13 @@ const CONTROLS: Record<Param, { label: string; min: number; max: number; step: n
 };
 
 const PRESETS: Record<string, Record<Param, number>> = {
-  NAO: { pitchShift: NAO_VOICE_DEFAULTS.pitchShift, doubleVoice: 0, doubleVoiceLevel: 0, doubleVoiceTimeShift: 0, speed: 100 },
+  NAO: {
+    pitchShift: NAO_VOICE_DEFAULTS.pitchShift,
+    doubleVoice: NAO_VOICE_DEFAULTS.doubleVoice,
+    doubleVoiceLevel: NAO_VOICE_DEFAULTS.doubleVoiceLevel,
+    doubleVoiceTimeShift: NAO_VOICE_DEFAULTS.doubleVoiceTimeShift,
+    speed: NAO_VOICE_DEFAULTS.speed,
+  },
   Natural: { pitchShift: 0, doubleVoice: 0, doubleVoiceLevel: 0, doubleVoiceTimeShift: 0, speed: 100 },
   Robot: { pitchShift: 1.1, doubleVoice: 1.5, doubleVoiceLevel: 0.6, doubleVoiceTimeShift: 0.012, speed: 95 },
 };

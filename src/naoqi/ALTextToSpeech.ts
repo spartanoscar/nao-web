@@ -45,15 +45,15 @@ const RANGES: Record<string, [number, number, boolean]> = {
 
 /**
  * Valores por defecto del simulador. APPROX: los de la voz oficial venían en un XML del robot que no
- * tenemos; se eligen de oído para un timbre infantil y ligeramente robótico (ajustables en el panel).
+ * tenemos; los eligió Oscar de oído (2026-10-22) para un timbre infantil y algo robótico, como el NAO.
  */
 export const NAO_VOICE_DEFAULTS = {
   voice: 'ef_dora',
-  pitchShift: 1.18,
-  doubleVoice: 0,
-  doubleVoiceLevel: 0,
-  doubleVoiceTimeShift: 0,
-  speed: 100,
+  pitchShift: 1.46,
+  doubleVoice: 1.3,
+  doubleVoiceLevel: 0.21,
+  doubleVoiceTimeShift: 0.018,
+  speed: 120,
 };
 
 export class ALTextToSpeech {
