@@ -88,6 +88,10 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   parámetros sobre la voz base: `pitchShift` (1–4), `doubleVoice` (1–4), `doubleVoiceLevel` (0–4),
   `doubleVoiceTimeShift` (0–0.5 s), `speed` (50–400). Se implementan de verdad en WebAudio sobre la voz base
   (Kokoro o la del sistema) con `setParameter`/`getParameter`, y se ajustan de oído comparando con videos del NAO.
+- **Hecho (2026-10-22):** `ALTextToSpeech` + Kokoro en español (G2P propio, voces ef_dora/em_alex/em_santa),
+  WebGPU fp32 con respaldo WASM q8, pitchShift/doubleVoice implementados, primer sonido en ~0.5–0.8 s. Ver CLAUDE.md
+  "Voz". Pendiente: `ALAnimatedSpeech`, ajustar los parámetros de oído contra videos del NAO, `speed` dentro de
+  `\rspd=…\` y demás etiquetas de texto de la doc.
 - Palabra de activación "Oye NAO" o pulsar para hablar en el teléfono (reduce costo y falsos disparos).
 - Interrumpir al robot hablándole (barge-in).
 - Respaldo sin cuota: Web Speech API del navegador.
