@@ -3,6 +3,7 @@ import urdfXml from '../reference/urdf/naoV50.urdf?raw';
 import { postureJoints } from './naoqi/postures';
 import { Session } from './naoqi/session';
 import { MotorSound } from './audio/motorSound';
+import { KokoroSpeech } from './audio/speech';
 import type { PhysicsSim } from './physics/physics';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
@@ -16,6 +17,7 @@ import { createJointPanel } from './ui/jointPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { attachMeshLicense } from './ui/meshLicense';
 import { attachSoundControl } from './ui/soundControl';
+import { createVoicePanel } from './ui/voicePanel';
 import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
@@ -59,6 +61,12 @@ attachHiddenPanel();
 // Sonido de los motores (sintetizado desde la física). El audio solo puede arrancar tras un gesto.
 const sound = new MotorSound();
 attachSoundControl(behavior.slot, sound);
+// Voz: Kokoro en un worker (el modelo se descarga la primera vez que el robot habla)
+const speech = new KokoroSpeech();
+const tts = session.service('ALTextToSpeech');
+tts.backend = speech;
+const voicePanel = createVoicePanel(behavior.slot, tts);
+speech.onStatus = (s) => voicePanel.setStatus(s);
 const startAudio = () => sound.start();
 window.addEventListener('pointerdown', startAudio, { once: true });
 window.addEventListener('keydown', startAudio, { once: true });

@@ -118,3 +118,8 @@ body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 .sound-control { display: flex; align-items: center; gap: 8px; padding: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 .sound-control input { flex: 1; accent-color: var(--accent); }
 .sound-control .chip { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* ─── Voz ─── */
+.say { display: flex; gap: 6px; align-items: center; padding: 4px 0 6px; }
+.say input { flex: 1; min-width: 0; background: #11161d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font: inherit; }
+.voice-panel select { width: 100%; margin: 4px 0 6px; background: #11161d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; }
