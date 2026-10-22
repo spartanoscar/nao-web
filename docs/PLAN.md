@@ -69,6 +69,9 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   con el campo de visión y la resolución oficiales de NAO V6 (doc `alvideodevice`).
 - `ALVideoDevice` (subscribeCamera / getImageRemote) devuelve esas imágenes: la IA y los scripts ven lo mismo.
 - Render a demanda (solo cuando alguien pide un frame), para no repetir el problema de la GPU.
+- **Hecho (2026-10-22):** las dos cámaras (frames ópticos del URDF, 56.3°×43.7°), vista de depuración y
+  `ALVideoDevice` completo salvo `putImage`/`getExpectedImageParameters`. Ver CLAUDE.md "Cámaras del NAO".
+  Pendiente: llevar las imágenes a Gemini (F8) y la cámara del teléfono (F7).
 
 ### F7 — Teléfono por QR
 - Reutilizar el patrón de `hv.bukivo.com`: QR en el escritorio → `control.html` en el teléfono → sala por
