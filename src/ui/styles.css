@@ -123,3 +123,12 @@ body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 .say { display: flex; gap: 6px; align-items: center; padding: 4px 0 6px; }
 .say input { flex: 1; min-width: 0; background: #11161d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font: inherit; }
 .voice-panel select { width: 100%; margin: 4px 0 6px; background: #11161d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; }
+
+/* ─── Cámaras del NAO (depuración) ─── */
+#camera-views { position: fixed; left: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+body.panel-visible #camera-views { top: 72px; }
+#camera-views[hidden] { display: none; }
+.cam-view { margin: 0; width: 256px; }
+.cam-image { aspect-ratio: 4 / 3; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 18px rgba(0, 0, 0, .45); }
+.cam-view figcaption { margin-top: 3px; font: 11px ui-monospace, 'SF Mono', Menlo, monospace; color: var(--muted); }
+@media (max-width: 720px) { .cam-view { width: 144px; } }

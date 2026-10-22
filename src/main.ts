@@ -9,9 +9,11 @@ import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
 import { addOfficialChestLogo, addPrimitiveChestLogo } from './sim/chestLogo';
 import { LedsView } from './sim/ledsView';
+import { NaoCameras } from './sim/naoCameras';
 import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
 import { createBehaviorPanel } from './ui/behaviorPanel';
+import { attachCameraViews } from './ui/cameraViews';
 import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachKeyboard } from './ui/keyboard';
@@ -70,6 +72,9 @@ speech.onStatus = (s) => voicePanel.setStatus(s);
 const startAudio = () => sound.start();
 window.addEventListener('pointerdown', startAudio, { once: true });
 window.addEventListener('keydown', startAudio, { once: true });
+// Cámaras de la frente y la boca (frames ópticos del URDF); en depuración, recuadros a la izquierda
+const cameras = new NaoCameras(nao);
+attachCameraViews(behavior.slot, world, cameras);
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));
 
@@ -152,4 +157,4 @@ world.onFrame((dt) => {
 // Acceso desde la consola del navegador mientras llega la consola de comandos (F4):
 //   const motion = nao.session.service('ALMotion')
 //   await motion.angleInterpolation('HeadYaw', [1, -1, 0], [1, 2, 3], true)
-Object.assign(window, { nao: { session, state, model: nao, world, ledViews, sound, get physics() { return physics; } } });
+Object.assign(window, { nao: { session, state, model: nao, world, ledViews, sound, cameras, get physics() { return physics; } } });
