@@ -17,7 +17,7 @@ import { createBehaviorPanel } from './ui/behaviorPanel';
 import { attachCameraViews } from './ui/cameraViews';
 import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
-import { attachPoseRecorder, bootsLyingBack } from './ui/poseRecorder';
+import { attachPoseRecorder } from './ui/poseRecorder';
 import { attachKeyboard } from './ui/keyboard';
 import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
@@ -153,7 +153,6 @@ const physicsReady = import('./physics/physics')
     session.engine.onManual = (name, value) => sim.placeJoint(name, value);
     setMode('física MuJoCo');
     world.invalidate(true);
-    if (bootsLyingBack()) void startLyingBack();
     return true;
   })
   .catch((e) => {
