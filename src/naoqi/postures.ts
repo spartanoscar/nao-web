@@ -159,6 +159,8 @@ export type RouteStep =
   | { animation: string }
   /** Motion net de NaoTH; `frames`: solo los primeros keyframes */
   | { net: string; frames?: number }
+  /** Movimiento enseñado a mano con el grabador de poses (naoqi/taught/) */
+  | { taught: string }
   /** Pausa (s) para que el cuerpo se asiente antes del siguiente tramo */
   | { wait: number };
 /** Nodos del grafo: las posturas predefinidas y los costados (de los que solo se sale rodando) */
@@ -186,6 +188,9 @@ const EDGES: [RouteNode, RouteNode, RouteStep[]][] = [
   // desde cualquiera de los dos costados; tras 1 s quieto sigue el levantamiento boca abajo, que ya funciona
   ['LyingLeft', 'LyingBelly', [{ net: 'stand_up_from_side', frames: 3 }, { wait: 1 }]],
   ['LyingRight', 'LyingBelly', [{ net: 'stand_up_from_side', frames: 3 }, { wait: 1 }]],
+  // Boca arriba: vuelta hasta quedar boca abajo, enseñada a mano por Oscar con el grabador de poses
+  // (naoqi/taught/RollBackToBelly.json); las rutinas de espaldas de NaoTH/rUNSWift no levantan el torso aquí
+  ['LyingBack', 'LyingBelly', [{ taught: 'RollBackToBelly' }, { wait: 1 }]],
 ];
 
 /** Camino más corto (BFS) como lista de pasos, o null si no hay tramos validados que lleguen */

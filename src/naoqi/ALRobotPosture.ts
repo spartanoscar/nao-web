@@ -6,6 +6,7 @@ import type { MotionEngine, MotionTask } from './engine';
 import type { ALMotion } from './ALMotion';
 import { MOTIONS, playMotion } from './motionFile';
 import { MOTION_NETS, playMotionNet, sliceMotionNet } from './motionNet';
+import { TAUGHT_MOTIONS, playTaught } from './taughtMotion';
 import {
   IN_FAMILY,
   IN_POSTURE,
@@ -110,6 +111,9 @@ export class ALRobotPosture {
     } else if ('net' in step) {
       const net = MOTION_NETS.find((m) => m.name === step.net);
       if (net) await playMotionNet(this.engine, this.motion, step.frames ? sliceMotionNet(net, step.frames) : net);
+    } else if ('taught' in step) {
+      const taught = TAUGHT_MOTIONS.find((m) => m.name === step.taught);
+      if (taught) await playTaught(this.motion, taught);
     } else if ('wait' in step) {
       // En el reloj del motor (el de la simulación), no en el de la pestaña
       await new Promise<void>((resolve) => this.engine.schedule(this.engine.time + step.wait, resolve));
