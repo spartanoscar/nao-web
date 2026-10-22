@@ -292,6 +292,29 @@ body.panel-visible #transcript { left: calc(50% - var(--panel-w) / 2); width: mi
 #transcript .nao .who { color: var(--nao); }
 @keyframes line-in { from { opacity: 0; transform: translateY(8px); } }
 
+/* ─── Chat con el NAO ─── */
+#chat [hidden] { display: none !important; }
+body.chat-open #transcript { bottom: 84px; }
+#chat { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; margin: 0; width: min(640px, calc(100vw - 32px)); display: grid; justify-items: center; }
+body.panel-visible #chat { left: calc(50% - var(--panel-w) / 2); width: min(560px, calc(100vw - var(--panel-w) - 32px)); }
+.chat-open {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  background: rgba(8, 11, 17, .55); border: 1px solid var(--glass-line); backdrop-filter: blur(8px); transition: color .2s, border-color .2s;
+}
+.chat-open:hover { color: var(--text); border-color: rgba(58, 160, 255, .6); }
+.chat-open svg { width: 16px; height: 16px; }
+.chat-bar {
+  width: 100%; display: flex; gap: 8px; padding: 6px; box-sizing: border-box; border-radius: 16px;
+  background: var(--glass); border: 1px solid rgba(58, 160, 255, .55); backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 4px rgba(58, 160, 255, .12), 0 14px 40px rgba(0, 0, 0, .5); animation: line-in .2s ease both;
+}
+.chat-bar input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 500 16px/1.3 system-ui, sans-serif; padding: 8px 10px; }
+.chat-bar input::placeholder { color: var(--muted); }
+.chat-send { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border: 0; border-radius: 12px; cursor: pointer; color: #fff; background: linear-gradient(135deg, #5ad7ff, #3a6fff); }
+#transcript .line.thinking > span:last-child { letter-spacing: .25em; animation: think 1.1s ease-in-out infinite; }
+@keyframes think { 50% { opacity: .35; } }
+
 /* ─── Ajustes ─── */
 .settings-modal { position: fixed; inset: 0; z-index: 16; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: rgba(4, 6, 10, .62); backdrop-filter: blur(5px); }
 .settings-modal[hidden] { display: none; }

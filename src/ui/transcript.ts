@@ -9,6 +9,8 @@ export interface Transcript {
   show(id: string, speaker: Speaker, name: string, text: string, final: boolean): void;
   /** Aviso del sistema (p. ej. sin tokens), en el mismo lugar */
   notice(text: string): void;
+  /** Quita un renglón (p. ej. el "…" mientras el NAO piensa) */
+  clear(id: string): void;
 }
 
 const LINE_TTL = 9000;
@@ -45,12 +47,17 @@ export function createTranscript(): Transcript {
       }
       line.lastElementChild!.textContent = text;
       line.classList.toggle('interim', !final);
+      line.classList.toggle('thinking', id === 'thinking');
       if (final) fade(id, line);
     },
     notice(text) {
       const id = `notice-${Date.now()}`;
       this.show(id, 'nao', '⚠', text, true);
       lines.get(id)?.classList.add('notice');
+    },
+    clear(id) {
+      lines.get(id)?.remove();
+      lines.delete(id);
     },
   };
 }

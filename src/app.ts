@@ -29,6 +29,9 @@ import { createTranscript } from './ui/transcript';
 import { attachSoundControl } from './ui/soundControl';
 import { createVoicePanel } from './ui/voicePanel';
 import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
+import { Brain } from './ai/brain';
+import { Vision } from './ai/vision';
+import { attachChat } from './ui/chat';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
 const BOOT_POSTURE = postureJoints('Crouch');
@@ -230,10 +233,29 @@ const transcript = createTranscript();
 let naoLine = 0;
 tts.onSay = (text) => transcript.show(`nao-${naoLine++}`, 'nao', user.robotName, text, true);
 let captionError = '';
+// Cerebro (Gemini por el servidor): lo que se le dice o escribe → lo que responde y hace
+const vision = new Vision(session.service('ALVideoDevice'), cameras.cameras);
+const brain = new Brain(session, state, vision, {
+  robotName: () => user.robotName,
+  thinking: (on) => (on ? transcript.show('thinking', 'nao', user.robotName, '…', false) : transcript.clear('thinking')),
+  spent: (usd) => hud.setSpent(usd),
+  error: (message) => transcript.notice(message),
+  action: (name, args, response) => console.info('NAO ▶', name, args, '→', response),
+});
+attachChat(
+  () => user.robotName,
+  (text) => {
+    transcript.show(`chat-${Date.now()}`, 'user', user.displayName, text, true);
+    void brain.ask(text, 'texto');
+  },
+);
 attachPhoneLink(hud, session.service('ALVideoDevice'), {
   tilt: (x, y) => Object.assign(tilt, { x, y, at: performance.now() / 1000 }),
   connected: () => void tts.say('Bienvenido').catch((e) => console.warn('Voz:', e)),
-  caption: (id, text, final) => transcript.show(`user-${id}`, 'user', user.displayName, text, final),
+  caption: (id, text, final) => {
+    transcript.show(`user-${id}`, 'user', user.displayName, text, final);
+    if (final && brain.addressed(text)) void brain.ask(text, 'voz');
+  },
   usage: (spent) => hud.setSpent(spent),
   captionError: (message) => {
     if (message === captionError) return; // un aviso por motivo, no uno por frase
@@ -247,4 +269,4 @@ setTimeout(() => speech.preload(tts.getVoice()), 1500);
 attachHiddenPanel();
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));
-Object.assign((window as unknown as { nao: object }).nao, { user, transcript });
+Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision });
