@@ -25,6 +25,8 @@ export interface World {
   invalidate(shadows?: boolean): void;
   /** Dibuja un cuadro ya (capturas, cámaras virtuales); el bucle normal sigue siendo bajo demanda */
   renderNow(): void;
+  /** Corre justo después de cada cuadro dibujado (vistas extra en el mismo canvas, p. ej. las cámaras del NAO) */
+  onAfterRender(cb: () => void): void;
 }
 
 const BG = 0x0e1116;
@@ -86,6 +88,11 @@ export function createWorld(container: HTMLElement): World {
   resize();
 
   const callbacks: ((dt: number) => void)[] = [];
+  const afterRender: (() => void)[] = [];
+  const draw = () => {
+    renderer.render(scene, camera);
+    for (const cb of afterRender) cb();
+  };
   const timer = new THREE.Timer();
   renderer.setAnimationLoop((time) => {
     timer.update(time);
@@ -94,15 +101,19 @@ export function createWorld(container: HTMLElement): World {
     controls.update();
     if (!dirty) return;
     dirty = false;
-    renderer.render(scene, camera);
+    draw();
   });
 
   const renderNow = () => {
     controls.update();
-    renderer.render(scene, camera);
+    draw();
   };
 
-  return { renderer, scene, camera, controls, zUp, objects, onFrame: (cb) => void callbacks.push(cb), invalidate, renderNow };
+  return {
+    renderer, scene, camera, controls, zUp, objects, invalidate, renderNow,
+    onFrame: (cb) => void callbacks.push(cb),
+    onAfterRender: (cb) => void afterRender.push(cb),
+  };
 }
 
 function addLights(scene: THREE.Scene) {
