@@ -51,6 +51,7 @@ type conn struct {
 }
 
 type room struct {
+	trans      *transcriber // voz del teléfono → subtítulos (transcribe.go), se crea al primer audio
 	owner      int64
 	ownerName  string
 	robotName  string
@@ -194,6 +195,10 @@ func (r *relay) leave(code string, c *conn) {
 		}
 	case rm.phone:
 		rm.phone = nil
+		if rm.trans != nil {
+			rm.trans.stop()
+			rm.trans = nil
+		}
 	default:
 		return
 	}
@@ -202,6 +207,9 @@ func (r *relay) leave(code string, c *conn) {
 
 // closeRoom con r.mu tomado
 func (r *relay) closeRoom(code string, rm *room, reason string) {
+	if rm.trans != nil {
+		rm.trans.stop()
+	}
 	for _, c := range []*conn{rm.screen, rm.phone} {
 		if c != nil {
 			trySend(c, text(map[string]any{"t": reason}))
@@ -209,6 +217,19 @@ func (r *relay) closeRoom(code string, rm *room, reason string) {
 		}
 	}
 	delete(r.rooms, code)
+}
+
+// toRoom: un mensaje del servidor a la pantalla y al teléfono (subtítulos, consumo)
+func (r *relay) toRoom(code string, f frame) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rm := r.rooms[code]; rm != nil {
+		for _, c := range []*conn{rm.screen, rm.phone} {
+			if c != nil {
+				trySend(c, f)
+			}
+		}
+	}
 }
 
 // announce: quién está conectado (con r.mu tomado)
@@ -259,7 +280,13 @@ func (r *relay) readLoop(code string, c *conn) {
 		tokens--
 
 		r.mu.Lock()
-		if rm := r.rooms[code]; rm != nil {
+		if rm := r.rooms[code]; rm != nil && c == rm.phone && kind == websocket.BinaryMessage && len(data) > 0 && data[0] >= frameStart && data[0] <= frameEnd {
+			// Voz del teléfono: va a la transcripción, no a la pantalla
+			if rm.trans == nil {
+				rm.trans = newTranscriber(r, code, rm.owner)
+			}
+			rm.trans.push(data)
+		} else if rm := r.rooms[code]; rm != nil {
 			to := rm.screen
 			if c == rm.screen {
 				to = rm.phone
