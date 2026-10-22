@@ -368,7 +368,18 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       const color = off ? 0 : parseColor(args.color);
       if (!group || color === null) return { response: { ok: false, error: 'parte desconocida o color inválido (usa #rrggbb u off)' } };
       await session.service('ALLeds').fadeRGB(group, color, 0.3);
-      return { response: { ok: true, color: off ? 'off' : hexOf(color) } };
+      // Orejas y cabeza son LEDs azules de un solo color (doc family_nao_technical_leds_naov6): fadeRGB solo les cambia
+      // el brillo (la componente más fuerte del color). Se le dice a Gemini para que no anuncie un color que no hubo
+      const part = String(args.part);
+      const blueOnly = part === 'ears' || part === 'head' || part === 'all';
+      const level = Math.round((Math.max((color >> 16) & 255, (color >> 8) & 255, color & 255) / 255) * 100);
+      return {
+        response: {
+          ok: true,
+          color: off ? 'off' : hexOf(color),
+          ...(blueOnly ? { nota: `${part === 'all' ? 'ojos, pecho y pies quedaron en ese color; ' : ''}las orejas y la cabeza solo tienen luces azules: no cambian de color, quedaron en azul al ${level}% de brillo` } : {}),
+        },
+      };
     }
     case 'my_colors': {
       if (!ctx.appearance) return { response: { ok: false, error: 'no puedo guardar mi apariencia ahora' } };
@@ -384,7 +395,14 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       }
       if (!Object.keys(patch).length) return { response: { ok: false, error: 'di shell o eyes' } };
       const now = await ctx.appearance(patch);
-      return { response: { ok: true, carcasa: now.shell || 'original', ojos: now.eyes || 'original' } };
+      return {
+        response: {
+          ok: true,
+          carcasa: now.shell || 'original',
+          ojos: now.eyes || 'original',
+          nota: 'solo se guardan carcasa y ojos; tus orejas y tu cabeza tienen luces azules de un solo color (no cambian de color)',
+        },
+      };
     }
     case 'look':
       return { response: { ok: true, nota: 'foto nueva adjunta (arriba frente, abajo boca)' }, image: vision.view() };
