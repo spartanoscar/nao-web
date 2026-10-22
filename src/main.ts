@@ -6,9 +6,11 @@ import type { PhysicsSim } from './physics/physics';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
 import { addOfficialChestLogo, addPrimitiveChestLogo } from './sim/chestLogo';
+import { LedsView } from './sim/ledsView';
 import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
 import { createBehaviorPanel } from './ui/behaviorPanel';
+import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { attachMeshLicense } from './ui/meshLicense';
@@ -25,6 +27,8 @@ const nao = new NaoModel(urdf);
 world.scene.add(nao.root);
 nao.apply(state);
 addPrimitiveChestLogo(nao, () => world.invalidate());
+// LEDs (ojos, orejas, cabeza, pecho, pies): una vista por cada modelo, ambas leen los mismos canales
+const ledViews = [new LedsView(nao, 'primitive')];
 // Pose de arranque apoyada en el suelo (calculada por el modelo cinemático), para la física y el reinicio
 const bootRoot = nao.kinematicRootPose();
 
@@ -48,7 +52,7 @@ const joints = createJointPanel(panelHost, state, session.engine, {
     world.invalidate();
   },
 });
-document.getElementById('panel-toggle')!.addEventListener('click', () => document.body.classList.toggle('panel-open'));
+attachHiddenPanel();
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));
 
@@ -82,9 +86,10 @@ attachMeshLicense({
       world.invalidate();
     };
     const initial = rememberedShellColor(SHELL_COLORS);
-    if (initial.hex !== null) await paint(initial);
+    await paint(initial); // siempre: también pone la lente oscura de los ojos
     createShellColorPicker(behavior.slot, SHELL_COLORS, initial, (c) => void paint(c));
     if (!addOfficialChestLogo(nao, () => world.invalidate())) console.warn('No encontré el pecho de la malla oficial para el logo');
+    ledViews.push(new LedsView(nao, 'official'));
     world.invalidate(true);
   },
   showPrimitives: (show) => {
@@ -111,6 +116,9 @@ import('./physics/physics')
 world.onFrame((dt) => {
   session.update(dt);
   if (physics?.step(dt)) world.invalidate(true);
+  let ledsChanged = false;
+  for (const v of ledViews) ledsChanged = v.update(session.leds) || ledsChanged;
+  if (ledsChanged) world.invalidate();
   if (nao.apply(state)) {
     follow();
     world.invalidate(true);
@@ -122,4 +130,4 @@ world.onFrame((dt) => {
 // Acceso desde la consola del navegador mientras llega la consola de comandos (F4):
 //   const motion = nao.session.service('ALMotion')
 //   await motion.angleInterpolation('HeadYaw', [1, -1, 0], [1, 2, 3], true)
-Object.assign(window, { nao: { session, state, model: nao, world, get physics() { return physics; } } });
+Object.assign(window, { nao: { session, state, model: nao, world, ledViews, get physics() { return physics; } } });

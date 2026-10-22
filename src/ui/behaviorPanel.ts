@@ -75,6 +75,17 @@ export function createBehaviorPanel(
     );
   }
 
+  const leds = session.service('ALLeds');
+  const ledChips = el('div', 'chips');
+  ledChips.append(
+    chip('Girar ojos', 'leds.rotateEyes(0x00a0ff, 1, 3)', () => run('ALLeds.rotateEyes(0x00a0ff, 1, 3)', () => leds.rotateEyes(0x00a0ff, 1, 3))),
+    chip('Rasta', 'leds.rasta(3)', () => run('ALLeds.rasta(3)', () => leds.rasta(3))),
+    chip('Aleatorio', 'leds.randomEyes(3)', () => run('ALLeds.randomEyes(3)', () => leds.randomEyes(3))),
+    chip('Orejas →', 'leds.earLedsSetAngle(90, 1.5, false)', () => run('ALLeds.earLedsSetAngle(90, 1.5, false)', () => leds.earLedsSetAngle(90, 1.5, false))),
+    chip('Ojos rojos', 'leds.fadeRGB("FaceLeds", "red", 0.4)', () => run('ALLeds.fadeRGB("FaceLeds", "red", 0.4)', () => leds.fadeRGB('FaceLeds', 'red', 0.4))),
+    chip('Restablecer', 'leds.reset("AllLeds")', () => run('ALLeds.reset("AllLeds")', async () => leds.reset('AllLeds'))),
+  );
+
   const slot = el('div', 'behavior-slot');
   host.append(
     status,
@@ -83,6 +94,7 @@ export function createBehaviorPanel(
     slot,
     section('Posturas · ALRobotPosture', postures),
     section('Animaciones · .motion', animations),
+    section('LEDs · ALLeds', ledChips),
   );
 
   let shownRevision = -1;

@@ -15,7 +15,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 body { overflow: hidden; }
 button { font: inherit; }
 
-#app { position: fixed; inset: 0; right: var(--panel-w); }
+#app { position: fixed; inset: 0; }
 #app canvas { display: block; touch-action: none; }
 
 #hud { position: fixed; top: 16px; left: 16px; pointer-events: none; }
@@ -27,7 +27,9 @@ button { font: inherit; }
   overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line);
   padding: 0 14px 24px; backdrop-filter: blur(8px);
 }
+/* Pantalla limpia: panel, título y leyenda solo con la tecla (body.panel-visible) */
 #panel-toggle { display: none; }
+body:not(.panel-visible) #panel, body:not(.panel-visible) #hud, body:not(.panel-visible) #keys { display: none; }
 
 #panel-toggle {
   background: #1f2632; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
@@ -44,14 +46,16 @@ button { font: inherit; }
 .joint.coupled { opacity: .55; }
 .joint-note { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 
-/* Móvil: el panel pasa a hoja inferior plegable */
+/* Móvil: el panel pasa a hoja inferior */
 @media (max-width: 720px) {
-  #app { right: 0; bottom: 0; }
-  #panel { top: auto; left: 0; width: auto; max-height: 48vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; padding: 0 16px 24px; transform: translateY(100%); transition: transform .25s ease; }
-  body.panel-open #panel { transform: none; }
-  #panel-toggle { display: block; position: fixed; right: 16px; bottom: 16px; z-index: 2; }
-  body.panel-open #panel-toggle { bottom: calc(48vh + 12px); }
+  #panel { top: auto; left: 0; width: auto; max-height: 48vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; padding: 0 16px 24px; }
+  body.panel-visible #panel-toggle { bottom: calc(48vh + 12px); }
 }
+/* Sin teclado: botón pequeño para abrir el panel */
+@media (hover: none) {
+  #panel-toggle { display: grid; place-items: center; position: fixed; right: 16px; bottom: 16px; z-index: 2; width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 18px; line-height: 1; opacity: .75; }
+}
+
 
 /* ─── Comportamiento (F3) ─── */
 .status { display: flex; align-items: center; gap: 8px; padding: 14px 0 10px; font-weight: 600; }
@@ -76,8 +80,8 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; margin-right: 2p
 
 /* ─── Licencia del modelo oficial ─── */
 #mesh-license {
-  position: fixed; top: 16px; left: calc((100vw - var(--panel-w)) / 2); transform: translateX(-50%);
-  width: min(440px, calc(100vw - var(--panel-w) - 32px)); box-sizing: border-box; z-index: 3;
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  width: min(440px, calc(100vw - 32px)); box-sizing: border-box; z-index: 3;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, .35); font-size: 13px;
 }
@@ -89,7 +93,8 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; margin-right: 2p
 .ml-actions .ml-accept { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 #mesh-license a, #mesh-credit a { color: var(--accent); }
 .ml-progress { margin: 0 !important; color: var(--text) !important; }
-#mesh-credit { position: fixed; right: calc(var(--panel-w) + 12px); bottom: 12px; font-size: 11.5px; color: var(--muted); }
+#mesh-credit { position: fixed; right: 12px; bottom: 12px; font-size: 11.5px; color: var(--muted); }
+body.panel-visible #mesh-credit { right: calc(var(--panel-w) + 12px); }
 #mesh-credit a { color: var(--muted); }
 #mesh-credit button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 @media (max-width: 720px) {
@@ -103,3 +108,8 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 5px; margin-right: 2p
 .swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); background: var(--swatch); cursor: pointer; padding: 0; }
 .swatch:hover { border-color: var(--text); }
 .swatch[aria-pressed="true"] { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+
+/* Aviso de la tecla del panel (una vez) */
+#panel-hint { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; pointer-events: none; transition: opacity .6s ease; white-space: nowrap; }
+#panel-hint.gone { opacity: 0; }
+@media (hover: none) { #panel-hint { display: none; } }

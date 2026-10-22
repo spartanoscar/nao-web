@@ -58,7 +58,7 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - **Criterio:** los scripts de `reference/naoqi-2.8-api` (almotion_*, alrobotposture) funcionan sin cambios
   o con cambios mínimos de Python 2 → 3, documentados.
 
-### F5 — Pantalla limpia y panel oculto
+### F5 — Pantalla limpia y panel oculto  ✅ (2026-10-21: panel oculto con º/F2, LEDs con ALLeds; falta la transcripción en pantalla)
 - Quitar toda la UI visible: solo el mundo 3D, la transcripción en tiempo real y el QR para conectar el teléfono.
 - **Panel oculto** con una tecla (propuesta: <kbd>`</kbd> o <kbd>F2</kbd>): colores de carcasa, articulaciones,
   posturas, animaciones, consola, y las **cámaras** (frente, boca y teléfono) en miniatura.
@@ -150,7 +150,7 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 
 ## Ideas adicionales para considerar
 
-1. **Ojos que comunican estado** (`ALLeds`, como el NAO real): azul = escuchando, amarillo girando =
+1. **Ojos que comunican estado** (`ALLeds` ya implementado, como el NAO real): azul = escuchando, amarillo girando =
    pensando, blanco = hablando, rojo = sin cuota o error.
 2. **Sensores táctiles de la cabeza** (3 en el NAO): tocarle la cabeza para despertarlo o callarlo; en el
    teléfono, un botón "tocar cabeza". Con eventos de `ALMemory`, como en el robot.
