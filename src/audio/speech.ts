@@ -31,9 +31,9 @@ export class KokoroSpeech implements SpeechBackend {
   /** Motor de inferencia en uso ("webgpu fp32" / "wasm q8") */
   engine = '';
 
-  /** Descarga el modelo sin hablar (opcional) */
-  preload(): void {
-    this.ensureWorker().postMessage({ type: 'load' } satisfies TtsRequest);
+  /** Descarga el modelo y lo deja listo sin hablar (se llama al entrar al mundo, en segundo plano) */
+  preload(voice?: string): void {
+    this.ensureWorker().postMessage({ type: 'load', voice } satisfies TtsRequest);
   }
 
   async speak(req: SpeechRequest): Promise<void> {

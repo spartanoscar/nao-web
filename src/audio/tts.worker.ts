@@ -26,7 +26,7 @@ const forced = Number(/threads=(\d+)/.exec(self.name)?.[1]); // pruebas: new Wor
 if (env.backends.onnx.wasm) env.backends.onnx.wasm.numThreads = forced || Math.max(1, Math.min(cores - 1, 4));
 
 export type TtsRequest =
-  | { type: 'load' }
+  | { type: 'load'; voice?: string }
   | { type: 'speak'; id: number; text: string; voice: string; lang: 'es' | 'en-us'; speed: number; fx: VoiceFx };
 
 export type TtsResponse =
@@ -115,7 +115,11 @@ self.onmessage = async (e: MessageEvent<TtsRequest>) => {
   const msg = e.data;
   try {
     if (msg.type === 'load') {
-      await load();
+      // Precarga en segundo plano: además de bajar el modelo, una frase corta sin reproducir compila los
+      // programas de la GPU (la primera generación real tardaba ~1.7 s; luego ~0.5 s)
+      const tts = await load();
+      const { input_ids } = tts.tokenizer(spanishToIpa('Hola.'), { truncation: true });
+      await tts.generate_from_ids(input_ids, { voice: (msg.voice ?? 'ef_dora') as never, speed: 1 });
       return;
     }
     const tts = await load();
