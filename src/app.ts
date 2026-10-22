@@ -82,7 +82,17 @@ const startLyingBack = async (): Promise<boolean> => {
   motion.setStiffnesses('Body', 1);
   return true;
 };
-attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, { startLyingBack });
+// Sentado (Sit) por el camino validado del grafo, con los motores encendidos: para enseñar a levantarse desde ahí
+const startSitting = async (): Promise<boolean> => {
+  if (!physics) return false;
+  session.engine.stopAll();
+  state.setMany(BOOT_POSTURE);
+  physics.reset(bootRoot, BOOT_POSTURE);
+  await new Promise((r) => setTimeout(r, 800));
+  await session.service('ALMotion').wakeUp();
+  return session.service('ALRobotPosture').goToPosture('Sit', 0.6);
+};
+attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, { startLyingBack, startSitting });
 const joints = createJointPanel(panelHost, state, session.engine, {
   onHover: (joint) => {
     nao.highlight(joint);

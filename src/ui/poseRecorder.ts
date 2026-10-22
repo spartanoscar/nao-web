@@ -1,4 +1,4 @@
-// Grabador de poses: para enseñarle al robot un movimiento a mano (p. ej. levantarse de espaldas). Se mueven
+// Grabador de poses: para enseñarle al robot un movimiento a mano (p. ej. levantarse de espaldas o desde sentado). Se mueven
 // las articulaciones con los sliders (la física responde en vivo), se guarda cada pose como keyframe con su
 // duración y se prueba la secuencia completa con ALMotion.angleInterpolation, como un timeline de Choregraphe.
 // Se guarda solo en este navegador; "Copiar" la exporta en JSON (grados) para incorporarla al proyecto.
@@ -23,9 +23,25 @@ export function attachPoseRecorder(
   host: HTMLElement,
   motion: ALMotion,
   engine: MotionEngine,
-  { startLyingBack }: { startLyingBack(): Promise<boolean> },
+  { startLyingBack, startSitting }: { startLyingBack(): Promise<boolean>; startSitting(): Promise<boolean> },
 ): void {
   let frames: Keyframe[] = [];
+  /** Desde dónde se enseña: "Probar" reinicia ahí y "Copiar" nombra el movimiento según eso */
+  let origin: 'back' | 'sit' = 'back';
+  try {
+    origin = localStorage.getItem(`${STORAGE_KEY}.origin`) === 'sit' ? 'sit' : 'back';
+  } catch {
+    /* sin almacenamiento */
+  }
+  const startAt = (o: 'back' | 'sit') => {
+    origin = o;
+    try {
+      localStorage.setItem(`${STORAGE_KEY}.origin`, o);
+    } catch {
+      /* sin almacenamiento */
+    }
+    return o === 'sit' ? startSitting() : startLyingBack();
+  };
   try {
     frames = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
   } catch {
@@ -103,7 +119,10 @@ export function attachPoseRecorder(
   buttons.className = 'chips';
   buttons.append(
     chip('Empezar boca arriba', 'Acuesta al robot de espaldas, con los motores encendidos', async () => {
-      say((await startLyingBack()) ? 'Boca arriba, motores encendidos' : 'Hace falta la física (MuJoCo)', false);
+      say((await startAt('back')) ? 'Boca arriba, motores encendidos' : 'Hace falta la física (MuJoCo)', false);
+    }),
+    chip('Empezar sentado', 'Sienta al robot (postura Sit), con los motores encendidos', async () => {
+      say((await startAt('sit')) ? 'Sentado, motores encendidos' : 'Hace falta la física (MuJoCo)', false);
     }),
     chip('Guardar pose', 'Añade la pose actual como keyframe', () => {
       frames.push({ duration: frames.length ? 0.8 : 1, angles: current() });
@@ -111,9 +130,9 @@ export function attachPoseRecorder(
       render();
       say(`Pose ${frames.length} guardada`);
     }),
-    chip('Probar', 'Reinicia boca arriba y reproduce toda la secuencia', async () => {
+    chip('Probar', 'Reinicia donde empezaste (boca arriba o sentado) y reproduce toda la secuencia', async () => {
       if (!frames.length) return say('Primero guarda alguna pose', true);
-      if (!(await startLyingBack())) return say('Hace falta la física (MuJoCo)', true);
+      if (!(await startAt(origin))) return say('Hace falta la física (MuJoCo)', true);
       say('▶ angleInterpolation…');
       let t = 0;
       const times = frames.map((k) => (t += k.duration));
@@ -122,7 +141,7 @@ export function attachPoseRecorder(
     }),
     chip('Copiar', 'Copia la secuencia en JSON (grados) para pegarla en el chat', async () => {
       const json = JSON.stringify({
-        name: 'StandUpFromBack',
+        name: origin === 'sit' ? 'StandUpFromSit' : 'StandUpFromBack',
         joints: NAMES,
         keyframes: frames.map((k) => ({
           duration: k.duration,
