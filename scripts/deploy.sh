@@ -10,6 +10,9 @@
 #   bash scripts/deploy.sh setup  [--yes]   dns + nginx (una sola vez)
 #   bash scripts/deploy.sh prod   [--yes]   build + rsync --delete dist/ → /var/www/nao.bukivo.com
 #   bash scripts/deploy.sh status           cabeceras HTTP de https://nao.bukivo.com
+#   bash scripts/deploy.sh db-setup [--yes] crea la base y el usuario `nao` en Postgres (idempotente)
+#   bash scripts/deploy.sh api    [--yes]   compila server/ y reinicia nao-api (PM2, 127.0.0.1:3030)
+#   bash scripts/deploy.sh user <args>      nao-api user add|passwd|list en el servidor
 #
 # --yes (o NAO_DEPLOY_YES=1) salta la confirmación de producción.
 # Override de la ruta de Bukivo: export BUKIVO_HOME=/ruta/a/bukivo
@@ -24,6 +27,10 @@ VHOST_SRC="$NAO_ROOT/deploy/nginx/$FQDN.conf"
 VHOST_DST="/etc/nginx/sites-available/$FQDN"
 # El registro DNS de nao copia el de este host (mismo servidor y mismo certificado Origin)
 DNS_TEMPLATE_HOST="portal.bukivo.com"
+# nao-api (server/): binario Go bajo PM2, como hv-ask y los servicios de Bukivo
+API_DIR="/root/nao"
+API_NAME="nao-api"
+API_ADDR="127.0.0.1:3030"
 
 SSH_DIR="$BUKIVO_HOME/scripts/ssh"
 SSH_KEY="$BUKIVO_HOME/.private/ssh/bukivo_server"
@@ -107,13 +114,63 @@ cmd_prod() {
   echo -e "${C_DIM}  https://$FQDN${C_NC}"
 }
 
+# Base `nao` con su propio usuario en el Postgres 12 del servidor. La contraseña se genera allá y solo vive en
+# $API_DIR/.env (600). Las extensiones (citext, vector) las crea el superusuario; schema.sql no puede.
+cmd_db_setup() {
+  _require
+  _confirm_prod "crear la base y el usuario nao en Postgres (si no existen)" "$@" || return 1
+  _remote "set -e
+    mkdir -p $API_DIR && chmod 700 $API_DIR
+    if [ ! -f $API_DIR/.env ]; then
+      pw=\$(openssl rand -hex 24)
+      sudo -u postgres psql -v ON_ERROR_STOP=1 -qc \"CREATE ROLE nao LOGIN PASSWORD '\$pw'\"
+      umask 077
+      printf 'NAO_DB_URL=postgres://nao:%s@127.0.0.1:5432/nao?sslmode=disable\nNAO_ADDR=$API_ADDR\nNAO_ALLOWED_ORIGINS=$FQDN\n' \"\$pw\" > $API_DIR/.env
+    fi
+    if [ \"\$(sudo -u postgres psql -tAc \"SELECT 1 FROM pg_database WHERE datname='nao'\")\" != 1 ]; then
+      sudo -u postgres psql -v ON_ERROR_STOP=1 -qc 'CREATE DATABASE nao OWNER nao'
+    fi
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -q -d nao -c 'CREATE EXTENSION IF NOT EXISTS citext' -c 'CREATE EXTENSION IF NOT EXISTS vector'
+    sudo -u postgres psql -tAc \"SELECT 'base nao: ' || pg_size_pretty(pg_database_size('nao'))\"" || die "db-setup falló"
+  echo -e "${C_GREEN}✓ base nao lista (credenciales en $API_DIR/.env del servidor)${C_NC}"
+}
+
+cmd_api() {
+  _require
+  (cd "$NAO_ROOT/server" && go vet ./... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$NAO_ROOT/server/$API_NAME" .) || die "build de nao-api falló"
+  _confirm_prod "reemplazar y reiniciar $API_NAME en $API_ADDR" "$@" || return 1
+  _rsync -az "$NAO_ROOT/server/$API_NAME" "$SRV_USER@$SRV_HOST:$API_DIR/$API_NAME.new" || die "subida de nao-api falló"
+  # cwd = $API_DIR: así lee su .env. Si no arranca sano, vuelve al binario anterior.
+  _remote "set -e
+    cd $API_DIR
+    [ -f $API_NAME ] && cp $API_NAME $API_NAME.bak || true
+    mv $API_NAME.new $API_NAME && chmod 700 $API_NAME
+    ./$API_NAME migrate
+    if pm2 describe $API_NAME >/dev/null 2>&1; then pm2 restart $API_NAME --update-env >/dev/null; else pm2 start $API_DIR/$API_NAME --name $API_NAME --cwd $API_DIR >/dev/null; fi
+    pm2 save >/dev/null
+    for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://$API_ADDR/api/health >/dev/null && break; sleep 0.5; done
+    if ! curl -sf http://$API_ADDR/api/health >/dev/null; then
+      echo 'nao-api no responde: vuelvo al binario anterior' >&2
+      [ -f $API_NAME.bak ] && mv $API_NAME.bak $API_NAME && pm2 restart $API_NAME >/dev/null
+      exit 1
+    fi" || die "despliegue de nao-api falló"
+  echo -e "${C_GREEN}✓ $API_NAME desplegado y sano ($API_ADDR)${C_NC}"
+}
+
+cmd_user() {
+  _require
+  local args="" a
+  for a in "$@"; do args+=" $(printf '%q' "$a")"; done
+  _remote "cd $API_DIR && ./$API_NAME user$args" || die "nao-api user falló"
+}
+
 cmd_status() {
   curl -sS -o /dev/null -D - --max-time 15 "https://$FQDN/" | grep -Ei '^(HTTP|server|cache-control|cf-cache-status|permissions-policy)' \
     || die "https://$FQDN no responde"
 }
 
 usage() {
-  sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 sub="${1:-}"; shift || true
@@ -124,6 +181,9 @@ case "$sub" in
   setup)  cmd_dns "$@" && cmd_nginx "$@" ;;
   prod)   cmd_prod "$@" ;;
   status) cmd_status ;;
+  db-setup) cmd_db_setup "$@" ;;
+  api)    cmd_api "$@" ;;
+  user)   cmd_user "$@" ;;
   ""|-h|--help|help) usage ;;
   *) die "comando desconocido: $sub (bash scripts/deploy.sh help)" ;;
 esac
