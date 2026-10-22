@@ -21,7 +21,9 @@ export interface Pose2D {
 const TICK = 0.1;
 /** Se deja de avanzar a esta distancia: el paso en curso y el frenado recorren ~4 cm más */
 const STOP_DISTANCE = 0.07;
-/** Tolerancia de los pasos lentos (lateral, atrás) */
+/** Metas más cercanas que esto (m) usan la tolerancia fina: acercarse unos centímetros a algo */
+const FINE_RANGE = 0.15;
+/** Tolerancia de los pasos lentos (lateral, atrás) y de los ajustes cortos */
 const FINE_DISTANCE = 0.03;
 /** Se deja de girar a este error: medio ciclo de giro son ~14° */
 const STOP_ANGLE = 0.16;
@@ -99,6 +101,7 @@ export async function moveToPose(
   const [c, s] = [Math.cos(start.theta), Math.sin(start.theta)];
   const target = { x: start.x + c * x - s * y, y: start.y + s * x + c * y };
   const heading = start.theta + theta;
+  const fine = Math.hypot(x, y) < FINE_RANGE;
   // Holgado: ~5 cm/s avanzando, ~15°/s girando, más entrar y frenar
   const deadline = engine.time + 8 + Math.hypot(x, y) / 0.04 + (Math.abs(theta) + Math.PI) / 0.2;
   const tick = () => new Promise<void>((r) => engine.schedule(engine.time + TICK, r));
@@ -137,8 +140,8 @@ export async function moveToPose(
     const p = robotPose(state)!;
     const [dx, dy] = [target.x - p.x, target.y - p.y];
     const dist = Math.hypot(dx, dy);
-    // De lado y hacia atrás va lento y sin pasarse: tolerancia más fina
-    if (dist < (mode === 'side' || mode === 'back' ? FINE_DISTANCE : STOP_DISTANCE)) break;
+    // De lado, hacia atrás y en ajustes cortos (< 15 cm, de a medio paso) va sin pasarse: tolerancia más fina
+    if (dist < (fine || mode === 'side' || mode === 'back' ? FINE_DISTANCE : STOP_DISTANCE)) break;
     const bearing = wrapAngle(Math.atan2(dy, dx) - p.theta);
     const [ahead, side] = [Math.cos(bearing) * dist, Math.sin(bearing) * dist];
     // Atrás o de lado solo para metas cercanas y si aún no empezó a girar o avanzar

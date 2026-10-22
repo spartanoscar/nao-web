@@ -6,10 +6,11 @@
 // movimiento (en JS: `await motion.angleInterpolation(...)`).
 
 import { type Mat4, fromQuaternion, invertRigid, multiply, naoKinematics, toPosition6D } from '../robot/kinematics';
-import { ACTUATOR_COUNT, CHAINS, COUPLED, JOINTS } from '../robot/naoV6';
+import { ACTUATOR_COUNT, CHAINS, COUPLED, JOINTS, JOINT_BY_NAME, motorOf } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
 import { type ALValue, NaoqiError, perJoint, resolveCoupled, toNames, trajectories } from './args';
 import type { MotionEngine } from './engine';
+import { type ArmSolution, solveArm } from './cartesian';
 import { moveToPose, robotPose } from './moveTo';
 import { moveToPosture, nearestPosture, postureFamily } from './postures';
 import { Gait, WALK_POSE } from './walk';
@@ -240,6 +241,76 @@ export class ALMotion {
     return this.transform('getTransform', name, frame, useSensorValues);
   }
 
+  /**
+   * Non-blocking. "Moves an end-effector to the given position and orientation." APPROX: solo "LArm"/"RArm" y solo
+   * posición (axisMask 7), con la cinemática inversa de cartesian.ts.
+   */
+  setPositions(effectorNames: ALValue, frame: ALValue, position: ALValue, fractionMaxSpeed: number, axisMask: ALValue): void {
+    void this.movePositions('setPositions', effectorNames, frame, position, axisMask, (targets) => this.engine.interpolateWithSpeed(targets, fractionMaxSpeed).done);
+  }
+
+  /**
+   * Blocking. "Moves end-effectors to the given positions and orientations over time." Un punto o una lista de puntos
+   * (Position6D) por efector, con sus tiempos. APPROX: mismas restricciones que setPositions.
+   */
+  async positionInterpolations(effectorNames: ALValue, frames: ALValue, paths: ALValue, axisMasks: ALValue, relativeTimes: ALValue): Promise<void> {
+    const names = Array.isArray(effectorNames) ? effectorNames.map(String) : [String(effectorNames)];
+    const timesOf = (i: number): number[] => {
+      const t = Array.isArray(relativeTimes) && names.length > 1 ? relativeTimes[i] : relativeTimes;
+      return (Array.isArray(t) ? t : [t]).map(Number);
+    };
+    const pathOf = (i: number): number[][] => {
+      const p = (Array.isArray(paths) && names.length > 1 ? paths[i] : paths) as ALValue;
+      return Array.isArray(p) && Array.isArray(p[0]) ? (p as number[][]) : [p as number[]];
+    };
+    const plan: Record<string, { times: number[]; values: number[] }> = {};
+    names.forEach((name, i) => {
+      const frame = Array.isArray(frames) ? Number(frames[i]) : Number(frames);
+      const mask = Array.isArray(axisMasks) ? Number(axisMasks[i]) : Number(axisMasks);
+      const times = timesOf(i);
+      const points = pathOf(i);
+      if (points.length !== times.length) throw new NaoqiError(SERVICE, 'positionInterpolations', `${name}: ${points.length} puntos y ${times.length} tiempos`);
+      let seed = (j: string) => this.engine.command(j);
+      for (const [k, point] of points.entries()) {
+        const sol = this.solvePosition('positionInterpolations', name, frame, point, mask, seed);
+        for (const [j, v] of Object.entries(sol.angles)) {
+          plan[j] ??= { times: [], values: [] };
+          plan[j].times.push(times[k]);
+          plan[j].values.push(v);
+        }
+        const prev = sol.angles;
+        seed = (j: string) => prev[j] ?? this.engine.command(j);
+      }
+    });
+    await this.engine.interpolate(plan).done;
+  }
+
+  /** Lo que quedó sin alcanzar en el último setPositions/positionInterpolations (m), para depurar */
+  lastPositionError = 0;
+
+  private async movePositions(method: string, effectorNames: ALValue, frame: ALValue, position: ALValue, axisMask: ALValue, run: (t: Record<string, number>) => Promise<void>) {
+    const names = Array.isArray(effectorNames) ? effectorNames.map(String) : [String(effectorNames)];
+    const targets: Record<string, number> = {};
+    names.forEach((name, i) => {
+      const f = Array.isArray(frame) ? Number(frame[i]) : Number(frame);
+      const m = Array.isArray(axisMask) ? Number(axisMask[i]) : Number(axisMask);
+      const p = (names.length > 1 ? (position as ALValue[])[i] : position) as number[];
+      Object.assign(targets, this.solvePosition(method, name, f, p, m, (j) => this.engine.command(j)).angles);
+    });
+    await run(targets);
+  }
+
+  private solvePosition(method: string, name: string, frame: number, position: number[], axisMask: number, seed: (j: string) => number): ArmSolution {
+    if (name !== 'LArm' && name !== 'RArm') throw new NaoqiError(SERVICE, method, `en el simulador solo "LArm" y "RArm" (no "${name}")`);
+    if ((axisMask & 7) !== 7 || axisMask & 56) throw new NaoqiError(SERVICE, method, 'en el simulador solo posición (axisMask 7)');
+    if (!Array.isArray(position) || position.length < 3) throw new NaoqiError(SERVICE, method, 'position debe ser Position6D [x, y, z, wx, wy, wz]');
+    // Pose del torso en el frame pedido (medida): lleva puntos del torso a ese frame; las piernas no se mueven por esto
+    const frameFromTorso = this.transform(method, 'Torso', frame, true);
+    const sol = solveArm(naoKinematics(), name, frameFromTorso, position.slice(0, 3).map(Number), seed);
+    this.lastPositionError = sol.error;
+    return sol;
+  }
+
   private transform(method: string, name: string, frame: number, useSensors: boolean): Mat4 {
     const kin = naoKinematics();
     const link = this.effectorLink(name);
@@ -278,6 +349,17 @@ export class ALMotion {
   /** Nombres de joints de un joint, cadena o grupo ("Body" → 26 nombres) */
   getBodyNames(name: string): string[] {
     return toNames(SERVICE, 'getBodyNames', name);
+  }
+
+  /**
+   * Límites por joint: [[minAngle, maxAngle, maxVelocity, maxTorque], …] (rad, rad/s, N·m). APPROX: la doc de
+   * reference/ solo lista el método; formato de NAOqi 2.x, valores del URDF y de motors_naov6 (torque de bloqueo).
+   */
+  getLimits(name: string): number[][] {
+    return toNames(SERVICE, 'getLimits', name).map((j) => {
+      const spec = JOINT_BY_NAME.get(j)!;
+      return [spec.min, spec.max, spec.maxVelocity, motorOf(j).stallTorque];
+    });
   }
 
   /** Alias histórico de getBodyNames */
