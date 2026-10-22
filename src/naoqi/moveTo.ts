@@ -29,6 +29,8 @@ const STOP_ANGLE = 0.16;
 const STEER_ANGLE = 0.35;
 /** Avanzando, se tolera pasar a esta distancia lateral de la meta sin girar (m) */
 const MISS_DISTANCE = 0.1;
+/** Error de ángulo "de espaldas" (rad): ahí el signo no dice hacia dónde girar, se usa el de theta */
+const BEHIND = 2.8;
 /** Metas cercanas de lado (m): paso lateral en vez de girar */
 const SIDESTEP_RANGE = 0.25;
 /** Metas cercanas detrás (m): marcha atrás en vez de dar media vuelta */
@@ -118,6 +120,16 @@ export async function moveToPose(
     if (!cancelled()) gait.setVelocity(v);
   };
 
+  // El sentido de un giro se fija al empezarlo: con la meta justo detrás (±180°) el balanceo del torso hace saltar el
+  // error entre +179° y −179° y el robot se quedaba girando a un lado y al otro en el mismo sitio (lo vio Oscar). Solo
+  // se invierte si de verdad se pasó (el error cambia de signo y ya es menor de 90°).
+  let spin = 0;
+  const turnSign = (error: number, preferred = 0) => {
+    if (spin === 0) spin = Math.abs(error) > BEHIND && preferred ? preferred : Math.sign(error) || 1;
+    else if (Math.sign(error) !== spin && Math.abs(error) < Math.PI / 2) spin = Math.sign(error);
+    return spin;
+  };
+
   // 1. Hasta el punto
   let mode: 'forward' | 'turn' | 'side' | 'back' | null = null;
   for (;;) {
@@ -138,21 +150,23 @@ export async function moveToPose(
       if (ahead <= 0 && dist < STOP_DISTANCE * 2) break; // se pasó por poco: ya llegó
       if (ahead <= 0 || (Math.abs(bearing) > STEER_ANGLE && Math.abs(side) > MISS_DISTANCE)) mode = 'turn';
     } else mode = Math.abs(bearing) > STOP_ANGLE ? 'turn' : 'forward';
+    if (mode !== 'turn') spin = 0;
     await drive(
       mode === 'forward' ? { x: 1, y: 0, theta: 0 }
         : mode === 'back' ? { x: -1, y: 0, theta: 0 }
           : mode === 'side' ? { x: 0, y: Math.sign(side), theta: 0 }
-            : { x: 0, y: 0, theta: Math.sign(bearing) },
+            : { x: 0, y: 0, theta: turnSign(bearing) },
     );
     await tick();
   }
 
-  // 2. Al ángulo final
+  // 2. Al ángulo final (sentido nuevo: el de theta si queda casi de espaldas)
+  spin = 0;
   for (;;) {
     if (cancelled() || fallen() || engine.time > deadline) return abort();
     const error = wrapAngle(heading - robotPose(state)!.theta);
     if (Math.abs(error) < STOP_ANGLE) break;
-    await drive({ x: 0, y: 0, theta: Math.sign(error) });
+    await drive({ x: 0, y: 0, theta: turnSign(error, Math.sign(theta)) });
     await tick();
   }
   await gait.stop();

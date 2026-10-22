@@ -11,6 +11,7 @@
 // paso (medio ciclo) se decide seguir, cambiar de dirección o frenar a la pose de marcha.
 // Se ejecuta la componente dominante de (x, y, theta), no una combinación.
 
+import { CHAINS } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
 import type { MotionEngine } from './engine';
 import { MOTIONS, type MotionClip, firstPose } from './motionFile';
@@ -103,6 +104,11 @@ export class Gait {
   private generation = 0;
   /** Frenando hacia la pose de marcha (aún cuenta como marcha activa) */
   private exiting = false;
+  /**
+   * ALMotion.setMoveArmsEnabled: brazos que mueve la marcha. Un brazo desactivado no recibe los keyframes del ciclo
+   * y se queda en lo último que se le comandó (p. ej. al frente para empujar). Se aplica desde el siguiente paso.
+   */
+  readonly armsEnabled = { LArm: true, RArm: true };
   private done: Promise<void> = Promise.resolve();
   private resolveDone: () => void = () => undefined;
 
@@ -110,6 +116,14 @@ export class Gait {
     private readonly engine: MotionEngine,
     private readonly state: RobotState,
   ) {}
+
+  /** ¿La marcha mueve este joint? (no, si es de un brazo desactivado) */
+  drives(joint: string): boolean {
+    return !(
+      (!this.armsEnabled.LArm && CHAINS.LArm.includes(joint)) ||
+      (!this.armsEnabled.RArm && CHAINS.RArm.includes(joint))
+    );
+  }
 
   get active(): boolean {
     return this.current !== null || this.exiting;
@@ -152,6 +166,7 @@ export class Gait {
     this.current = gait;
     const trajectories: Record<string, { times: number[]; values: number[] }> = {};
     gait.joints.forEach((name, j) => {
+      if (!this.drives(name)) return;
       const times = entry > 0 ? [entry] : [];
       const values = entry > 0 ? [gait.start[name]] : [];
       for (let c = 0; c < RENEW; c++) {
@@ -195,7 +210,7 @@ export class Gait {
     }
     if (wanted) return this.enter(wanted);
     // Frenar: a la pose de marcha, con la velocidad que lleve
-    const joints = Object.keys(WALK_POSE);
+    const joints = Object.keys(WALK_POSE).filter((j) => this.drives(j));
     const task = this.engine.interpolate(
       Object.fromEntries(joints.map((j) => [j, { times: [EXIT], values: [WALK_POSE[j]] }])),
       { continuous: true },

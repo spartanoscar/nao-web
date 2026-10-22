@@ -92,7 +92,11 @@ export function moveToPosture(engine: MotionEngine, name: PostureName, speed: nu
  * Postura más cercana al estado actual. APPROX: ALRobotPosture usa joints + sensor inercial; aquí
  * el error máximo articular (sin manos) y la orientación del cuerpo.
  */
-export function nearestPosture(state: RobotState): { name: PostureName; error: number } {
+/** Joints que definen la familia (doc alrobotposture: apoyo del peso, torso y piernas; brazos y cabeza no cuentan) */
+const FAMILY_JOINTS = new Set([...CHAINS.LLeg, ...CHAINS.RLeg]);
+
+/** `legsOnly`: compara solo las piernas (para la familia: con los brazos al frente sigue "Standing") */
+export function nearestPosture(state: RobotState, legsOnly = false): { name: PostureName; error: number } {
   let best: { name: PostureName; error: number } = { name: 'Crouch', error: Infinity };
   const g = gravityInTorso(state);
   for (const name of POSTURE_NAMES) {
@@ -105,7 +109,7 @@ export function nearestPosture(state: RobotState): { name: PostureName; error: n
     const tolerance = g ? (familyOf(name) === 'Sitting' ? 0.8 : 0.4) : 0;
     let error = Math.max(0, tilt - tolerance);
     for (const { name: joint } of JOINTS) {
-      if (joint.endsWith('Hand')) continue;
+      if (joint.endsWith('Hand') || (legsOnly && !FAMILY_JOINTS.has(joint))) continue;
       error = Math.max(error, Math.abs(state.get(joint) - POSTURES[name][joint]));
     }
     if (error < best.error) best = { name, error };
@@ -140,11 +144,15 @@ export function lyingFamily(state: RobotState): LyingFamily | null {
   return g[1] > 0 ? 'LyingLeft' : 'LyingRight';
 }
 
-/** Familia actual: acostado por la IMU; si no, la de la postura más cercana, o "Unknown" */
+/**
+ * Familia actual: acostado por la IMU; si no, la de la postura más cercana por las piernas y el torso, o "Unknown".
+ * Doc: "Standing: the weight is supported by the feet, the torso is upright and the legs are straight" (los brazos
+ * pueden estar en cualquier pose).
+ */
 export function postureFamily(state: RobotState): string {
   const lying = lyingFamily(state);
   if (lying) return lying;
-  const { name, error } = nearestPosture(state);
+  const { name, error } = nearestPosture(state, true);
   return error < IN_FAMILY ? familyOf(name) : 'Unknown';
 }
 

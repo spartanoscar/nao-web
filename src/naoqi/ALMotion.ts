@@ -5,6 +5,7 @@
 // Las llamadas "blocking" del robot devuelven una Promise que se resuelve al terminar el
 // movimiento (en JS: `await motion.angleInterpolation(...)`).
 
+import { type Mat4, fromQuaternion, invertRigid, multiply, naoKinematics, toPosition6D } from '../robot/kinematics';
 import { ACTUATOR_COUNT, CHAINS, COUPLED, JOINTS } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
 import { type ALValue, NaoqiError, perJoint, resolveCoupled, toNames, trajectories } from './args';
@@ -136,7 +137,7 @@ export class ALMotion {
   /** Blocking. "Initializes the move process. Checks the robot pose and takes a right posture." */
   async moveInit(): Promise<void> {
     if (!this.canWalk('moveInit')) return;
-    const legs = Object.keys(WALK_POSE);
+    const legs = Object.keys(WALK_POSE).filter((j) => this.gait.drives(j));
     await this.angleInterpolationWithSpeed(legs, legs.map((j) => WALK_POSE[j]), 0.3);
   }
 
@@ -175,6 +176,24 @@ export class ALMotion {
     return p ? [p.x, p.y, p.theta] : [0, 0, 0];
   }
 
+  /**
+   * "Sets if Arms Motions are enabled during the Move Process." true = la marcha mueve ese brazo (defecto); false = el
+   * brazo queda libre para otras tareas mientras camina (p. ej. empujar con los brazos al frente).
+   */
+  setMoveArmsEnabled(leftArmEnable: boolean, rightArmEnable: boolean): void {
+    this.gait.armsEnabled.LArm = Boolean(leftArmEnable);
+    this.gait.armsEnabled.RArm = Boolean(rightArmEnable);
+  }
+
+  /** "LArm" / "RArm": si ese brazo lo mueve la marcha; "Arms": si los dos */
+  getMoveArmsEnabled(chainName: string): boolean {
+    const { LArm, RArm } = this.gait.armsEnabled;
+    if (chainName === 'LArm') return LArm;
+    if (chainName === 'RArm') return RArm;
+    if (chainName === 'Arms') return LArm && RArm;
+    throw new NaoqiError(SERVICE, 'getMoveArmsEnabled', `chainName debe ser "LArm", "RArm" o "Arms", no "${chainName}"`);
+  }
+
   /** Blocking. Detiene la marcha al terminar el paso en curso. */
   async stopMove(): Promise<boolean> {
     this.moveRun++;
@@ -202,6 +221,56 @@ export class ALMotion {
       return false;
     }
     return true;
+  }
+
+  // ─── Cartesiano (lectura) ───────────────────────────────────────────────────
+  // Docs: reference/naoqi-2.8-api/naoqi_motion_control-cartesian-api.md · cinemática: robot/kinematics.ts (URDF)
+
+  /**
+   * "Gets a Position relative to the FRAME": Position6D [x, y, z, wx, wy, wz] (m, rad). name = joint, cadena
+   * ("Head", "LArm", "RArm", "LLeg", "RLeg", "Torso") o sensor con frame en el URDF ("CameraTop"…).
+   * frame: FRAME_TORSO = 0, FRAME_WORLD = 1, FRAME_ROBOT = 2.
+   */
+  getPosition(name: string, frame: number, useSensorValues: boolean): number[] {
+    return toPosition6D(this.transform('getPosition', name, frame, useSensorValues));
+  }
+
+  /** "Gets an Homogeneous Transform relative to the FRAME": 16 valores de la matriz, fila por fila */
+  getTransform(name: string, frame: number, useSensorValues: boolean): number[] {
+    return this.transform('getTransform', name, frame, useSensorValues);
+  }
+
+  private transform(method: string, name: string, frame: number, useSensors: boolean): Mat4 {
+    const kin = naoKinematics();
+    const link = this.effectorLink(name);
+    if (!link) throw new NaoqiError(SERVICE, method, `no conozco "${name}" (joint, cadena o sensor)`);
+    const angle = (j: string) => (useSensors ? this.state.get(j) : this.engine.command(COUPLED[j] ?? j));
+    const inTorso = kin.linkInTorso(link, angle);
+    if (frame === 0) return inTorso;
+    if (frame !== 1 && frame !== 2) throw new NaoqiError(SERVICE, method, 'frame debe ser FRAME_TORSO (0), FRAME_WORLD (1) o FRAME_ROBOT (2)');
+    // Sin física no hay pose del torso en el mundo: se toma el torso en el origen (APPROX)
+    const root = this.state.root;
+    const torso = root ? fromQuaternion(root.quaternion, root.position) : fromQuaternion([1, 0, 0, 0], [0, 0, 0]);
+    const world = multiply(torso, inTorso);
+    if (frame === 1) return world;
+    // APPROX (definición de la página general de ALMotion, fuera de reference/): FRAME_ROBOT = promedio de los dos pies
+    // proyectado en el suelo, girado solo alrededor de la vertical
+    const [l, r] = ['l_sole', 'r_sole'].map((f) => multiply(torso, kin.linkInTorso(f, angle)));
+    const yaw = Math.atan2(Math.sin(Math.atan2(l[4], l[0])) + Math.sin(Math.atan2(r[4], r[0])), Math.cos(Math.atan2(l[4], l[0])) + Math.cos(Math.atan2(r[4], r[0])));
+    const [c, s] = [Math.cos(yaw), Math.sin(yaw)];
+    const robot: Mat4 = [c, -s, 0, (l[3] + r[3]) / 2, s, c, 0, (l[7] + r[7]) / 2, 0, 0, 1, (l[11] + r[11]) / 2, 0, 0, 0, 1];
+    return multiply(invertRigid(robot), world);
+  }
+
+  /** Link del URDF que representa un nombre de NAOqi */
+  private effectorLink(name: string): string | undefined {
+    const kin = naoKinematics();
+    const chains: Record<string, string> = { Torso: 'torso', Head: 'Head', LArm: 'l_gripper', RArm: 'r_gripper', LLeg: 'l_sole', RLeg: 'r_sole' };
+    if (chains[name]) return chains[name];
+    const child = kin.childOf(name);
+    if (child && JOINTS.some((j) => j.name === name)) return child;
+    for (const candidate of [name, `${name}_frame`]) if (kin.hasLink(candidate)) return candidate;
+    return undefined;
   }
 
   // ─── Herramientas generales ─────────────────────────────────────────────────
