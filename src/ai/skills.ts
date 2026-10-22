@@ -7,7 +7,7 @@ import { MOTIONS, playMotion } from '../naoqi/motionFile';
 import { wrapAngle } from '../naoqi/moveTo';
 import { postureJoints } from '../naoqi/postures';
 import { WALK_POSE } from '../naoqi/walk';
-import { invertRigid } from '../robot/kinematics';
+import { invertRigid, multiply } from '../robot/kinematics';
 import { CHAINS } from '../robot/naoV6';
 import type { Snapshot, Vision } from './vision';
 
@@ -184,6 +184,32 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
           ...(partial ? { nota: `iba a ${round(dist, 1)} m: avancé una parte; busca el objeto en la foto nueva y vuelve a usar approach` } : {}),
         }),
         image,
+      };
+    }
+    case 'locate': {
+      // Dónde está algo de la última imagen respecto a los pies (FRAME_ROBOT): la caja proyectada al suelo con la
+      // pose de la cámara al tomar la foto, y los pies con getPosition (sensores)
+      const box = Array.isArray(args.box_2d) ? args.box_2d.map(Number) : [];
+      const g = vision.groundPoint(box);
+      if (!g) return { response: { ok: false, error: 'esa caja no toca el suelo en la última imagen; mira de nuevo' } };
+      // mundo → FRAME_ROBOT: T_robot_mundo = T_robot_torso · (T_mundo_torso)⁻¹
+      const toRobot = multiply(motion.getTransform('Torso', 2, true), invertRigid(motion.getTransform('Torso', 1, true)));
+      const z = 0;
+      const [x, y] = [toRobot[0] * g.x + toRobot[1] * g.y + toRobot[2] * z + toRobot[3], toRobot[4] * g.x + toRobot[5] * g.y + toRobot[6] * z + toRobot[7]];
+      const foot = (chain: string) => {
+        const [fx, fy] = motion.getPosition(chain, 2, true);
+        return { adelante_m: round(fx), izquierda_m: round(fy) };
+      };
+      return {
+        response: {
+          ok: true,
+          que: args.what,
+          borde_cercano: { adelante_m: round(x), izquierda_m: round(y) },
+          distancia_m: round(Math.hypot(x, y)),
+          pie_izquierdo: foot('LLeg'),
+          pie_derecho: foot('RLeg'),
+          nota: 'medido desde el centro entre tus pies: adelante positivo, izquierda positivo',
+        },
       };
     }
     case 'push': {

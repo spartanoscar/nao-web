@@ -88,8 +88,11 @@ export class Brain {
         this.hooks.thinking(false);
         const results = [];
         let image: Snapshot | undefined;
+        // finish: Gemini dice que con esto termina; si todo sale bien no se le vuelve a consultar
+        const finishing = reply.calls.some((c) => c.name === 'finish');
         for (const call of reply.calls) {
           if (cancelled()) return;
+          if (call.name === 'finish') continue;
           const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled, appearance: (p) => this.hooks.setAppearance(p) }).catch(
             (e: unknown) => ({ response: { ok: false, error: e instanceof Error ? e.message : String(e) } as Record<string, unknown>, image: undefined }),
           );
@@ -98,6 +101,14 @@ export class Brain {
           if (r.image) image = r.image;
         }
         if (cancelled()) return;
+        const allOk = results.every((r) => r.response.ok !== false);
+        for (const call of reply.calls) {
+          if (call.name === 'finish') results.push({ id: call.id, name: call.name, response: { ok: allOk, ...(allOk ? {} : { nota: 'algo falló: revisa los resultados' }) } });
+        }
+        if (finishing && allOk) {
+          await this.post({ turn: reply.turn, results, final: true });
+          break;
+        }
         this.hooks.thinking(true);
         reply = await this.post({ turn: reply.turn, results, state: this.snapshotState(origin), image: image?.jpeg });
       }
