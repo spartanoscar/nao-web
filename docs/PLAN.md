@@ -156,6 +156,24 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - **Planificador:** Gemini descompone la orden en herramientas: `goTo(lugar)`, `explore(objetivo)`,
   `lookAt(objeto)`, `say(texto)`, `goToPosture(...)`.
 
+### F16 — Mundo compartido (varios NAO en la misma sala)
+Decidido con Oscar (2026-10-22), aún sin construir:
+- **Modelo "cada uno simula su NAO"** (como Meccha Chameleon con Epic Online Services: el proveedor solo conecta,
+  la simulación corre en los equipos): cada navegador corre la física de su robot y comparte su estado (posición del
+  torso, 25 articulaciones, LEDs ≈ 30 números) a 12–15 Hz; los NAO de los demás se dibujan con ese estado, suavizado,
+  con el nombre del dueño encima. El anfitrión (Oscar en la presentación) simula los objetos compartidos (cubos).
+- **Relay en Cloudflare Durable Objects** (cuenta de Bukivo, la del mismo servidor; plan gratis = objetos con SQLite,
+  sin usar su almacenamiento): la sala vive cerca del primero que entra (Miami para Colombia, ~40–90 ms entre
+  personas) en vez de Francia (~200 ms medidos). API de hibernación de WebSocket para no pagar duración.
+- **Solo se conecta con 2 o más personas:** la presencia la lleva `nao-api` (gratis); a solas no sale ni un mensaje
+  hacia Cloudflare; al quedar solo, se desconecta tras 30 s. Robot quieto = cero mensajes.
+- Cupo gratis por cuenta: 100 000 solicitudes/día (los mensajes entrantes cuentan 20:1) → ~18 000 por hora con 5 NAO;
+  se reinicia a las 00:00 UTC (7 pm Colombia). Verificar antes el plan y el uso de Workers de la cuenta de Bukivo.
+- Login: `nao-api` entrega un pase firmado de pocos minutos; el Worker solo verifica la firma.
+- Voz entre personas: lo que cada uno dice al teléfono → transcripción (ya existe) → texto a todos → el NAO de esa
+  persona lo dice con su voz (Kokoro, local). Sin WebRTC.
+- Plan B: la misma sala por el relay de `nao-api` (mismo protocolo, cambia la URL).
+
 ### F14 — Sonido  (✅ motores, golpes de plástico y pasos sintetizados desde la física, 2026-10-21)
 - **Motores sintetizados en vivo** (WebAudio, sin archivos): un "zumbido de reductora" por cada uno de los 24
   actuadores, alimentado por la física de MuJoCo. Tono ∝ velocidad del rotor (velocidad del joint × reducción de su
