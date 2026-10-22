@@ -21,13 +21,13 @@ export function attachChat(robotName: () => string, onSend: (text: string) => vo
     input.placeholder = `Escríbele a ${robotName()}…`;
     bar.hidden = false;
     open.hidden = true;
-    document.body.classList.add('chat-open');
+    document.body.classList.add('chatting');
     input.focus();
   };
   const hide = () => {
     bar.hidden = true;
     open.hidden = false;
-    document.body.classList.remove('chat-open');
+    document.body.classList.remove('chatting');
     input.blur();
   };
   open.addEventListener('click', show);
