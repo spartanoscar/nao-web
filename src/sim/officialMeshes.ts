@@ -67,11 +67,12 @@ export async function loadOfficialMeshes(
   return result;
 }
 
-// ─── Color de la carcasa ──────────────────────────────────────────────────────
+// ─── Color de la carcasa y lente de los ojos ──────────────────────────────────
 // La textura oficial es un atlas con zonas rotuladas por Aldebaran ("Structure", "Main Skin",
-// "Inside", "Eyes", "Colored part"). Las piezas de color usan el rectángulo "Colored part": para las
-// variantes de color se dibuja en memoria una copia de la textura con ese rectángulo de otro color.
-// El archivo no se modifica y el azul usa la textura original tal cual.
+// "Inside", "Eyes", "Colored part"). Se dibuja en memoria una copia (el archivo no se modifica):
+// - "Colored part" del color de carcasa elegido (azul = el original);
+// - "Eyes" como lente ahumada: en la textura los ojos son azul fijo y cualquier LED encima se teñía
+//   de azul; en el robot real el ojo es una lente oscura con los LEDs detrás.
 
 export interface ShellColor {
   id: string;
@@ -90,12 +91,16 @@ export const SHELL_COLORS: readonly ShellColor[] = [
 
 /** "Colored part" en textureNAO.png (640×400): medido, un rectángulo exacto de #0826e0 */
 const COLORED_PART = { x: 465, y: 0, w: 129, h: 167 };
+/** "Eyes" en textureNAO.png: medido (343–634, 247–394) */
+const EYES = { x: 343, y: 247, w: 292, h: 148 };
+/** APPROX: lente ahumada del ojo apagado */
+const EYE_LENS = '#15181e';
 const TEXTURE_URL = `${MESHES_BASE}texture/textureNAO.png`;
 
 const originals = new WeakMap<THREE.Material, THREE.Texture>();
-const tinted = new Map<number, Promise<HTMLCanvasElement>>();
+const tinted = new Map<number | null, Promise<HTMLCanvasElement>>();
 
-function tintedAtlas(hex: number): Promise<HTMLCanvasElement> {
+function tintedAtlas(hex: number | null): Promise<HTMLCanvasElement> {
   let p = tinted.get(hex);
   if (!p) {
     p = new THREE.ImageLoader().loadAsync(TEXTURE_URL).then((img) => {
@@ -104,8 +109,12 @@ function tintedAtlas(hex: number): Promise<HTMLCanvasElement> {
       canvas.height = img.height;
       const g = canvas.getContext('2d')!;
       g.drawImage(img, 0, 0);
-      g.fillStyle = `#${hex.toString(16).padStart(6, '0')}`;
-      g.fillRect(COLORED_PART.x, COLORED_PART.y, COLORED_PART.w, COLORED_PART.h);
+      if (hex !== null) {
+        g.fillStyle = `#${hex.toString(16).padStart(6, '0')}`;
+        g.fillRect(COLORED_PART.x, COLORED_PART.y, COLORED_PART.w, COLORED_PART.h);
+      }
+      g.fillStyle = EYE_LENS;
+      g.fillRect(EYES.x, EYES.y, EYES.w, EYES.h);
       return canvas;
     });
     tinted.set(hex, p);
@@ -113,9 +122,9 @@ function tintedAtlas(hex: number): Promise<HTMLCanvasElement> {
   return p;
 }
 
-/** Cambia el color de las piezas de color de todas las mallas oficiales dadas */
+/** Pinta las mallas oficiales con el color de carcasa dado (y la lente de los ojos) */
 export async function setShellColor(meshes: Iterable<THREE.Object3D>, color: ShellColor): Promise<void> {
-  const atlas = color.hex === null ? null : await tintedAtlas(color.hex);
+  const atlas = await tintedAtlas(color.hex);
   let texture: THREE.CanvasTexture | null = null;
   for (const root of meshes) {
     root.traverse((o) => {
@@ -129,10 +138,6 @@ export async function setShellColor(meshes: Iterable<THREE.Object3D>, color: She
           originals.set(m, map!);
         }
         const original = originals.get(m)!;
-        if (!atlas) {
-          (m as THREE.MeshPhongMaterial).map = original;
-          continue;
-        }
         if (!texture) {
           texture = new THREE.CanvasTexture(atlas);
           texture.flipY = original.flipY;

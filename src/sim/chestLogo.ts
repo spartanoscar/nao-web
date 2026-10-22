@@ -33,6 +33,7 @@ function logoMesh(onLoad: () => void): THREE.Mesh {
   mesh.name = 'chest-logo';
   mesh.receiveShadow = true;
   mesh.userData.material = mat;
+  mesh.userData.decal = true;
   return mesh;
 }
 

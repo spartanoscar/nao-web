@@ -23,6 +23,8 @@ export interface World {
    * `shadows`: algo de la escena se movió y hay que recalcular el mapa de sombras.
    */
   invalidate(shadows?: boolean): void;
+  /** Dibuja un cuadro ya (capturas, cámaras virtuales); el bucle normal sigue siendo bajo demanda */
+  renderNow(): void;
 }
 
 const BG = 0x0e1116;
@@ -95,7 +97,12 @@ export function createWorld(container: HTMLElement): World {
     renderer.render(scene, camera);
   });
 
-  return { renderer, scene, camera, controls, zUp, objects, onFrame: (cb) => void callbacks.push(cb), invalidate };
+  const renderNow = () => {
+    controls.update();
+    renderer.render(scene, camera);
+  };
+
+  return { renderer, scene, camera, controls, zUp, objects, onFrame: (cb) => void callbacks.push(cb), invalidate, renderNow };
 }
 
 function addLights(scene: THREE.Scene) {

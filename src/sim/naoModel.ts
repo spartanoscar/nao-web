@@ -18,7 +18,8 @@ const MAT = {
   shell: new THREE.MeshStandardMaterial({ color: 0xf2f3f5, roughness: 0.35, metalness: 0.05 }),
   joint: new THREE.MeshStandardMaterial({ color: 0x5d6675, roughness: 0.5, metalness: 0.25 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x2b3038, roughness: 0.6 }),
-  eye: new THREE.MeshStandardMaterial({ color: 0x3aa0ff, emissive: 0x3aa0ff, emissiveIntensity: 1.6 }),
+  // Lente ahumada: la luz la ponen los LEDs (sim/ledsView.ts)
+  eye: new THREE.MeshStandardMaterial({ color: 0x15181e, roughness: 0.25, metalness: 0.1 }),
   highlight: new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xff8a00, emissiveIntensity: 0.5, roughness: 0.4 }),
 };
 
@@ -35,6 +36,8 @@ export class NaoModel {
   /** Formas simples (sim/shapes.ts): se ocultan cuando hay mallas oficiales */
   private readonly primitives: THREE.Mesh[] = [];
   private readonly official: THREE.Object3D[] = [];
+  /** Objetos propios ligados a la vista de formas simples (attach) */
+  private readonly primitiveExtras: THREE.Object3D[] = [];
   private readonly soles: THREE.Object3D[] = [];
   private readonly probes: { frame: THREE.Object3D; point: THREE.Vector3; radius: number }[] = [];
   private readonly masses: { frame: THREE.Object3D; point: THREE.Vector3; mass: number }[] = [];
@@ -115,9 +118,19 @@ export class NaoModel {
     if (!frame) throw new Error(`link desconocido: ${link}`);
     frame.add(obj);
     if (layer === 'official') this.official.push(obj);
-    else if (obj instanceof THREE.Mesh) this.primitives.push(obj);
-    else obj.traverse((o) => o instanceof THREE.Mesh && this.primitives.push(o));
+    else this.primitiveExtras.push(obj);
     obj.visible = layer === 'official' ? this.official.some((o) => o !== obj && o.visible) : !this.hasOfficialMeshes;
+  }
+
+  /** Superficie de un link en una vista (para proyectar decals); sin los decals ya colocados */
+  surfaces(link: string, layer: 'primitive' | 'official'): THREE.Object3D[] {
+    const frame = this.frames.get(link);
+    if (!frame) return [];
+    if (layer === 'official') {
+      const shell = frame.getObjectByName(`mesh:${link}`);
+      return shell ? [shell] : [];
+    }
+    return this.primitives.filter((m) => m.parent === frame && !m.userData.decal);
   }
 
   get hasOfficialMeshes(): boolean {
@@ -128,6 +141,7 @@ export class NaoModel {
   showPrimitives(show: boolean): void {
     const hasOfficial = this.official.length > 0;
     for (const m of this.primitives) m.visible = show || !hasOfficial;
+    for (const o of this.primitiveExtras) o.visible = show || !hasOfficial;
     for (const o of this.official) o.visible = !show;
   }
 
