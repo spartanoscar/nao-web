@@ -15,7 +15,7 @@ export function createBehaviorPanel(
   host: HTMLElement,
   session: Session,
   state: RobotState,
-  { onReset }: { onReset(): void },
+  { onReset, rooms = [], onSpawn }: { onReset(): void; rooms?: { id: string; label: string }[]; onSpawn?(id: string): void },
 ): BehaviorPanel {
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
@@ -48,6 +48,14 @@ export function createBehaviorPanel(
       activity.textContent = '';
     }),
   );
+  // Aparecer en un cuarto del mundo (sim/rooms.ts): agachado y con los motores apagados, como recién encendido
+  const spawns = el('div', 'chips');
+  for (const r of rooms) {
+    spawns.append(chip(r.label, `Aparecer en ${r.label.toLowerCase()} (motores apagados)`, () => {
+      onSpawn?.(r.id);
+      activity.textContent = '';
+    }));
+  }
 
   const postures = el('div', 'chips');
   for (const name of posture.getPostureList()) {
@@ -92,6 +100,7 @@ export function createBehaviorPanel(
     power,
     activity,
     slot,
+    ...(rooms.length ? [section('Aparecer en', spawns)] : []),
     section('Posturas · ALRobotPosture', postures),
     section('Animaciones · .motion', animations),
     section('LEDs · ALLeds', ledChips),

@@ -13,6 +13,8 @@ import { LedsView } from './sim/ledsView';
 import { NaoCameras } from './sim/naoCameras';
 import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
+import { HOME_ROOM, ROOMS, type RoomId, roomAt } from './sim/rooms';
+import type { RootPose } from './robot/state';
 import { createBehaviorPanel } from './ui/behaviorPanel';
 import { attachCameraViews } from './ui/cameraViews';
 import { attachHiddenPanel } from './ui/hiddenPanel';
@@ -50,6 +52,18 @@ addPrimitiveChestLogo(nao, () => world.invalidate());
 const ledViews = [new LedsView(nao, 'primitive')];
 // Pose de arranque apoyada en el suelo (calculada por el modelo cinemático), para la física y el reinicio
 const bootRoot = nao.kinematicRootPose();
+/**
+ * Hogar: donde apareció el robot (un cuarto de sim/rooms.ts). "Reiniciar" y las poses de partida del grabador vuelven
+ * aquí; el laboratorio de movimientos y los bancos de física siguen en el origen (bootRoot, la sala de pruebas).
+ */
+let home: RootPose = bootRoot;
+/** Pose de arranque en un cuarto: la de bootRoot (apoyado en el suelo) girada a su rumbo y llevada a su punto */
+const roomRoot = (id: RoomId): RootPose => {
+  const { x, y, yaw } = ROOMS[id].spawn;
+  const [bw, bx, by, bz] = bootRoot.quaternion;
+  const [c, s] = [Math.cos(yaw / 2), Math.sin(yaw / 2)];
+  return { position: [x, y, bootRoot.position[2]], quaternion: [c * bw - s * bz, c * bx - s * by, c * by + s * bx, c * bz + s * bw] };
+};
 
 let physics: PhysicsSim | null = null;
 const modeLine = document.querySelector('#hud p')!;
@@ -59,13 +73,36 @@ setMode('cargando física…');
 const panelHost = document.getElementById('panel')!;
 // El título técnico (versión, modo de física) va dentro del panel oculto: la pantalla queda para el juego
 panelHost.prepend(document.getElementById('hud')!);
+const resetAtHome = () => {
+  session.engine.stopAll();
+  session.service('ALMotion').setStiffnesses('Body', 0);
+  state.setMany(BOOT_POSTURE);
+  const { position, quaternion } = home;
+  const [w, , , z] = quaternion;
+  nao.setAnchor(position[0], position[1], 2 * Math.atan2(z, w)); // sin física (y para arrancarla) también ahí
+  physics?.reset(home, BOOT_POSTURE);
+};
+/**
+ * Aparece en un cuarto, agachado y con los motores apagados (como recién encendido). La cámara del mundo va con él, con
+ * el mismo encuadre que en el origen (de frente y un poco al costado), girado a su rumbo.
+ */
+const spawn = (id: RoomId) => {
+  home = roomRoot(id);
+  resetAtHome();
+  const { x, y, yaw } = ROOMS[id].spawn;
+  const [c, s] = [Math.cos(yaw), Math.sin(yaw)];
+  const target = new Vector3(x, 0.28, -y); // three: Y arriba, z = −y del URDF
+  const [ox, oy, oz] = [1.0, 0.27, 0.75];
+  world.controls.target.copy(target);
+  world.camera.position.set(target.x + ox * c + oz * s, target.y + oy, target.z - ox * s + oz * c);
+  world.controls.update();
+  followed = [x, y];
+  world.invalidate(true);
+};
 const behavior = createBehaviorPanel(panelHost, session, state, {
-  onReset: () => {
-    session.engine.stopAll();
-    session.service('ALMotion').setStiffnesses('Body', 0);
-    state.setMany(BOOT_POSTURE);
-    physics?.reset(bootRoot, BOOT_POSTURE);
-  },
+  onReset: resetAtHome,
+  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'pasillo'] as RoomId[]).map((id) => ({ id, label: ROOMS[id].label })),
+  onSpawn: (id) => spawn(id as RoomId),
 });
 // Grabador de poses (enseñar movimientos a mano): la pose de partida sale directa, sin ponerse de pie antes
 const LYING_BACK = postureJoints('LyingBack');
@@ -93,10 +130,10 @@ const startLyingBack = async (): Promise<boolean> => {
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
   state.setMany(LYING_BACK);
-  const [w, x, y, z] = bootRoot.quaternion;
+  const [w, x, y, z] = home.quaternion;
   const [c, s] = [Math.SQRT1_2, -Math.SQRT1_2];
   const quaternion: [number, number, number, number] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
-  physics.reset({ position: [bootRoot.position[0], bootRoot.position[1], 0.08], quaternion }, LYING_BACK);
+  physics.reset({ position: [home.position[0], home.position[1], 0.08], quaternion }, LYING_BACK);
   await new Promise((r) => setTimeout(r, 1200)); // que se asiente antes de encender los motores
   holdCurrentPose();
   return true;
@@ -110,7 +147,7 @@ const startSitting = async (): Promise<boolean> => {
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
   state.setMany(BOOT_POSTURE);
-  physics.reset(bootRoot, BOOT_POSTURE);
+  physics.reset(home, BOOT_POSTURE);
   await new Promise((r) => setTimeout(r, 1000));
   holdCurrentPose();
   await new Promise((r) => setTimeout(r, 200));
@@ -123,7 +160,7 @@ const startStanding = async (): Promise<boolean> => {
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
   state.setMany(BOOT_POSTURE);
-  physics.reset(bootRoot, BOOT_POSTURE);
+  physics.reset(home, BOOT_POSTURE);
   await new Promise((r) => setTimeout(r, 1000));
   return session.service('ALMotion').wakeUp();
 };
@@ -230,6 +267,7 @@ const physicsReady = import('./physics/physics')
     physics = sim;
     session.engine.physical = true;
     session.engine.onManual = (name, value) => sim.placeJoint(name, value);
+    spawn(HOME_ROOM); // el NAO del usuario aparece en su casa (la física se arma en el origen)
     setMode(FAITHFUL_PHYSICS ? 'física MuJoCo (fiel)' : 'física MuJoCo');
     world.invalidate(true);
     return true;
@@ -306,6 +344,16 @@ const simControl: SimControl = {
 const animator = attachAnimator(world, nao, session, recorder, simControl);
 recorder.openAnimator = () => animator.open();
 
+/** En qué cuarto está el torso: la cámara del mundo muestra ese cuarto y el pasillo (world.setRoom) */
+let currentRoom: RoomId | null | undefined;
+const trackRoom = () => {
+  const p = state.root?.position ?? home.position;
+  const room = roomAt(p[0], p[1]);
+  if (room === currentRoom) return;
+  currentRoom = room;
+  world.setRoom(room);
+};
+
 /** Avisos en cada paso de la simulación (bancos de prueba: miden igual a ×1 que a ×10) */
 const tickHooks = new Set<() => void>();
 
@@ -326,6 +374,7 @@ world.onFrame((dt) => {
   if (ledsChanged) world.invalidate();
   if (nao.apply(state)) {
     follow();
+    trackRoom();
     world.invalidate(true);
   }
   behavior.refresh();
@@ -350,7 +399,8 @@ const onTick = (fn: () => void) => {
 Object.assign(window, {
   nao: {
     session, state, model: nao, world, ledViews, sound, cameras, urdf, bootRoot, get physics() { return physics; },
-    sim: simControl, clock: () => session.engine.time, wait: simWait, onTick,
+    sim: simControl, clock: () => session.engine.time, wait: simWait, onTick, spawn, rooms: ROOMS,
+    get home() { return home; },
   },
 });
 
