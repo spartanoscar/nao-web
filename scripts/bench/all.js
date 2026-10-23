@@ -23,6 +23,7 @@ async () => {
   // Física fiel = colisión con envolventes (mallas en el modelo de MuJoCo)
   const R = { physics: nao.physics.model.nmesh > 0 ? 'fiel' : 'actual', step: '', done: false, results: {} };
   nao.sim.setSpeed(10);
+  nao.spawn('pruebas'); // los bancos de física y marcha corren en la sala de pruebas (el origen, piso libre)
   (async () => {
     for (const name of steps) {
       R.step = name;

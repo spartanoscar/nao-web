@@ -7,6 +7,7 @@ async () => {
   const { session, world, brain } = window.nao;
   const posture = session.service('ALRobotPosture');
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.nao.spawn('laboratorio'); // la caja gris, la pila y los cubos están en el laboratorio
   document.querySelector('.chip[title^="Vuelve"]').click();
   await wait(1500);
   const t0 = performance.now();

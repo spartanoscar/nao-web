@@ -175,6 +175,18 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
     terrenos, paredes, mesas, cajas, rampas, pelota, NAOmarks, carteles). Colisión = envolvente convexa, como el NAO.
     Revisar la licencia de Meshy según el plan y anotarla (como las mallas de Aldebaran).
   - Orden: espejo en el mundo actual → laboratorio → objetos de Meshy → patio.
+  - **Forma del mundo 1 (decidido con Oscar, 2026-10-23): pasillo con cuartos separados**, cada uno un experimento y un
+    punto de aparición, para que los NAO del mundo compartido no se vean todos entre todos (F16: solo se sincronizan los
+    del mismo cuarto). Casa (aparece ahí), Cuarto del espejo, Laboratorio, Baño (tapetes, azulejo resbaloso, charco como
+    peligro), Sala de pruebas (rampa, escalones de 1–4 cm, escalera) y el pasillo (letreros + NAOmarks: "ve al
+    laboratorio"). ✅ Paso 1–2 (2026-10-23): pasillo, 5 cuartos, letreros, capas por cuarto, aparecer en cualquiera;
+    espejo y objetos en su cuarto. Faltan: baño y sala de pruebas con sus fricciones y escalones, NAOmarks, objetos de
+    Meshy, base de carga.
+  - **Reto de la escalera** (idea de Oscar): con la marcha estándar el NAO real no sube escaleras de una casa. Si no se
+    logra enseñarle, los estudiantes con acceso al código buscan su patrón (grabador, modo animador o laboratorio) y
+    exportan su rutina (JSON con autor); un banco la evalúa igual para todos en la física aparte del laboratorio (sube o
+    no, tiempo, energía = ∫ τ·ω de los motores, inclinación máxima, caídas) → ranking, y la comparación entre muchas
+    soluciones es un resultado de la tesis.
 - **Entorno (idea original):** un apartamento o piso de la universidad con habitaciones, puertas, baño con letrero y objetos.
 - **Percepción:** Gemini con las imágenes de las cámaras del NAO para reconocer objetos y letreros. Los 2
   **sonares** del NAO (`ALSonar`, raycast en la física) sirven para no chocar.

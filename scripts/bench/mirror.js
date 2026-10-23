@@ -57,16 +57,19 @@ async (perCondition = 5, conditions = ['sin-metodo', 'con-metodo']) => {
         do {
           setups++;
           nao.sim.setSpeed(10);
+          nao.spawn('espejo'); // de pie a 1.5 m del espejo, mirándolo
           document.querySelector('.chip[title^="Vuelve"]').click();
           await nao.wait(1500);
           motion.setMoveArmsEnabled(true, true);
           await motion.wakeUp();
           await posture.goToPosture('StandInit', 0.5);
-          await motion.moveTo(0.6, 0, 0); // de ~1.5 m a ~0.9 m del espejo (está en x = 1.55, mirando hacia el robot)
+          await motion.moveTo(0.6, 0, 0); // de ~1.5 m a ~0.9 m del espejo
           await nao.wait(800);
         } while (posture.getPostureFamily() !== 'Standing' && setups < 3);
         nao.sim.setSpeed(1);
-        const [x] = motion.getRobotPosition(true);
+        // Distancia a la cara del espejo (environment.ts MIRROR: contra la pared sur del cuarto, mirando a +Y)
+        const [, y] = motion.getRobotPosition(true);
+        const mirrorFace = nao.rooms.espejo.y[0] + 0.04 + 0.03 + 0.025;
         const spent0 = spent;
         const q1 = await ask(QUESTIONS[0], { fresh: true, variant });
         const q2 = await ask(QUESTIONS[1], { variant });
@@ -74,7 +77,7 @@ async (perCondition = 5, conditions = ['sin-metodo', 'con-metodo']) => {
         const probed = names.some((n) => PROBES.has(n)) && names.some((n, i) => LOOKS.has(n) && names.slice(0, i).some((m) => PROBES.has(m)));
         R.results.push({
           condicion: variant,
-          distancia_m: +(1.525 - x).toFixed(2),
+          distancia_m: +(y - mirrorFace).toFixed(2),
           preparaciones: setups,
           que_ves: q1.dijo,
           eres_tu: q2.dijo,
