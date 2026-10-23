@@ -18,6 +18,24 @@ export interface EnvObject {
 
 const CARDBOARD = 0xb08a5a;
 
+/** Pieza fija del mundo: no se mueve (como atornillada a la pared). Mismas coordenadas que EnvObject. */
+export interface FixedObject {
+  name: string;
+  /** Tamaño completo (x = grosor) */
+  size: Vec3;
+  pos: Vec3;
+  yaw: number;
+}
+
+/**
+ * Espejo de cuerpo entero para la *prueba del espejo* (docs/PLAN.md F13): detrás del robot al arrancar, mirando hacia
+ * él (+X), apoyado en el piso. 1.0 × 1.1 m con marco de 4 cm: desde ~0.6 m el NAO (57 cm) se ve entero en su cámara.
+ */
+export const MIRROR: FixedObject = { name: 'mirror', size: [0.05, 1.0, 1.1], pos: [-1.45, -0.1, 0.55], yaw: 0 };
+export const MIRROR_FRAME = 0.04;
+
+export const ENV_FIXED: readonly FixedObject[] = [MIRROR];
+
 export const ENV_OBJECTS: readonly EnvObject[] = [
   // Cubos de 6 cm: tamaño que la mano del NAO podría agarrar
   { name: 'cube_red', size: [0.06, 0.06, 0.06], pos: [0.32, -0.18, 0.03], yaw: 0.4, color: 0xe5484d, mass: 0.05 },

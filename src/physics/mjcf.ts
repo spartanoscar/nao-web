@@ -5,7 +5,7 @@
 
 import { JOINT_BY_NAME } from '../robot/naoV6';
 import type { UrdfJoint, UrdfLink, UrdfRobot, Vec3 } from '../robot/urdf';
-import { ENV_OBJECTS } from '../sim/environment';
+import { ENV_FIXED, ENV_OBJECTS } from '../sim/environment';
 import { linkShapes, type Shape } from '../sim/shapes';
 
 /** 500 Hz: el DCM del NAO real corre a 100 Hz; la física necesita pasos más finos */
@@ -171,6 +171,13 @@ export function buildMjcf(
       `<freejoint/><geom type="box" size="${v3(o.size.map((s) => s / 2))}" mass="${f(o.mass)}" contype="1" conaffinity="1"/></body>`,
   );
 
+  // Piezas fijas (el espejo): geoms del mundo, sin cuerpo propio
+  const fixed = ENV_FIXED.map(
+    (o) =>
+      `<geom name="fixed_${o.name}" type="box" pos="${v3(o.pos)}" quat="${v3(rpyToQuat([0, 0, o.yaw]))}" ` +
+      `size="${v3(o.size.map((s) => s / 2))}" contype="1" conaffinity="1"/>`,
+  );
+
   const actuators = joints
     .filter((j) => j.actuated)
     .map((j) => {
@@ -196,6 +203,7 @@ export function buildMjcf(
     <geom name="floor" type="plane" size="0 0 0.05" contype="1" conaffinity="1"/>
 ${robot}
 ${objects.join('\n')}
+${fixed.map((g) => `    ${g}`).join('\n')}
   </worldbody>
   <equality>
     <!-- "LHipYawPitch and RHipYawPitch are physically just one motor" -->

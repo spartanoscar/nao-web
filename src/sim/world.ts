@@ -4,7 +4,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { ENV_OBJECTS } from './environment';
+import { ENV_OBJECTS, MIRROR, MIRROR_FRAME } from './environment';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 
 export interface World {
   renderer: THREE.WebGLRenderer;
@@ -73,6 +74,7 @@ export function createWorld(container: HTMLElement): World {
   zUp.rotation.x = -Math.PI / 2;
   scene.add(zUp);
   const objects = addObjects(zUp);
+  addMirror(zUp);
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = container;
@@ -150,6 +152,45 @@ function addFloor(scene: THREE.Scene) {
   const grid = new THREE.GridHelper(6, 60, 0x3a4352, 0x262d39);
   grid.position.y = 0.0005;
   scene.add(grid);
+}
+
+/**
+ * Espejo (environment.ts MIRROR): marco y vidrio. El vidrio es un Reflector de three: antes de dibujarse con cada cámara
+ * (la del mundo, las del NAO y las capturas de ALVideoDevice) dibuja la escena reflejada desde esa cámara, así que el
+ * NAO se ve a sí mismo. Solo cuesta cuando la escena se redibuja (render bajo demanda).
+ */
+function addMirror(zUp: THREE.Group) {
+  const { pos, size, yaw } = MIRROR;
+  const [t, w, h] = size;
+  const holder = new THREE.Group();
+  holder.name = MIRROR.name;
+  holder.position.set(...pos);
+  holder.rotation.z = yaw;
+  zUp.add(holder);
+
+  const frame = new THREE.Mesh(
+    new RoundedBoxGeometry(t, w, h, 2, 0.008),
+    new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.6, metalness: 0.2 }),
+  );
+  frame.castShadow = true;
+  frame.receiveShadow = true;
+  holder.add(frame);
+
+  // APPROX: espejo de vidrio común (refleja ~90 %): un gris apenas más oscuro que el neutro (0x7f7f7f) del Reflector
+  const glass = new Reflector(new THREE.PlaneGeometry(w - 2 * MIRROR_FRAME, h - 2 * MIRROR_FRAME), {
+    color: 0x777777,
+    textureWidth: 1024,
+    textureHeight: 1024,
+    clipBias: 0.003,
+    multisample: 4,
+  });
+  glass.name = 'mirror_glass';
+  // La cara del plano (+Z local) mira a +X y su "arriba" (+Y local) es +Z del mundo del robot
+  glass.quaternion.setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)),
+  );
+  glass.position.x = t / 2 + 0.001;
+  holder.add(glass);
 }
 
 function addObjects(zUp: THREE.Group): Map<string, THREE.Mesh> {
