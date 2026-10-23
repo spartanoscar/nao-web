@@ -11,5 +11,8 @@ local/
 # Mallas oficiales del NAO (CC BY-NC-ND 4.0): se descargan con scripts/fetch-nao-meshes.sh
 public/models/nao_meshes/
 
+# Rutinas originales de Aldebaran (Choregraphe 1.x): se descargan con scripts/fetch-aldebaran-motions.sh
+public/motions/aldebaran/
+
 # Binario de nao-api (se compila en scripts/deploy.sh api)
 server/nao-api

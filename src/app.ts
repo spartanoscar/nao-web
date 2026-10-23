@@ -209,6 +209,9 @@ const loadModel = async (onProgress: (loaded: number, total: number) => void) =>
   world.invalidate(true);
 };
 
+// Rutinas originales de Aldebaran (sentarse/levantarse, descargadas por scripts/fetch-aldebaran-motions.sh)
+void import('./naoqi/aldebaranMotions').then(({ loadAldebaranMotions }) => loadAldebaranMotions());
+
 // MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
 const physicsReady = import('./physics/physics')
   .then(({ PhysicsSim }) => PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects))

@@ -71,6 +71,7 @@ _confirm_prod() {
 cmd_build() {
   # Las mallas oficiales no se versionan (licencia): se descargan del paquete ROS si faltan
   [ -d "$NAO_ROOT/public/models/nao_meshes/meshes" ] || bash "$NAO_ROOT/scripts/fetch-nao-meshes.sh" || die "no pude descargar las mallas"
+  [ -f "$NAO_ROOT/public/motions/aldebaran/StandUpX.xar" ] || bash "$NAO_ROOT/scripts/fetch-aldebaran-motions.sh" || die "no pude descargar las rutinas de Aldebaran"
   (cd "$NAO_ROOT" && npm run build) || die "build falló"
   echo -e "${C_GREEN}✓ build → dist/${C_NC}"
 }

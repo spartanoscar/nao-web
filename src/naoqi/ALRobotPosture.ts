@@ -7,6 +7,7 @@ import type { ALMotion } from './ALMotion';
 import { MOTIONS, playMotion } from './motionFile';
 import { MOTION_NETS, playMotionNet, sliceMotionNet } from './motionNet';
 import { TAUGHT_MOTIONS, playTaught } from './taughtMotion';
+import { playAldebaranMotion } from './aldebaranMotions';
 import {
   IN_FAMILY,
   IN_POSTURE,
@@ -111,6 +112,8 @@ export class ALRobotPosture {
     } else if ('net' in step) {
       const net = MOTION_NETS.find((m) => m.name === step.net);
       if (net) await playMotionNet(this.engine, this.motion, step.frames ? sliceMotionNet(net, step.frames) : net);
+    } else if ('aldebaran' in step) {
+      await playAldebaranMotion(this.motion, step.aldebaran);
     } else if ('taught' in step) {
       const taught = TAUGHT_MOTIONS.find((m) => m.name === step.taught);
       if (taught) await playTaught(this.motion, taught);

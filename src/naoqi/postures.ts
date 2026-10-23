@@ -5,6 +5,7 @@
 import postureData from '../../reference/qibullet/nao_postures.json';
 import { CHAINS, COUPLED, JOINTS } from '../robot/naoV6';
 import type { BodySupport, RobotState } from '../robot/state';
+import { hasAldebaranMotion } from './aldebaranMotions';
 import { BODY_FOOT_SUPPORT, BODY_PITCH, type MotionEngine, type MotionTask } from './engine';
 
 export type PostureName = keyof typeof postureData;
@@ -169,6 +170,8 @@ export type RouteStep =
   | { net: string; frames?: number }
   /** Movimiento enseñado a mano con el grabador de poses (naoqi/taught/) */
   | { taught: string }
+  /** Rutina original de Aldebaran (Choregraphe 1.x, naoqi/aldebaranMotions.ts); el tramo solo existe si se descargó */
+  | { aldebaran: string }
   /** Pausa (s) para que el cuerpo se asiente antes del siguiente tramo */
   | { wait: number };
 /** Nodos del grafo: las posturas predefinidas y los costados (de los que solo se sale rodando) */
@@ -187,9 +190,9 @@ const EDGES: [RouteNode, RouteNode, RouteStep[]][] = [
   ['Crouch', 'StandInit', [all('StandInit')]],
   // Sentarse: brazos atrás para apoyarse y luego dejarse caer sobre el trasero (como una persona)
   ['Crouch', 'SitRelax', [{ posture: 'SitRelax', part: 'arms' }, all('SitRelax')]],
-  // Sentarse controlado: encontrado por el laboratorio de movimientos (src/lab/, CMA-ES); bajada del torso 0.53 m/s
-  // contra 1.14 del camino Crouch → SitRelax → Sit, que "caía sentado"
-  ['StandInit', 'Sit', [{ taught: 'SitDownControlled' }, { wait: 0.5 }]],
+  // Sentarse como el NAO real: la rutina original de Aldebaran (bajada del torso 0.13 m/s; el camino Crouch → SitRelax
+  // → Sit "caía sentado" a 1.14 m/s y lo que encontró el laboratorio quedó en 0.53)
+  ['Crouch', 'Sit', [{ aldebaran: 'CrouchToSitDown' }, { wait: 0.5 }]],
   ['SitRelax', 'Sit', [all('Sit')]],
   ['Sit', 'SitRelax', [all('SitRelax')]],
   ['SitRelax', 'LyingBack', [all('LyingBack')]],
@@ -213,6 +216,7 @@ export function planRoute(from: RouteNode, to: PostureName): RouteStep[] | null 
     const node = queue.shift()!;
     for (const [a, b, steps] of EDGES) {
       if (a !== node || b === from || prev.has(b)) continue;
+      if (steps.some((st) => 'aldebaran' in st && !hasAldebaranMotion(st.aldebaran))) continue;
       prev.set(b, [a, steps]);
       if (b === to) {
         const route: RouteStep[] = [];
