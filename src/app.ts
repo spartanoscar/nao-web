@@ -18,7 +18,7 @@ import { attachCameraViews } from './ui/cameraViews';
 import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachPoseRecorder } from './ui/poseRecorder';
-import { attachAnimator } from './ui/animator';
+import { type SimControl, attachAnimator } from './ui/animator';
 import { attachLabPanel } from './ui/labPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { showMeshCredit } from './ui/meshLicense';
@@ -76,8 +76,19 @@ const holdCurrentPose = () => {
   void motion.angleInterpolationWithSpeed(names, names.map((j) => state.get(j)), 0.2);
   motion.setStiffnesses('Body', 1);
 };
+/**
+ * Con la física apagada (modo animador) las poses de partida son cinemáticas: ángulos de la postura y apoyo en el suelo
+ * como esa postura (de pie sobre los pies; sentado o acostado, donde su centro de masa queda más bajo)
+ */
+const startKinematic = (posture: Parameters<typeof postureJoints>[0], footSupport: number, pitch: number): boolean => {
+  session.engine.stopAll();
+  state.setMany(postureJoints(posture));
+  state.setBody({ footSupport, pitch });
+  return true;
+};
 // Boca arriba: colocado 90° hacia atrás sobre el eje Y del mundo (Z arriba), la espalda en el suelo
 const startLyingBack = async (): Promise<boolean> => {
+  if (!simControl.physics()) return startKinematic('LyingBack', 0, -Math.PI / 2);
   if (!physics) return false;
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
@@ -94,6 +105,7 @@ const startLyingBack = async (): Promise<boolean> => {
 // sin ponerse de pie (5 de 5). Colocarlo de golpe en Sit no sirve: esa pose rígida se va de espaldas (medido, −40° → −87°
 // en 0.7 s); sentado se sostiene por cómo quedan los apoyos al llegar.
 const startSitting = async (): Promise<boolean> => {
+  if (!simControl.physics()) return startKinematic('Sit', 0, -0.6);
   if (!physics) return false;
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
@@ -106,6 +118,7 @@ const startSitting = async (): Promise<boolean> => {
 };
 // De pie: desde el arranque, wakeUp → StandInit
 const startStanding = async (): Promise<boolean> => {
+  if (!simControl.physics()) return startKinematic('StandInit', 1, 0);
   if (!physics) return false;
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
@@ -119,9 +132,6 @@ const recorder = attachPoseRecorder(panelHost, session.service('ALMotion'), sess
   sit: startSitting,
   stand: startStanding,
 });
-// Modo animador: tocar la pieza y moverla con las flechas, en vez de 25 sliders (mismas poses que el grabador)
-const animator = attachAnimator(world, nao, session, recorder);
-recorder.openAnimator = () => animator.open();
 // Laboratorio: busca movimientos equilibrados (CMA-ES sobre una física aparte) y los deja en el grabador
 attachLabPanel(panelHost, urdf, bootRoot, recorder);
 const joints = createJointPanel(panelHost, state, session.engine, {
@@ -237,10 +247,57 @@ const applyTilt = (dt: number) => {
   controls.update(); // dispara 'change' → world.invalidate()
 };
 
+// Controles de simulación (modo animador): física sí/no y velocidad. ×N = N pasos del motor de NAOqi y de la física por
+// cuadro: la misma simulación, más rápido (techo práctico ~×10: la física da ~14 veces el tiempo real)
+let physicsOn = true;
+let speed = 1;
+const simControl: SimControl = {
+  physics: () => physicsOn && physics !== null,
+  setPhysics(on) {
+    if (!physics || on === physicsOn) return;
+    const motion = session.service('ALMotion');
+    if (!on) {
+      // Sin física: queda donde está (posición y rumbo) y apoyado como su postura (de pie sobre los pies; sentado o
+      // acostado, donde su centro de masa queda más bajo, cerca de la inclinación que tenía)
+      const root = state.root;
+      if (root) {
+        const [w, x, y, z] = root.quaternion;
+        nao.setAnchor(root.position[0], root.position[1], Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)));
+        const family = session.service('ALRobotPosture').getPostureFamily();
+        state.setBody({ footSupport: family === 'Standing' || family === 'Crouching' ? 1 : 0, pitch: Math.atan2(2 * (x * z + w * y), 1 - 2 * (x * x + y * y)) });
+      }
+      session.engine.stopAll();
+      session.engine.physical = false;
+      state.clearRoot();
+    } else {
+      // Con física otra vez: arranca desde la pose que se ve, con los motores sosteniéndola
+      session.engine.stopAll();
+      const angles = Object.fromEntries(motion.getBodyNames('Body').map((j) => [j, state.get(j)]));
+      physics.reset(nao.kinematicRootPose(), angles);
+      session.engine.physical = true;
+      const names = motion.getBodyNames('Body').filter((j) => !j.endsWith('Hand') && j !== 'RHipYawPitch');
+      void motion.angleInterpolationWithSpeed(names, names.map((j) => state.get(j)), 0.2);
+      motion.setStiffnesses('Body', 1);
+    }
+    physicsOn = on;
+    world.invalidate(true);
+  },
+  speed: () => speed,
+  setSpeed(k) {
+    speed = Math.min(Math.max(Math.round(k), 1), 10);
+  },
+};
+
+// Modo animador: tocar la pieza y moverla con las flechas, en vez de 25 sliders (mismas poses que el grabador)
+const animator = attachAnimator(world, nao, session, recorder, simControl);
+recorder.openAnimator = () => animator.open();
+
 world.onFrame((dt) => {
-  session.update(dt);
+  for (let i = 0; i < speed; i++) {
+    session.update(dt);
+    if (physicsOn && physics?.step(dt)) world.invalidate(true);
+  }
   applyTilt(dt);
-  if (physics?.step(dt)) world.invalidate(true);
   if (physics) {
     const hearing = world.camera.position.distanceTo(world.controls.target);
     sound.update(physics.telemetry(), hearing);

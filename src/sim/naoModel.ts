@@ -201,17 +201,26 @@ export class NaoModel {
       this.tilt.position.set(...root.position);
       this.tilt.quaternion.set(x, y, z, w);
     } else {
-      this.tilt.position.set(0, 0, 0);
+      this.tilt.position.set(this.anchor.x, this.anchor.y, 0);
       this.orient(state.body);
+      if (this.anchor.yaw) this.tilt.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(Z_AXIS, this.anchor.yaw));
       this.ground();
     }
     return true;
   }
 
+  /** Sin física: dónde queda el robot en el suelo y hacia dónde mira (para apagar la física sin que salte) */
+  private anchor = { x: 0, y: 0, yaw: 0 };
+
+  setAnchor(x: number, y: number, yaw: number): void {
+    this.anchor = { x, y, yaw };
+    this.appliedRevision = -1;
+  }
+
   /** Pose del torso del modelo cinemático actual (Z arriba), para arrancar la física apoyado en el suelo */
   kinematicRootPose(): RootPose {
     const q = this.tilt.quaternion;
-    return { position: [0, 0, this.root.position.y], quaternion: [q.w, q.x, q.y, q.z] };
+    return { position: [this.anchor.x, this.anchor.y, this.root.position.y], quaternion: [q.w, q.x, q.y, q.z] };
   }
 
   highlight(jointName: string | null): void {
@@ -302,6 +311,7 @@ export class NaoModel {
 
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 /** rpy del URDF (R = Rz·Ry·Rx) como cuaternión de Three */
 export function rpyQuaternion([r, p, y]: Vec3): THREE.Quaternion {

@@ -333,7 +333,11 @@ body.animating #chat, body.animating #transcript { display: none; }
 }
 #animator button:hover { border-color: rgba(245, 165, 36, .7); }
 #animator .an-mirror { margin-left: auto; }
-#animator .an-mirror[aria-pressed="true"] { background: rgba(245, 165, 36, .22); border-color: var(--nao); color: #fff; }
+#animator .an-mirror[aria-pressed="true"], #animator .an-speed[aria-pressed="true"] { background: rgba(245, 165, 36, .22); border-color: var(--nao); color: #fff; }
+#animator .an-physics[aria-pressed="true"] { background: rgba(58, 214, 140, .18); border-color: var(--ok); color: #fff; }
+#animator .an-physics[aria-pressed="false"] { background: rgba(255, 118, 118, .16); border-color: #ff7676; color: #fff; }
+#animator .an-speeds { display: inline-flex; align-items: center; gap: 6px; }
+#animator .an-speeds > span { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 
 /* Laboratorio de movimientos (panel oculto) */
 .lab-panel .lab-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }

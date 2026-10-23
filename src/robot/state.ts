@@ -105,6 +105,12 @@ export class RobotState {
     return this.rootPose;
   }
 
+  /** Sin física (se apagó): la escena vuelve a calcular el apoyo de forma cinemática */
+  clearRoot(): void {
+    this.rootPose = null;
+    this.revision++;
+  }
+
   /** Lectura de la simulación: pose del torso + ángulos medidos, en una sola revisión */
   setFromPhysics(root: RootPose, joints: Readonly<Record<string, number>>): void {
     this.rootPose = root;

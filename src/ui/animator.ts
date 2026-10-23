@@ -3,12 +3,24 @@
 // el otro (abrirlo, ShoulderRoll); Q/E la cadera girada (HipYawPitch). Shift = ajuste fino. M = espejo (el otro lado
 // copia el gesto). Las poses van al mismo grabador (ui/poseRecorder.ts): S guarda, B borra la última, R prueba desde
 // la pose de partida, C copia el JSON. Esc sale. Mientras está activo, el teclado no hace caminar al robot.
+// F = física sí/no (sin física cada pieza queda donde se pone: para grabar poses de referencia que solas no se
+// sostendrían) y 1/2/5/0 = velocidad ×1/×2/×5/×10 (para no esperar en cada "Probar").
 
 import * as THREE from 'three';
 import type { Session } from '../naoqi/session';
 import type { NaoModel } from '../sim/naoModel';
 import type { World } from '../sim/world';
 import type { PoseOrigin, PoseRecorder } from './poseRecorder';
+
+/** Controles de la simulación del mundo (app.ts) */
+export interface SimControl {
+  physics(): boolean;
+  setPhysics(on: boolean): void;
+  speed(): number;
+  setSpeed(k: number): void;
+}
+
+const SPEEDS = [1, 2, 5, 10];
 
 /** Un eje de una pieza: el joint (sin L/R), qué hace la flecha "positiva" y su signo en el lado izquierdo */
 interface Axis {
@@ -96,7 +108,7 @@ function partOf(joint: string): { part: Part; side: 'L' | 'R' | '' } | null {
 /** HipYawPitch es un solo motor (RHipYawPitch lo sigue): siempre el izquierdo */
 const jointName = (axis: Axis, side: string) => (axis.joint === 'HipYawPitch' ? 'LHipYawPitch' : side + axis.joint);
 
-export function attachAnimator(world: World, model: NaoModel, session: Session, recorder: PoseRecorder): { open(): void } {
+export function attachAnimator(world: World, model: NaoModel, session: Session, recorder: PoseRecorder, sim: SimControl): { open(): void } {
   const motion = session.service('ALMotion');
   const engine = session.engine;
   const canvas = world.renderer.domElement;
@@ -114,8 +126,12 @@ export function attachAnimator(world: World, model: NaoModel, session: Session, 
       <button type="button" class="an-mirror" title="Espejo (M): el otro lado copia el gesto">Espejo</button>
     </div>
     <div class="an-row">
+      <button type="button" class="an-physics" title="Física (F): apagada, cada pieza queda donde la pones">Física</button>
+      <span class="an-speeds"><span>Velocidad</span></span>
+    </div>
+    <div class="an-row">
       <span class="an-starts"><span>Empezar</span></span>
-      <span class="an-keys"><kbd>S</kbd> guardar <kbd>B</kbd> borrar última <kbd>R</kbd> probar <kbd>C</kbd> copiar <kbd>Shift</kbd> fino <kbd>Esc</kbd> salir</span>
+      <span class="an-keys"><kbd>S</kbd> guardar <kbd>B</kbd> borrar última <kbd>R</kbd> probar <kbd>C</kbd> copiar <kbd>F</kbd> física <kbd>1 2 5 0</kbd> velocidad <kbd>Shift</kbd> fino <kbd>Esc</kbd> salir</span>
       <span class="an-count"></span>
       <span class="an-msg" aria-live="polite"></span>
     </div>`;
@@ -126,6 +142,28 @@ export function attachAnimator(world: World, model: NaoModel, session: Session, 
   const mirrorButton = $<HTMLButtonElement>('.an-mirror');
   const count = $('.an-count');
   const msg = $('.an-msg');
+  const physicsButton = $<HTMLButtonElement>('.an-physics');
+  const speedButtons = SPEEDS.map((k) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'an-speed';
+    b.textContent = `×${k}`;
+    b.title = `Velocidad ×${k} (tecla ${k === 10 ? 0 : k})`;
+    b.addEventListener('click', () => setSpeed(k));
+    $('.an-speeds').append(b);
+    return b;
+  });
+  const setSpeed = (k: number) => {
+    sim.setSpeed(k);
+    say(`Velocidad ×${sim.speed()}`);
+    refresh();
+  };
+  const togglePhysics = () => {
+    sim.setPhysics(!sim.physics());
+    say(sim.physics() ? 'Física encendida: arranca desde esta pose' : 'Física apagada: cada pieza queda donde la pones');
+    refresh();
+  };
+  physicsButton.addEventListener('click', togglePhysics);
   for (const [origin, label] of STARTS) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -157,6 +195,9 @@ export function attachAnimator(world: World, model: NaoModel, session: Session, 
   };
   const refresh = () => {
     mirrorButton.setAttribute('aria-pressed', String(mirror));
+    physicsButton.setAttribute('aria-pressed', String(sim.physics()));
+    physicsButton.textContent = sim.physics() ? 'Física: sí' : 'Física: no';
+    for (const [i, b] of speedButtons.entries()) b.setAttribute('aria-pressed', String(SPEEDS[i] === sim.speed()));
     count.textContent = `${recorder.count()} poses · ${recorder.duration().toFixed(1)} s`;
     if (!selected) {
       partLabel.textContent = 'Toca una pieza del robot';
@@ -262,6 +303,16 @@ export function attachAnimator(world: World, model: NaoModel, session: Session, 
           case 'c':
             void recorder.copy().then((ok) => say(ok ? 'JSON copiado: pégalo en el chat' : 'No hay poses o no pude copiar'));
             return true;
+          case 'f':
+            return togglePhysics(), true;
+          case '1':
+            return setSpeed(1), true;
+          case '2':
+            return setSpeed(2), true;
+          case '5':
+            return setSpeed(5), true;
+          case '0':
+            return setSpeed(10), true;
           case 'm':
             mirror = !mirror;
             say(mirror ? 'Espejo activado' : 'Espejo apagado');
