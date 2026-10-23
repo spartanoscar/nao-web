@@ -4,6 +4,7 @@
 // Se guarda solo en este navegador; "Copiar" la exporta en JSON (grados) para incorporarla al proyecto.
 
 import type { ALMotion } from '../naoqi/ALMotion';
+import { hasAldebaranMotion, toKeyframes } from '../naoqi/aldebaranMotions';
 import type { MotionEngine } from '../naoqi/engine';
 import { COUPLED, JOINTS } from '../robot/naoV6';
 
@@ -11,6 +12,19 @@ const STORAGE_KEY = 'nao.poseRecorder';
 const DEG = Math.PI / 180;
 /** Todas las articulaciones menos RHipYawPitch (es el mismo motor que LHipYawPitch) */
 const NAMES = JOINTS.map((j) => j.name).filter((n) => !(n in COUPLED));
+
+/**
+ * Rutinas originales de Aldebaran que se pueden cargar como poses para repetirlas y ajustarlas (naoqi/aldebaranMotions.ts).
+ * Varias rutinas = encadenadas como en la caja "Stand Up", con una pausa entre ellas (APPROX: la caja espera a que la
+ * postura se estabilice, "Get Robot Pose", hasta 1 s).
+ */
+const ORIGINALS: { label: string; origin: PoseOrigin; motions: string[] }[] = [
+  { label: 'Levantarse desde sentado (SitToCrouch + CrouchToStand)', origin: 'sit', motions: ['SitToCrouch', 'CrouchToStand'] },
+  { label: 'Sentado → cuclillas (SitToCrouch)', origin: 'sit', motions: ['SitToCrouch'] },
+  { label: 'Levantarse de espaldas (BackToStand)', origin: 'back', motions: ['BackToStand'] },
+  { label: 'Sentarse desde boca arriba (BackToSitDown)', origin: 'back', motions: ['BackToSitDown'] },
+];
+const ORIGINAL_PAUSE = 0.5;
 
 /** Desde dónde se enseña: "Probar" reinicia ahí y "Copiar" nombra el movimiento según eso */
 export type PoseOrigin = 'back' | 'sit' | 'stand';
@@ -139,6 +153,38 @@ export function attachPoseRecorder(
     );
   };
 
+  // Cargar una rutina original: primero pone al robot en su origen y la convierte desde esa pose real
+  const originals = document.createElement('div');
+  originals.className = 'chips';
+  const pick = document.createElement('select');
+  pick.title = 'Rutina original de Aldebaran (Choregraphe 1.x) para repetirla y ajustarla pose por pose';
+  const loadOriginal = chip('Cargar original', 'Reemplaza las poses por la rutina original elegida (desde su postura de partida)', async () => {
+    const o = ORIGINALS[Number(pick.value)];
+    if (!o) return;
+    if (frames.length && !confirm(`¿Reemplazar las ${frames.length} poses por la rutina original?`)) return;
+    say('Preparando la postura de partida…');
+    if (!(await startAt(o.origin))) return say('Hace falta la física (MuJoCo)', true);
+    let pose = current();
+    const next: Keyframe[] = [];
+    for (const [i, m] of o.motions.entries()) {
+      if (i > 0) next.push({ duration: ORIGINAL_PAUSE, angles: { ...pose } });
+      const part = toKeyframes(m, pose);
+      next.push(...part);
+      if (part.length) pose = part[part.length - 1].angles;
+    }
+    api.load(next, o.origin);
+    say(`Cargada: ${o.motions.join(' + ')} · ${next.length} poses, ${api.duration().toFixed(1)} s. "Probar" la repite desde ${o.origin === 'sit' ? 'sentado' : 'boca arriba'}.`);
+  });
+  const fillOriginals = () => {
+    const available = ORIGINALS.map((o, i) => [o, i] as const).filter(([o]) => o.motions.every(hasAldebaranMotion));
+    pick.replaceChildren(...available.map(([o, i]) => Object.assign(document.createElement('option'), { value: String(i), textContent: o.label })));
+    originals.hidden = !available.length;
+  };
+  // Las rutinas se descargan aparte (app.ts): se revisa al abrir el grabador
+  section.addEventListener('toggle', fillOriginals);
+  originals.append(pick, loadOriginal);
+  fillOriginals();
+
   const buttons = document.createElement('div');
   buttons.className = 'chips';
   buttons.append(
@@ -229,7 +275,7 @@ export function attachPoseRecorder(
     duration: () => frames.reduce((t, k) => t + k.duration, 0),
   };
 
-  section.append(summary, help, buttons, status, list);
+  section.append(summary, help, buttons, originals, status, list);
   host.append(section);
   render();
   return api;

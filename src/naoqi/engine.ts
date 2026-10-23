@@ -358,6 +358,14 @@ function evalLinear(times: number[], values: number[], t: number): number {
 }
 
 /**
+ * Valor en `t` de la curva que usa angleInterpolation entre keyframes (tiempos crecientes, el primero = inicio), para
+ * convertir líneas de tiempo sin cambiar su forma (naoqi/aldebaranMotions.ts toKeyframes).
+ */
+export function sampleMonotone(times: number[], values: number[], t: number): number {
+  return evalCurve({ kind: 'curve', t: 0, times, values, slopes: monotoneSlopes(times, values), linear: false }, t);
+}
+
+/**
  * Pendientes de una spline de Hermite monótona (Fritsch–Butland): no se pasa de los keyframes y
  * empieza/termina con velocidad nula. APPROX: ALMotion no documenta su interpolador exacto.
  */

@@ -6,6 +6,7 @@
 // sus otros caminos.
 
 import type { ALMotion } from './ALMotion';
+import { sampleMonotone } from './engine';
 
 const BASE = '/motions/aldebaran/';
 const FILES = ['SitDownX.xar', 'StandUpX.xar'];
@@ -75,4 +76,49 @@ export function playAldebaranMotion(motion: ALMotion, name: string): Promise<voi
   const m = motions.get(name);
   if (!m) return Promise.reject(new Error(`falta la rutina de Aldebaran ${name}`));
   return motion.angleInterpolation(m.joints, m.angles, m.times, true);
+}
+
+/** Lo más que la versión en poses se puede apartar de la curva original entre dos poses (rad) */
+const KEYFRAME_TOLERANCE = 1 * DEG;
+
+/**
+ * La rutina como poses de cuerpo entero (las del grabador, ui/poseRecorder.ts) para repetirla y ajustarla a mano: una
+ * pose en cada tiempo donde alguna articulación tiene keyframe, con cada joint sobre su misma curva (la de
+ * angleInterpolation desde `start`, la pose de partida). Con más puntos la curva se recalcula y puede apartarse entre
+ * ellos: donde algún joint se aparta más de 1° se agrega la pose intermedia (medido sin esto: hasta 5° en ElbowYaw).
+ * Los joints que la rutina no mueve se quedan en `start`.
+ */
+export function toKeyframes(name: string, start: Readonly<Record<string, number>>): { duration: number; angles: Record<string, number> }[] {
+  const m = motions.get(name);
+  if (!m) return [];
+  const curves = m.joints.map((j, i) =>
+    m.times[i][0] > 0 ? { j, ts: [0, ...m.times[i]], vs: [start[j] ?? m.angles[i][0], ...m.angles[i]] } : { j, ts: m.times[i], vs: m.angles[i] },
+  );
+  const tol = (j: string) => (j.endsWith('Hand') ? 0.02 : KEYFRAME_TOLERANCE);
+  let times = [...new Set(m.times.flat().map((t) => Math.round(t * 1000) / 1000))].sort((a, b) => a - b);
+  for (let pass = 0; pass < 4; pass++) {
+    const kt = [0, ...times];
+    const resampled = curves.map((c) => [c.vs[0], ...times.map((t) => sampleMonotone(c.ts, c.vs, t))]);
+    const extra: number[] = [];
+    for (let k = 0; k < kt.length - 1; k++) {
+      const [a, b] = [kt[k], kt[k + 1]];
+      const off = curves.some((c, i) =>
+        [0.25, 0.5, 0.75].some((u) => {
+          const t = a + (b - a) * u;
+          return Math.abs(sampleMonotone(c.ts, c.vs, t) - sampleMonotone(kt, resampled[i], t)) > tol(c.j);
+        }),
+      );
+      if (off && b - a > 0.08) extra.push(Math.round(((a + b) / 2) * 1000) / 1000);
+    }
+    if (!extra.length) break;
+    times = [...new Set([...times, ...extra])].sort((x, y) => x - y);
+  }
+  let prev = 0;
+  return times.map((t) => {
+    const angles: Record<string, number> = { ...start };
+    for (const c of curves) angles[c.j] = sampleMonotone(c.ts, c.vs, t);
+    const duration = Math.round((t - prev) * 1000) / 1000;
+    prev = t;
+    return { duration, angles };
+  });
 }
