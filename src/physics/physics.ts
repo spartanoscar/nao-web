@@ -281,6 +281,7 @@ export class PhysicsSim {
     const R = Array.from({ length: 9 }, (_, i) => this.data.xmat[9 * b + i]); // torso → mundo, por filas
     const world = (v: number[]) => [0, 1, 2].map((r) => R[3 * r] * v[0] + R[3 * r + 1] * v[1] + R[3 * r + 2] * v[2]);
     const steps = [-1, -0.5, 0, 0.5, 1].map((k) => k * SONAR_HALF_FOV);
+    const echoes: [number, number][] = [];
     const read = ({ pos, axes: [ax, ay, az] }: { pos: number[]; axes: number[][] }) => {
       const origin = world(pos).map((v, i) => v + p0[i]);
       let best = SONAR_RANGE[1];
@@ -291,11 +292,13 @@ export class PhysicsSim {
           const inTorso = [0, 1, 2].map((k) => ax[k] * d[0] + ay[k] * d[1] + az[k] * d[2]);
           const dist = this.mj.mj_ray(this.model, this.data, origin, world(inTorso), SONAR_GROUPS as unknown as number[], true, -1, this.rayHit, null);
           if (dist >= 0 && dist < best) best = dist;
+          if (dist >= 0 && dist < SONAR_RANGE[1]) echoes.push([pos[0] + inTorso[0] * dist, pos[1] + inTorso[1] * dist]);
         }
       }
       return Math.min(Math.max(best, SONAR_RANGE[0]), SONAR_RANGE[1]);
     };
     this.state.sonar = [read(this.sonars[0]), read(this.sonars[1])];
+    this.state.sonarEchoes = echoes;
   }
 
   /** Golpes detectados desde la última llamada */

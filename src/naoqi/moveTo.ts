@@ -27,10 +27,19 @@ const FINE_RANGE = 0.15;
 const FINE_DISTANCE = 0.03;
 /** Se deja de girar a este error: medio ciclo de giro son ~14° */
 const STOP_ANGLE = 0.16;
-/** Avanzando, se corrige el rumbo si se desvía más que esto (histéresis con STOP_ANGLE) */
+/**
+ * Avanzando, se corrige el rumbo si se desvía más que esto (histéresis con STOP_ANGLE). Probado 0.2 (2026-10-23): más
+ * cambios entre avanzar y girar y 2 caídas en ~10 recorridos; con la marcha segura que solo mira el camino del robot
+ * (ALMotion.obstacleAhead) basta 0.35 para salir por las puertas
+ */
 const STEER_ANGLE = 0.35;
 /** Avanzando, se tolera pasar a esta distancia lateral de la meta sin girar (m) */
 const MISS_DISTANCE = 0.1;
+/**
+ * El rumbo solo se corrige lejos de la meta (m): cerca, unos centímetros de lado son un ángulo grande y el robot se
+ * quedaba girando de un lado a otro ~15 s a 35 cm de llegar (medido 2026-10-23 con STEER_ANGLE = 0.2)
+ */
+const STEER_RANGE = 0.4;
 /** Error de ángulo "de espaldas" (rad): ahí el signo no dice hacia dónde girar, se usa el de theta */
 const BEHIND = 2.8;
 /** Metas cercanas de lado (m): paso lateral en vez de girar */
@@ -156,7 +165,7 @@ export async function moveToPose(
     else if (mode === 'forward') {
       // Avanzando, el torso se balancea ±3 cm por paso: solo se corrige si de verdad pasaría lejos de la meta
       if (ahead <= 0 && dist < STOP_DISTANCE * 2) break; // se pasó por poco: ya llegó
-      if (ahead <= 0 || (Math.abs(bearing) > STEER_ANGLE && Math.abs(side) > MISS_DISTANCE)) mode = 'turn';
+      if (ahead <= 0 || (dist > STEER_RANGE && Math.abs(bearing) > STEER_ANGLE && Math.abs(side) > MISS_DISTANCE)) mode = 'turn';
     } else mode = Math.abs(bearing) > STOP_ANGLE ? 'turn' : 'forward';
     if (mode !== 'turn') spin = 0;
     await drive(

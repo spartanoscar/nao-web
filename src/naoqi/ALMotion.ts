@@ -23,6 +23,8 @@ const PROTECTION_NAMES = ['All', 'Move', 'Arms', 'LArm', 'RArm'];
  * zona de seguridad "between any part of the robot and any obstacle".
  */
 const SONAR_TO_FRONT = 0.1;
+/** APPROX: medio ancho del NAO al caminar (hombros y brazos, ~0.3 m de ancho) para saber qué eco queda en su camino */
+const HALF_WIDTH = 0.16;
 
 export class ALMotion {
   /** La pone Session: wakeUp/rest usan ALRobotPosture (y su camino entre posturas) */
@@ -67,11 +69,18 @@ export class ALMotion {
     };
   }
 
-  /** Distancia del frente del robot al obstáculo si avanzar a `v` lo deja dentro de la zona de seguridad, o null */
+  /**
+   * Distancia del frente del robot al obstáculo si avanzar a `v` lo deja dentro de la zona de seguridad, o null. Solo
+   * cuentan los ecos en su camino ("in the direction of the motion"): delante y a menos de medio ancho del robot más la
+   * distancia tangencial; una pared al costado del pasillo no lo frena (antes sí: con 12° de desvío veía la pared a 0.5 m).
+   */
   private obstacleAhead(v: { x: number }): number | null {
     const sonar = this.state.sonar;
     if (!this.protection.get('Move') || v.x <= 0 || !sonar) return null;
-    const distance = Math.min(...sonar) - SONAR_TO_FRONT;
+    const path = HALF_WIDTH + this.tangentialDistance;
+    const ahead = this.state.sonarEchoes.filter(([x, y]) => x > 0 && Math.abs(y) < path).map(([x]) => x);
+    if (!ahead.length) return null;
+    const distance = Math.min(...ahead) - SONAR_TO_FRONT;
     // Entre la tangencial (despacio) y la ortogonal (de frente a toda velocidad), según la fracción de velocidad
     const zone = this.tangentialDistance + (this.orthogonalDistance - this.tangentialDistance) * Math.min(1, v.x);
     return distance < zone ? Math.max(0, distance) : null;

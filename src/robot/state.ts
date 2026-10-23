@@ -38,6 +38,11 @@ export class RobotState {
    * 100 ms (physics.ts); null sin física. No cuenta como cambio de la escena (no toca `revision`).
    */
   sonar: [number, number] | null = null;
+  /**
+   * Dónde cayó cada eco de los sonares en el plano, en el frame del torso [x adelante, y izquierda] (m): con esto ALMotion
+   * distingue un obstáculo en su camino de una pared al costado (APPROX de la descripción de obstáculos de ALNavigation)
+   */
+  sonarEchoes: [number, number][] = [];
 
   constructor(initial: Readonly<Record<string, number>> = {}) {
     this.setMany(initial);
