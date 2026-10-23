@@ -180,6 +180,27 @@ Decidido con Oscar (2026-10-22), aún sin construir:
   persona lo dice con su voz (Kokoro, local). Sin WebRTC.
 - Plan B: la misma sala por el relay de `nao-api` (mismo protocolo, cambia la URL).
 
+### F17 — Laboratorio de movimientos (búsqueda automática de movimientos equilibrados)
+Propuesta para el proyecto de grado (2026-10-23): un sistema que **encuentra solo** movimientos controlados para una
+tarea, manteniendo el equilibrio con física real, y que se ejecutan con la API de NAOqi (corren igual en un NAO físico).
+- **Método:** optimización de trayectorias con CMA-ES separable (`src/lab/cmaes.ts`, validado en esfera, elipsoide y
+  Rosenbrock). Un movimiento = K poses clave (17 articulaciones cada una, brazos para apoyarse y piernas completas,
+  asimétrico) + duraciones; la pose final es la postura objetivo. Cada candidato se reproduce con
+  `ALMotion.angleInterpolation` en una física MuJoCo aparte (`src/lab/labSim.ts`, la misma del mundo, sin dibujar,
+  ~14× tiempo real) desde una foto exacta del estado (posiciones, velocidades, arranque del solver y una sesión de
+  NAOqi nueva): el mismo movimiento da siempre el mismo costo (verificado al cuarto decimal).
+- **Puntaje** (`src/lab/tasks.ts`): llegar a la postura (familia de NAOqi e inclinación del torso), no caerse, sin golpe
+  (velocidad máxima de bajada del torso), sin giros bruscos (velocidad angular del torso), duración.
+- **Primer resultado, sentarse (StandInit → Sit):** semilla = el camino actual del grafo, que llega pero "cae sentado"
+  (bajada 1.14 m/s, giro 5.1 rad/s). 60 generaciones × 16 = 961 intentos en 8.7 min: **bajada 0.30 m/s (3.8× más
+  suave), giro 1.6 rad/s**, termina en Sit. Reproducido en el robot del mundo: bajada 0.28 m/s y Sit. Sin que nadie se
+  lo enseñara, el movimiento pasa por una rodilla y el costado con la mano hacia el suelo, como el NAO real del video
+  de referencia (youtube.com/watch?v=_Nva0G-d4c0, 29–41 s).
+- **Siguiente:** levantarse (Sit → Crouch), validación de robustez (variar fricción y masas, empujones), más tareas
+  (agacharse a recoger, patear) para mostrar que es general; conectar lo encontrado al grafo de posturas.
+- Interfaz: panel oculto → "Laboratorio de movimientos" (tarea, generaciones, Buscar/Detener, curva del costo, "Ver en
+  el robot" carga el mejor en el grabador y lo reproduce).
+
 ### F14 — Sonido  (✅ motores, golpes de plástico y pasos sintetizados desde la física, 2026-10-21)
 - **Motores sintetizados en vivo** (WebAudio, sin archivos): un "zumbido de reductora" por cada uno de los 24
   actuadores, alimentado por la física de MuJoCo. Tono ∝ velocidad del rotor (velocidad del joint × reducción de su

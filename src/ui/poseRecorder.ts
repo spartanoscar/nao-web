@@ -28,11 +28,13 @@ export interface PoseRecorder {
   copy(): Promise<boolean>;
   count(): number;
   duration(): number;
+  /** Reemplaza las poses (p. ej. un movimiento encontrado por el laboratorio) y fija desde dónde se prueba */
+  load(frames: Keyframe[], origin: PoseOrigin): void;
   /** Lo pone app.ts: abre el modo animador (botón del grabador) */
   openAnimator?: () => void;
 }
 
-interface Keyframe {
+export interface Keyframe {
   /** Segundos para llegar a esta pose desde la anterior */
   duration: number;
   /** Ángulo comandado por joint (rad; manos 0–1) */
@@ -208,6 +210,17 @@ export function attachPoseRecorder(
       } catch {
         return false;
       }
+    },
+    load(next, o) {
+      frames = next.map((k) => ({ duration: k.duration, angles: Object.fromEntries(NAMES.map((n) => [n, k.angles[n] ?? 0])) }));
+      origin = o;
+      try {
+        localStorage.setItem(`${STORAGE_KEY}.origin`, o);
+      } catch {
+        /* sin almacenamiento */
+      }
+      save();
+      render();
     },
     count: () => frames.length,
     duration: () => frames.reduce((t, k) => t + k.duration, 0),

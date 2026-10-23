@@ -19,6 +19,7 @@ import { attachHiddenPanel } from './ui/hiddenPanel';
 import { createJointPanel } from './ui/jointPanel';
 import { attachPoseRecorder } from './ui/poseRecorder';
 import { attachAnimator } from './ui/animator';
+import { attachLabPanel } from './ui/labPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
@@ -121,6 +122,8 @@ const recorder = attachPoseRecorder(panelHost, session.service('ALMotion'), sess
 // Modo animador: tocar la pieza y moverla con las flechas, en vez de 25 sliders (mismas poses que el grabador)
 const animator = attachAnimator(world, nao, session, recorder);
 recorder.openAnimator = () => animator.open();
+// Laboratorio: busca movimientos equilibrados (CMA-ES sobre una física aparte) y los deja en el grabador
+attachLabPanel(panelHost, urdf, bootRoot, recorder);
 const joints = createJointPanel(panelHost, state, session.engine, {
   onHover: (joint) => {
     nao.highlight(joint);
@@ -257,7 +260,7 @@ world.onFrame((dt) => {
 // Acceso desde la consola del navegador mientras llega la consola de comandos (F4):
 //   const motion = nao.session.service('ALMotion')
 //   await motion.angleInterpolation('HeadYaw', [1, -1, 0], [1, 2, 3], true)
-Object.assign(window, { nao: { session, state, model: nao, world, ledViews, sound, cameras, get physics() { return physics; } } });
+Object.assign(window, { nao: { session, state, model: nao, world, ledViews, sound, cameras, urdf, bootRoot, get physics() { return physics; } } });
 
 // ─── Entrada al mundo ───────────────────────────────────────────────────────────
 // Login + licencia + "Cargando universo…": el mundo se carga detrás y solo se muestra completo

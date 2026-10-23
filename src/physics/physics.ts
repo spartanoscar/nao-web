@@ -110,8 +110,8 @@ export class PhysicsSim {
     private readonly data: MjData,
     private readonly joints: JointSlot[],
     private readonly objects: ObjectSlot[],
-    private readonly state: RobotState,
-    private readonly engine: MotionEngine,
+    private state: RobotState,
+    private engine: MotionEngine,
   ) {
     this.lastQpos = new Float64Array(model.nq);
     for (const [name, kind] of IMPACT_BODIES) {
@@ -267,6 +267,32 @@ export class PhysicsSim {
     [q[0], q[1], q[2]] = root.position;
     [q[3], q[4], q[5], q[6]] = root.quaternion;
     for (const s of this.joints) q[s.qpos] = angles[s.name] ?? 0;
+    this.mj.mj_forward(this.model, this.data);
+    this.acc = 0;
+    this.resetImpacts();
+    this.syncState(true);
+  }
+
+  /**
+   * Estado físico exacto (posiciones, velocidades y el arranque en caliente del solver de contactos de MuJoCo), para
+   * repetir un episodio desde el mismo punto con el mismo resultado
+   */
+  snapshot(): { qpos: Float64Array; qvel: Float64Array; warm: Float64Array } {
+    return { qpos: Float64Array.from(this.data.qpos), qvel: Float64Array.from(this.data.qvel), warm: Float64Array.from(this.data.qacc_warmstart) };
+  }
+
+  /** Cambia el robot y el motor de NAOqi que usa (laboratorio: una sesión nueva por episodio) */
+  rebind(state: RobotState, engine: MotionEngine): void {
+    this.state = state;
+    this.engine = engine;
+  }
+
+  restore(s: { qpos: Float64Array; qvel: Float64Array; warm: Float64Array }): void {
+    this.locked = false;
+    this.stillFor = 0;
+    this.data.qpos.set(s.qpos);
+    this.data.qvel.set(s.qvel);
+    this.data.qacc_warmstart.set(s.warm);
     this.mj.mj_forward(this.model, this.data);
     this.acc = 0;
     this.resetImpacts();
