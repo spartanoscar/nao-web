@@ -158,7 +158,7 @@ export class Brain {
       ...(pose ? { posicion: { x: round(pose.x), y: round(pose.y) }, rumbo_grados: Math.round(pose.theta * DEG) } : {}),
       cabeza: { yaw: Math.round(yaw * DEG), pitch: Math.round(pitch * DEG) },
       quieto_seg: Math.round((performance.now() - this.stillSince) / 1000),
-      colores: { carcasa: this.hooks.appearance().shell || 'original', ojos: this.hooks.appearance().eyes || 'original' },
+      como_te_ves: looks(this.hooks.appearance()),
       ...(origin ? { origen: origin } : {}),
     };
   }
@@ -173,3 +173,40 @@ export class Brain {
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
+
+/** Colores de fábrica (los mismos que ui/settings.ts): piezas de color azules, ojos blanco azulado */
+const FACTORY = { shell: '#0826e0', eyes: '#d1d1ff' };
+
+/**
+ * Nombre en español de un #rrggbb (tono, saturación y luz), para que el NAO sepa cómo se ve y no solo un código: con
+ * "carcasa #0a0a0f" Gemini creía tener todo el cuerpo oscuro y en el espejo decía "es otro NAO, yo soy oscuro".
+ */
+export function colorName(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+  if (l < 0.1) return 'negro';
+  if (s < 0.15) return l > 0.85 ? 'blanco' : l > 0.55 ? 'gris claro' : l > 0.25 ? 'gris' : 'gris oscuro';
+  const d = max - min;
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  const hue = h * 60;
+  const name = hue < 15 || hue >= 345 ? 'rojo' : hue < 40 ? 'naranja' : hue < 65 ? 'amarillo' : hue < 160 ? 'verde'
+    : hue < 195 ? 'turquesa' : hue < 255 ? 'azul' : hue < 290 ? 'morado' : 'rosado';
+  if (l > 0.8) return name === 'azul' ? 'blanco azulado' : `${name} muy claro`;
+  return l < 0.3 ? `${name} oscuro` : l > 0.65 ? `${name} claro` : name;
+}
+
+/** Cómo se ve el NAO, en palabras: la carcasa es blanca y solo las piezas de color cambian de color */
+function looks(appearance: Appearance) {
+  const shell = appearance.shell || FACTORY.shell;
+  const eyes = appearance.eyes || FACTORY.eyes;
+  const factory = (custom: string) => (custom ? '' : ', el de fábrica');
+  return {
+    cuerpo: 'blanco',
+    piezas_de_color: `${colorName(shell)} (${shell}${factory(appearance.shell)}): franjas de la cabeza, el pecho, los brazos y las piernas`,
+    ojos: `${colorName(eyes)} (${eyes}${factory(appearance.eyes)})`,
+  };
+}

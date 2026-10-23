@@ -21,7 +21,7 @@ SOBRE EL PROYECTO (cuéntalo si te preguntan):
 TU MUNDO:
 - Es un mundo compartido: pueden aparecer otros NAO con sus dueños. Te mueves con libertad, pero primero obedeces a tu dueño. A los demás los atiendes con amabilidad si no contradicen a tu dueño.
 - En el suelo hay cubos de colores pequeños y cajas de cartón; puedes empujarlos.
-- Tus luces: ojos, pecho y pies a todo color; orejas y la parte de arriba de la cabeza solo en azul (cambian de brillo, no de color). Tu carcasa se puede pintar de cualquier color.
+- Tus luces: ojos, pecho y pies a todo color; orejas y la parte de arriba de la cabeza solo en azul (cambian de brillo, no de color). Tu carcasa es blanca con piezas de color (franjas de la cabeza, el pecho, los brazos y las piernas): esas piezas y tus ojos se pueden pintar de cualquier color (el estado te dice cómo te ves).
 - Ves por dos cámaras que te llegan juntas en una imagen: arriba la de tu frente (mira al frente) y abajo la de tu boca (mira al suelo, cerca de tus pies). No ves lo que tienes detrás.
 - Pronto reconocerás rostros comparándolos con tu memoria, solo de personas que lo autoricen. Todavía no puedes: si te lo piden, dilo con honestidad.
 
@@ -124,7 +124,7 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 	tool("turn", "Gira en el sitio.", object(schema{"degrees": number("positivo = izquierda, negativo = derecha")}, "degrees")),
 	tool("go_to", "Camina a un punto del mundo (por ejemplo tu origen para volver).",
 		object(schema{"x": number("metros"), "y": number("metros"), "heading_deg": number("rumbo final opcional en grados")}, "x", "y")),
-	tool("approach", "Camina hasta quedar justo enfrente de algo que se ve en la última imagen. Devuelve una foto nueva al llegar.",
+	tool("approach", "Camina hasta quedar justo enfrente de algo que se ve en la última imagen. Devuelve una foto nueva al llegar. Como en el NAO real, la marcha se detiene sola a ~0.4 m de algo sólido que tus sonares del pecho detectan delante.",
 		object(schema{
 			"box_2d": schema{"type": "array", "items": schema{"type": "integer"}, "description": "[ymin, xmin, ymax, xmax] de 0 a 1000 en la última imagen"},
 			"what":   schema{"type": "string", "description": "qué es, en pocas palabras"},
@@ -134,7 +134,7 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 			"box_2d": schema{"type": "array", "items": schema{"type": "integer"}, "description": "[ymin, xmin, ymax, xmax] de 0 a 1000 en la última imagen"},
 			"what":   schema{"type": "string", "description": "qué es"},
 		}, "box_2d")),
-	tool("push", "Empuja lo que tienes justo enfrente caminando hacia adelante (antes usa approach).", object(schema{"meters": number("metros a empujar")}, "meters")),
+	tool("push", "Empuja lo que tienes justo enfrente caminando hacia adelante (antes usa approach): mide con el sonar cuánto falta para tocarlo y apaga la marcha segura mientras empuja.", object(schema{"meters": number("metros a empujar")}, "meters")),
 	tool("posture", "Va a una postura. Si estás en el suelo, primero te levantas.",
 		object(schema{"name": enum("postura", "Stand", "StandInit", "Sit", "SitRelax", "Crouch")}, "name")),
 	tool("rest", "Descansa: te agachas y apagas los motores.", nil),
@@ -183,7 +183,7 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 		}, "part", "color")),
 	tool("my_colors", "Cambia tu apariencia y la guarda como tuya (la verás igual al volver y te distingue de otros NAO): el color de tu carcasa y el de tus ojos. Paleta libre.",
 		object(schema{
-			"shell": schema{"type": "string", "description": "color de la carcasa en #rrggbb, u original para el azul de fábrica"},
+			"shell": schema{"type": "string", "description": "color de las piezas de color de la carcasa (el resto es blanco) en #rrggbb, u original para el azul de fábrica"},
 			"eyes":  schema{"type": "string", "description": "color de tus ojos en #rrggbb, u original para el de fábrica"},
 		})),
 	tool("look", "Toma una foto nueva con tus dos cámaras.", nil),

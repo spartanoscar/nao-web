@@ -36,6 +36,9 @@ type Args = Record<string, unknown>;
 const DEG = Math.PI / 180;
 /** Distancia del torso al borde del objeto al llegar con approach: deja las puntas de los pies a ~8 cm */
 const APPROACH_GAP = 0.18;
+/** Del sonar del pecho a la punta de los pies (APPROX, igual que ALMotion SONAR_TO_FRONT) */
+const SONAR_TO_TOES = 0.1;
+const SONAR_KEYS = ['Device/SubDeviceList/US/Left/Sensor/Value', 'Device/SubDeviceList/US/Right/Sensor/Value'];
 /** Más lejos que esto, approach llega a medio camino y pide mirar de nuevo (la caja de lejos es imprecisa) */
 const APPROACH_LEG = 1.2;
 const APPROACH_MAX = 5;
@@ -83,6 +86,14 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
   const { session, vision } = ctx;
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
+  // Marcha segura de NAOqi: si durante esta habilidad la detiene un obstáculo (sonar), se dice cuál y a qué distancia
+  const failures = motion.moveFailures;
+  const blockedAt = (): number | null => {
+    if (motion.moveFailures === failures || !motion.lastMoveFailure) return null;
+    const [ox, oy] = motion.lastMoveFailure[2];
+    const [x, y] = motion.getRobotPosition(true);
+    return round(Math.max(0, Math.hypot(ox - x, oy - y) - SONAR_TO_TOES));
+  };
 
   const where = () => {
     const [x, y, theta] = motion.getRobotPosition(true);
@@ -126,12 +137,15 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
   /** Caído = el torso acostado según la IMU (familias Lying*); una pose rara de pie (p. ej. tras patear) no lo es */
   const fallen = () => posture.getPostureFamily().startsWith('Lying');
   const notStanding = () => ({ ok: false, error: `no pude ponerme de pie: ${posture.lastFailure || posture.getPostureFamily()}` });
-  const moveResult = (ok: boolean, extra: Args = {}) => ({
-    ok,
-    ...extra,
-    ...where(),
-    ...(ok ? {} : { postura: posture.getPostureFamily(), nota: fallen() ? 'me caí' : 'me interrumpieron o no llegué' }),
-  });
+  const moveResult = (ok: boolean, extra: Args = {}) => {
+    const blocked = blockedAt();
+    const why = fallen()
+      ? 'me caí'
+      : blocked !== null
+        ? `me detuve antes de chocar: mi sonar detecta algo sólido a ${blocked} m al frente y la marcha segura no deja avanzar más hacia allá`
+        : 'me interrumpieron o no llegué';
+    return { ok, ...extra, ...where(), ...(ok ? {} : { postura: posture.getPostureFamily(), nota: why }) };
+  };
   /** moveTo acepta theta en ]-π, π]: los giros más grandes van en dos tramos */
   const turnBy = async (rad: number): Promise<boolean> => {
     while (Math.abs(rad) > Math.PI) {
@@ -177,6 +191,17 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       if (ctx.cancelled()) return { response: moveResult(false) };
       await new Promise((r) => setTimeout(r, 300));
       const image = vision.view();
+      // La marcha segura lo detuvo frente a algo sólido: llegó hasta donde se puede
+      const blocked = blockedAt();
+      if (!ok && blocked !== null && !fallen()) {
+        return {
+          response: {
+            ok: true, que: args.what, llegue: true, ...where(),
+            nota: `llegué hasta donde la marcha segura me deja: hay algo sólido a ${blocked} m al frente (mi sonar). Si es lo que buscabas y quieres empujarlo, usa push`,
+          },
+          image,
+        };
+      }
       return {
         response: moveResult(ok, {
           que: args.what,
@@ -215,10 +240,25 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     case 'push': {
       if (!(await standUp())) return { response: notStanding() };
       const meters = Math.min(Math.max(num(args.meters, 0.5), 0), 3);
+      // Lo que falta para tocarlo, medido con los sonares (ALSonar + ALMemory, como en el NAO real); sin eco cerca, 10 cm
+      const sonar = session.service('ALSonar');
+      const memory = session.service('ALMemory');
+      sonar.subscribe('push');
+      const ahead = Math.min(...SONAR_KEYS.map((k) => Number(memory.getData(k))));
+      sonar.unsubscribe('push');
+      const gap = ahead > 0 && ahead < 1 ? Math.max(ahead - SONAR_TO_TOES, 0) : 0.1;
+      // Empujar es tocar a propósito: la marcha segura lo frenaría antes; se apaga mientras empuja y se deja como estaba
+      const guarded = motion.getExternalCollisionProtectionEnabled('Move');
+      motion.setExternalCollisionProtectionEnabled('Move', false);
       const [x0, y0] = motion.getRobotPosition(true);
-      const ok = await motion.moveTo(meters + 0.1, 0, 0); // + lo que falta para tocarlo
+      let ok: boolean;
+      try {
+        ok = await motion.moveTo(meters + gap, 0, 0);
+      } finally {
+        motion.setExternalCollisionProtectionEnabled('Move', guarded);
+      }
       const [x1, y1] = motion.getRobotPosition(true);
-      return { response: moveResult(ok, { avance_m: round(Math.hypot(x1 - x0, y1 - y0)), ...hands() }) };
+      return { response: moveResult(ok, { avance_m: round(Math.hypot(x1 - x0, y1 - y0)), hasta_tocarlo_m: round(gap), ...hands() }) };
     }
     case 'posture': {
       const target = String(args.name);
