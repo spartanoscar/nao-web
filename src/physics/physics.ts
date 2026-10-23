@@ -15,7 +15,54 @@ import { headPitchLimits, motorOf } from '../robot/naoV6';
 import type { RobotState, RootPose } from '../robot/state';
 import type { UrdfRobot } from '../robot/urdf';
 import { ENV_OBJECTS } from '../sim/environment';
-import { PHYSICS_TIMESTEP, buildMjcf } from './mjcf';
+import postureData from '../../reference/qibullet/nao_postures.json';
+import { type CollisionOptions, PHYSICS_TIMESTEP, buildMjcf } from './mjcf';
+
+/**
+ * Pares de piezas que se tocan en las 8 posturas oficiales (qiBullet) con el robot en el aire: el NAO real las hace, así
+ * que ahí un choque es un artefacto de la forma de colisión (una envolvente convexa rellena los huecos de la carcasa) y
+ * ese par no debe chocar. El resto sí choca, como el plástico del robot.
+ */
+function selfCollisionExcludes(mj: MainModule, urdf: UrdfRobot, collision: CollisionOptions): [string, string][] {
+  const air = { position: [0, 0, 1] as [number, number, number], quaternion: [1, 0, 0, 0] as [number, number, number, number] };
+  const { xml } = buildMjcf(urdf, air, { ...collision, exclude: [] });
+  const model = mj.MjModel.from_xml_string(xml);
+  const data = new mj.MjData(model);
+  const name = (body: number) => {
+    const b = model.body(body);
+    const n = b.name;
+    b.delete();
+    return n;
+  };
+  const robot = new Set(urdf.links.map((l) => l.name));
+  const pairs = new Map<string, [string, string]>();
+  for (const pose of Object.values(postureData as Record<string, Record<string, number>>)) {
+    for (const [joint, value] of Object.entries({ ...pose, RHipYawPitch: pose.LHipYawPitch })) {
+      if (value === undefined) continue;
+      try {
+        const j = model.jnt(joint);
+        data.qpos[j.qposadr[0] ?? j.qposadr] = value;
+        j.delete();
+      } catch {
+        /* manos y dedos: sin joint físico */
+      }
+    }
+    mj.mj_forward(model, data);
+    // data.contact es una copia nueva en cada lectura (embind): se lee una vez y se libera
+    const contacts = data.contact;
+    for (let i = 0; i < data.ncon; i++) {
+      const c = contacts.get(i);
+      if (!c) continue;
+      const [a, b] = [name(model.geom_bodyid[c.geom1]), name(model.geom_bodyid[c.geom2])];
+      c.delete();
+      if (robot.has(a) && robot.has(b)) pairs.set([a, b].sort().join('|'), [a, b]);
+    }
+    contacts.delete();
+  }
+  data.delete();
+  model.delete();
+  return [...pairs.values()];
+}
 
 interface JointSlot {
   name: string;
@@ -129,9 +176,11 @@ export class PhysicsSim {
     engine: MotionEngine,
     root: RootPose,
     objectMeshes: ReadonlyMap<string, ObjectSlot['target']>,
+    collision: CollisionOptions = {},
   ): Promise<PhysicsSim> {
     const mj = await loadMujoco({ locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path) });
-    const { xml, joints } = buildMjcf(urdf, root);
+    if (collision.selfCollision && !collision.exclude) collision = { ...collision, exclude: selfCollisionExcludes(mj, urdf, collision) };
+    const { xml, joints } = buildMjcf(urdf, root, collision);
     const model = mj.MjModel.from_xml_string(xml);
     const data = new mj.MjData(model);
 
@@ -299,6 +348,11 @@ export class PhysicsSim {
     this.syncState(true);
   }
 
+  /** Posición generalizada de MuJoCo (raíz + joints + objetos), para el medidor de penetración */
+  qpos(): Float64Array {
+    return this.data.qpos;
+  }
+
   /** Velocidad y torque actuales de cada motor con actuador (los 24 que no son RHipYawPitch) */
   telemetry(): MotorTelemetry[] {
     const qvel = this.data.qvel;
@@ -364,5 +418,82 @@ export class PhysicsSim {
       target.quaternion.set(xquat[4 * body + 1], xquat[4 * body + 2], xquat[4 * body + 3], xquat[4 * body]);
     }
     return true;
+  }
+}
+
+export interface Penetration {
+  /** Lo más que se hunde la forma real del robot en el suelo (m, ≥ 0) y qué pieza */
+  floor: number;
+  floorBody: string;
+  /** Lo más que se mete una pieza del robot en otra (m, ≥ 0) y qué par */
+  self: number;
+  selfPair: string;
+}
+
+/**
+ * Medidor de penetración para los bancos: una física aparte con la colisión fiel (envolventes de las mallas oficiales y
+ * choque consigo mismo) que no simula. En cada medición copia la pose de otra simulación y le pregunta a MuJoCo cuánto
+ * se hunde la forma real del NAO en el suelo y en su propio cuerpo. Sirve con cualquier física, porque mide con la forma
+ * real y no con la colisión que se esté usando.
+ */
+export class PenetrationProbe {
+  private constructor(
+    private readonly mj: MainModule,
+    private readonly model: MjModel,
+    private readonly data: MjData,
+    private readonly names: string[],
+    private readonly robot: Set<number>,
+    private readonly floor: number,
+  ) {}
+
+  static async create(urdf: UrdfRobot, root: RootPose, hulls: NonNullable<CollisionOptions['hulls']>): Promise<PenetrationProbe> {
+    const mj = await loadMujoco({ locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path) });
+    const collision: CollisionOptions = { hulls, selfCollision: true };
+    const { xml } = buildMjcf(urdf, root, { ...collision, exclude: selfCollisionExcludes(mj, urdf, collision) });
+    const model = mj.MjModel.from_xml_string(xml);
+    const data = new mj.MjData(model);
+    const names: string[] = [];
+    for (let i = 0; i < model.nbody; i++) {
+      const b = model.body(i);
+      names.push(b.name);
+      b.delete();
+    }
+    const links = new Set(urdf.links.map((l) => l.name));
+    const robot = new Set(names.flatMap((n, i) => (links.has(n) ? [i] : [])));
+    const g = model.geom('floor');
+    const floor = g.id;
+    g.delete();
+    return new PenetrationProbe(mj, model, data, names, robot, floor);
+  }
+
+  measure(qpos: ArrayLike<number>): Penetration {
+    const { model, data } = this;
+    data.qpos.set(qpos);
+    this.mj.mj_forward(model, data);
+    const out: Penetration = { floor: 0, floorBody: '', self: 0, selfPair: '' };
+    // data.contact es una copia nueva en cada lectura (embind): se lee una vez y se libera
+    const contacts = data.contact;
+    for (let i = 0; i < data.ncon; i++) {
+      const c = contacts.get(i);
+      if (!c) continue;
+      const depth = -c.dist;
+      const [g1, g2] = [c.geom1, c.geom2];
+      c.delete();
+      if (depth <= 0) continue;
+      const [b1, b2] = [model.geom_bodyid[g1], model.geom_bodyid[g2]];
+      const [r1, r2] = [this.robot.has(b1), this.robot.has(b2)];
+      if ((g1 === this.floor || g2 === this.floor) && (r1 || r2)) {
+        if (depth > out.floor) Object.assign(out, { floor: depth, floorBody: this.names[r1 ? b1 : b2] });
+      } else if (r1 && r2 && depth > out.self) {
+        Object.assign(out, { self: depth, selfPair: `${this.names[b1]}–${this.names[b2]}` });
+      }
+    }
+    contacts.delete();
+    return out;
+  }
+
+  dispose(): void {
+    this.data.delete();
+    this.model.delete();
   }
 }

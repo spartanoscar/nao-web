@@ -1,5 +1,5 @@
 import './ui/styles.css';
-import { Spherical, Vector3 } from 'three';
+import { type Object3D, Spherical, Vector3 } from 'three';
 import urdfXml from '../reference/urdf/naoV50.urdf?raw';
 import { postureJoints } from './naoqi/postures';
 import { Session } from './naoqi/session';
@@ -191,11 +191,18 @@ const paintEyes = (hex: string) => {
   else leds.reset('FaceLeds');
 };
 
+// Física fiel (?fisica=fiel, en evaluación): colisión con la forma real de cada pieza (envolventes de las mallas
+// oficiales) y choque del robot consigo mismo. Necesita las mallas: la física espera a que carguen.
+const FAITHFUL_PHYSICS = new URLSearchParams(location.search).get('fisica') === 'fiel';
+let officialLoaded: (meshes: ReadonlyMap<string, Object3D>) => void = () => {};
+const officialReady = new Promise<ReadonlyMap<string, Object3D>>((resolve) => (officialLoaded = resolve));
+
 // Mallas oficiales del NAO: se descargan solo con la licencia aceptada (pantalla de entrada, ui/boot.ts)
 const loadModel = async (onProgress: (loaded: number, total: number) => void) => {
   const { loadOfficialMeshes, setShellColor, SHELL_COLORS } = await import('./sim/officialMeshes');
   const meshes = await loadOfficialMeshes(urdf, onProgress);
   nao.setOfficialMeshes(meshes);
+  officialLoaded(meshes);
   const paint = async (color: (typeof SHELL_COLORS)[number]) => {
     await setShellColor(meshes.values(), color);
     world.invalidate();
@@ -214,12 +221,16 @@ void import('./naoqi/aldebaranMotions').then(({ loadAldebaranMotions }) => loadA
 
 // MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
 const physicsReady = import('./physics/physics')
-  .then(({ PhysicsSim }) => PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects))
+  .then(async ({ PhysicsSim }) => {
+    if (!FAITHFUL_PHYSICS) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects);
+    const [{ collisionHulls }, meshes] = await Promise.all([import('./sim/officialMeshes'), officialReady]);
+    return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), selfCollision: true });
+  })
   .then((sim) => {
     physics = sim;
     session.engine.physical = true;
     session.engine.onManual = (name, value) => sim.placeJoint(name, value);
-    setMode('física MuJoCo');
+    setMode(FAITHFUL_PHYSICS ? 'física MuJoCo (fiel)' : 'física MuJoCo');
     world.invalidate(true);
     return true;
   })
@@ -295,10 +306,14 @@ const simControl: SimControl = {
 const animator = attachAnimator(world, nao, session, recorder, simControl);
 recorder.openAnimator = () => animator.open();
 
+/** Avisos en cada paso de la simulación (bancos de prueba: miden igual a ×1 que a ×10) */
+const tickHooks = new Set<() => void>();
+
 world.onFrame((dt) => {
   for (let i = 0; i < speed; i++) {
     session.update(dt);
     if (physicsOn && physics?.step(dt)) world.invalidate(true);
+    for (const fn of tickHooks) fn();
   }
   applyTilt(dt);
   if (physics) {
@@ -320,7 +335,24 @@ world.onFrame((dt) => {
 // Acceso desde la consola del navegador mientras llega la consola de comandos (F4):
 //   const motion = nao.session.service('ALMotion')
 //   await motion.angleInterpolation('HeadYaw', [1, -1, 0], [1, 2, 3], true)
-Object.assign(window, { nao: { session, state, model: nao, world, ledViews, sound, cameras, urdf, bootRoot, get physics() { return physics; } } });
+// Para la consola y los bancos (scripts/bench): `sim` = física sí/no y velocidad; `clock`/`wait`/`onTick` van con el
+// reloj del motor de NAOqi, no con el de la pared, así que los bancos dan lo mismo a ×1 que a ×10
+const simWait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const end = session.engine.time + ms / 1000;
+    const check = () => (session.engine.time >= end ? resolve() : setTimeout(check, 4));
+    check();
+  });
+const onTick = (fn: () => void) => {
+  tickHooks.add(fn);
+  return () => void tickHooks.delete(fn);
+};
+Object.assign(window, {
+  nao: {
+    session, state, model: nao, world, ledViews, sound, cameras, urdf, bootRoot, get physics() { return physics; },
+    sim: simControl, clock: () => session.engine.time, wait: simWait, onTick,
+  },
+});
 
 // ─── Entrada al mundo ───────────────────────────────────────────────────────────
 // Login + licencia + "Cargando universo…": el mundo se carga detrás y solo se muestra completo

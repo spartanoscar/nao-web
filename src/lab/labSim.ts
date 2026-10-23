@@ -4,6 +4,7 @@
 // rápido que el tiempo real (medido: 6 s simulados en 0.43 s).
 
 import { Session } from '../naoqi/session';
+import type { CollisionOptions } from '../physics/mjcf';
 import type { PhysicsSim } from '../physics/physics';
 import { RobotState, type RootPose } from '../robot/state';
 import type { UrdfRobot } from '../robot/urdf';
@@ -31,11 +32,11 @@ export class LabSim {
     readonly physics: PhysicsSim,
   ) {}
 
-  static async create(urdf: UrdfRobot, root: RootPose, joints: Readonly<Record<string, number>>): Promise<LabSim> {
+  static async create(urdf: UrdfRobot, root: RootPose, joints: Readonly<Record<string, number>>, collision?: CollisionOptions): Promise<LabSim> {
     const { PhysicsSim } = await import('../physics/physics');
     const state = new RobotState(joints);
     const session = new Session(state);
-    const physics = await PhysicsSim.create(urdf, state, session.engine, root, new Map());
+    const physics = await PhysicsSim.create(urdf, state, session.engine, root, new Map(), collision);
     session.engine.physical = true;
     physics.reset(root, joints);
     return new LabSim(session, state, physics);

@@ -8,8 +8,10 @@
 
 import * as THREE from 'three';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import type { UrdfRobot } from '../robot/urdf';
 import { rpyQuaternion } from './naoModel';
+import { isFingerLink } from './shapes';
 
 export const MESHES_BASE = '/models/nao_meshes/';
 export const MESHES_LICENSE_URL = `${MESHES_BASE}LICENSE.txt`;
@@ -65,6 +67,59 @@ export async function loadOfficialMeshes(
     console.warn = warn;
   }
   return result;
+}
+
+/** Los dedos no tienen cuerpo en la física (siguen a LHand/RHand): su forma va con la muñeca */
+const handBody = (link: string) => (isFingerLink(link) ? (link.startsWith('L') ? 'l_wrist' : 'r_wrist') : link);
+
+/**
+ * Envolvente convexa de la malla oficial de cada cuerpo físico, en el frame de su link (m): la forma de colisión fiel
+ * del NAO real para la física (physics/mjcf.ts). Las mallas tienen que estar colgadas de NaoModel (setOfficialMeshes).
+ * `bodyOf` junta links sin cuerpo propio en su cuerpo: los dedos van con la muñeca, en la apertura de la mano del
+ * momento (APPROX: en la física la mano no cambia de forma al abrirse). Se calcula en memoria desde las mallas
+ * cargadas tal cual; no se guarda ni se redistribuye nada derivado de ellas.
+ */
+export function collisionHulls(
+  meshes: ReadonlyMap<string, THREE.Object3D>,
+  bodyOf: (link: string) => string = handBody,
+): Map<string, Float32Array> {
+  const clouds = new Map<string, THREE.Vector3[]>();
+  const toBody = new THREE.Matrix4();
+  const p = new THREE.Vector3();
+  for (const [link, holder] of meshes) {
+    const body = bodyOf(link);
+    // Frame del cuerpo: los frames de NaoModel se llaman como su link
+    let frame = holder.parent;
+    while (frame && frame.name !== body) frame = frame.parent;
+    if (!frame) continue;
+    frame.updateWorldMatrix(true, false);
+    holder.updateWorldMatrix(false, true);
+    const inv = frame.matrixWorld.clone().invert();
+    const points = clouds.get(body) ?? [];
+    clouds.set(body, points);
+    holder.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      toBody.multiplyMatrices(inv, o.matrixWorld);
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) points.push(p.fromBufferAttribute(pos, i).applyMatrix4(toBody).clone());
+    });
+  }
+  const out = new Map<string, Float32Array>();
+  for (const [link, points] of clouds) {
+    if (points.length < 4) continue;
+    // Solo los vértices de las caras (hull.vertices trae todos los puntos de entrada)
+    const hull = new ConvexHull().setFromPoints(points);
+    const corners = new Set<THREE.Vector3>();
+    for (const face of hull.faces) {
+      let edge = face.edge;
+      do {
+        corners.add(edge.head().point);
+        edge = edge.next;
+      } while (edge !== face.edge);
+    }
+    out.set(link, Float32Array.from([...corners].flatMap((v) => [v.x, v.y, v.z])));
+  }
+  return out;
 }
 
 // ─── Color de la carcasa y lente de los ojos ──────────────────────────────────
