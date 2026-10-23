@@ -158,6 +158,9 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
      - **Espejo** → *prueba del espejo* (Gallup, 1970) adaptada: el NAO cambia el color de sus ojos (ALLeds), se mira y
        comprueba si el reflejo cambió; o mueve un brazo y ve si "el otro" lo imita. En el mundo compartido (F16),
        distinguir "soy yo" de "es otro NAO" por el color y por el movimiento. El espejo se ve también en sus cámaras.
+       ✅ Hecho (2026-10-23, `scripts/bench/mirror.js`): sin método 1 de 8 se reconoce (sin comprobar), con método
+       (comprobar por contingencia, sin decir que hay espejo) 4 de 4 se mueven, miran y se reconocen. Pendiente: la
+       variante del mundo compartido (otro NAO real del mismo color) y la "prueba de la marca" con los LEDs.
      - Pelota roja → `ALRedBallDetection` · NAOmarks oficiales en las paredes → `ALLandMarkDetection` · carteles con
        rostros → `ALFaceDetection` (F11) · mesa baja con objetos cotidianos (tráeme, señálame, ¿qué hay?) · dos pisos
        (baldosa y alfombra, fricción distinta: marcha medida) · base de carga (volver a casa).
