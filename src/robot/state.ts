@@ -33,6 +33,12 @@ export class RobotState {
   /** Se incrementa en cada cambio: los lectores (escena, UI) solo recalculan si cambió */
   revision = 0;
 
+  /**
+   * Sonares del pecho [izquierdo, derecho]: distancia al obstáculo más cercano en su haz (m). La escribe la física cada
+   * 100 ms (physics.ts); null sin física. No cuenta como cambio de la escena (no toca `revision`).
+   */
+  sonar: [number, number] | null = null;
+
   constructor(initial: Readonly<Record<string, number>> = {}) {
     this.setMany(initial);
   }

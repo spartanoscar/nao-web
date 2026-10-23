@@ -135,6 +135,19 @@ const EPS = 1e-5;
 const GEAR_EFFICIENCY = 0.8;
 
 /** Reposo: velocidad máxima (rad/s, m/s) y tiempo quieto para bloquear la simulación */
+/**
+ * Sonares del pecho, del URDF oficial (Sonar/{Left,Right}_sensor_fixedjoint: en el torso, girados ±22.5° hacia afuera y
+ * 2.5° hacia abajo; su sensor declara alcance 0.025–2.55 m y haz de 30°). Cada uno = un abanico de rayos de MuJoCo
+ * dentro del haz (APPROX: el eco real depende del material y del ángulo; aquí todo lo sólido devuelve eco) que solo
+ * ven objetos y piezas fijas (geom group 0: ni el robot ni el suelo). Sin eco = alcance máximo. Cada 100 ms, como el
+ * sonar del NAO.
+ */
+const SONAR_JOINTS = ['Sonar/Left_sensor_fixedjoint', 'Sonar/Right_sensor_fixedjoint'];
+const SONAR_RANGE: [number, number] = [0.025, 2.55];
+const SONAR_HALF_FOV = (15 * Math.PI) / 180;
+const SONAR_PERIOD = 0.1;
+const SONAR_GROUPS = new Uint8Array([1, 0, 0, 0, 0, 0]);
+
 const REST_SPEED = 1e-3;
 const REST_TIME = 1;
 
@@ -148,6 +161,11 @@ export class PhysicsSim {
    */
   private stillFor = 0;
   private locked = false;
+  /** Sonares: origen y ejes (filas) en el frame del torso, y cuándo tocó la última medición */
+  private sonars: { pos: number[]; axes: number[][] }[] = [];
+  private sonarClock = 0;
+  private torsoBody = -1;
+  private readonly rayHit = new Int32Array(1);
   private readonly watched: Watched[] = [];
   private readonly impacts: Impact[] = [];
 
@@ -219,7 +237,16 @@ export class PhysicsSim {
       return [slot];
     });
 
-    return new PhysicsSim(mj, model, data, slots, objects, state, engine);
+    const sim = new PhysicsSim(mj, model, data, slots, objects, state, engine);
+    const torso = model.body('torso');
+    sim.torsoBody = torso.id;
+    torso.delete();
+    sim.sonars = SONAR_JOINTS.flatMap((name) => {
+      const j = urdf.joints.find((x) => x.name === name);
+      return j ? [{ pos: [...j.xyz], axes: rpyAxes(j.rpy) }] : [];
+    });
+    sim.measureSonars();
+    return sim;
   }
 
   /** Avanza la física `dt` segundos. Devuelve true si algo se movió (hay que redibujar). */
@@ -238,7 +265,37 @@ export class PhysicsSim {
     }
     this.updateRest(dt);
     if (stepped) this.detectImpacts(dt);
+    this.sonarClock += dt;
+    if (this.sonarClock >= SONAR_PERIOD) {
+      this.sonarClock = 0;
+      this.measureSonars();
+    }
     return stepped && this.syncState(false);
+  }
+
+  /** Distancia de cada sonar al obstáculo más cercano de su haz → RobotState.sonar */
+  private measureSonars(): void {
+    if (this.sonars.length !== 2 || this.torsoBody < 0) return;
+    const b = this.torsoBody;
+    const p0 = [this.data.xpos[3 * b], this.data.xpos[3 * b + 1], this.data.xpos[3 * b + 2]];
+    const R = Array.from({ length: 9 }, (_, i) => this.data.xmat[9 * b + i]); // torso → mundo, por filas
+    const world = (v: number[]) => [0, 1, 2].map((r) => R[3 * r] * v[0] + R[3 * r + 1] * v[1] + R[3 * r + 2] * v[2]);
+    const steps = [-1, -0.5, 0, 0.5, 1].map((k) => k * SONAR_HALF_FOV);
+    const read = ({ pos, axes: [ax, ay, az] }: { pos: number[]; axes: number[][] }) => {
+      const origin = world(pos).map((v, i) => v + p0[i]);
+      let best = SONAR_RANGE[1];
+      for (const h of steps) {
+        for (const v of steps.slice(1, 4)) {
+          // Dirección dentro del haz, en el frame del sonar (X adelante), pasada al torso y al mundo
+          const d = [Math.cos(v) * Math.cos(h), Math.cos(v) * Math.sin(h), -Math.sin(v)];
+          const inTorso = [0, 1, 2].map((k) => ax[k] * d[0] + ay[k] * d[1] + az[k] * d[2]);
+          const dist = this.mj.mj_ray(this.model, this.data, origin, world(inTorso), SONAR_GROUPS as unknown as number[], true, -1, this.rayHit, null);
+          if (dist >= 0 && dist < best) best = dist;
+        }
+      }
+      return Math.min(Math.max(best, SONAR_RANGE[0]), SONAR_RANGE[1]);
+    };
+    this.state.sonar = [read(this.sonars[0]), read(this.sonars[1])];
   }
 
   /** Golpes detectados desde la última llamada */
@@ -496,4 +553,14 @@ export class PenetrationProbe {
     this.data.delete();
     this.model.delete();
   }
+}
+
+/** Ejes X, Y, Z (en el frame padre) de un frame con rpy de URDF: R = Rz(yaw)·Ry(pitch)·Rx(roll), por columnas */
+function rpyAxes([r, p, y]: readonly number[]): number[][] {
+  const [cr, sr, cp, sp, cy, sy] = [Math.cos(r), Math.sin(r), Math.cos(p), Math.sin(p), Math.cos(y), Math.sin(y)];
+  return [
+    [cy * cp, sy * cp, -sp],
+    [cy * sp * sr - sy * cr, sy * sp * sr + cy * cr, cp * sr],
+    [cy * sp * cr + sy * sr, sy * sp * cr - cy * sr, cp * cr],
+  ];
 }

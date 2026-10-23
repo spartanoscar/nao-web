@@ -41,7 +41,8 @@ export function rpyToQuat([r, p, y]: Vec3): [number, number, number, number] {
 }
 
 /** Sin auto-colisión el robot solo choca con el suelo y los objetos (conaffinity 0 entre sus piezas) */
-const robotContact = (self: boolean) => `contype="1" conaffinity="${self ? 1 : 0}"`;
+// group 1 = el robot, 2 = el suelo, 0 = objetos y piezas fijas (lo único que ven los sonares, physics.ts SONAR_GROUPS)
+const robotContact = (self: boolean) => `contype="1" conaffinity="${self ? 1 : 0}" group="1"`;
 
 function geom(shape: Shape, common: string): string {
   switch (shape.kind) {
@@ -200,7 +201,7 @@ export function buildMjcf(
   ${assets.length ? `<asset>\n${assets.map((a) => `    ${a}`).join('\n')}\n  </asset>` : ''}
   <worldbody>
     <light directional="true" pos="0 0 3" dir="0 0 -1"/>
-    <geom name="floor" type="plane" size="0 0 0.05" contype="1" conaffinity="1"/>
+    <geom name="floor" type="plane" size="0 0 0.05" contype="1" conaffinity="1" group="2"/>
 ${robot}
 ${objects.join('\n')}
 ${fixed.map((g) => `    ${g}`).join('\n')}
