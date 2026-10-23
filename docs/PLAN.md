@@ -152,7 +152,27 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   de tokens. Falta la búsqueda cuando converse la IA.
 
 ### F13 — Mundo interactivo y tareas
-- **Entorno:** un apartamento o piso de la universidad con habitaciones, puertas, baño con letrero y objetos.
+- **Mundos (decidido con Oscar, 2026-10-23): dos, y cada elemento pone a prueba un módulo real de NAOqi o un experimento
+  medible que se pueda repetir con un NAO físico.**
+  1. **Laboratorio** (la casa del NAO, mundo de defecto; un aula como la de la universidad):
+     - **Espejo** → *prueba del espejo* (Gallup, 1970) adaptada: el NAO cambia el color de sus ojos (ALLeds), se mira y
+       comprueba si el reflejo cambió; o mueve un brazo y ve si "el otro" lo imita. En el mundo compartido (F16),
+       distinguir "soy yo" de "es otro NAO" por el color y por el movimiento. El espejo se ve también en sus cámaras.
+     - Pelota roja → `ALRedBallDetection` · NAOmarks oficiales en las paredes → `ALLandMarkDetection` · carteles con
+       rostros → `ALFaceDetection` (F11) · mesa baja con objetos cotidianos (tráeme, señálame, ¿qué hay?) · dos pisos
+       (baldosa y alfombra, fricción distinta: marcha medida) · base de carga (volver a casa).
+  2. **Patio de retos** (exterior, lo que no se arriesga con un robot real): zonas de pasto, arena y gravilla (APPROX:
+     material con fricción y suelo blando; MuJoCo no simula granos); charco o estanque como **peligro** (el NAO real no
+     es resistente al agua: la IA debe reconocerlo y evitarlo; sin fluidos, zona + efecto visual; el agua quieta refleja
+     como el espejo); rampa suave y escalón pequeño (límites de la marcha); obstáculos para la navegación.
+  - **Modelos 3D (Meshy, 1200 créditos ≈ 12 de alta o ~30 de baja calidad):** solo lo orgánico o complejo que la IA debe
+    reconocer por la cámara. Baja calidad para la mayoría (la cámara del NAO trabaja a 320×240: variedad > detalle):
+    planta, peluche, taza, mochila, zapato, libro, frutas, carro de juguete, silla, maceta, banco de parque, regadera;
+    alta calidad solo 2–3 piezas protagonistas (base de carga, planta grande). Lo demás es nuestro (espejo, agua,
+    terrenos, paredes, mesas, cajas, rampas, pelota, NAOmarks, carteles). Colisión = envolvente convexa, como el NAO.
+    Revisar la licencia de Meshy según el plan y anotarla (como las mallas de Aldebaran).
+  - Orden: espejo en el mundo actual → laboratorio → objetos de Meshy → patio.
+- **Entorno (idea original):** un apartamento o piso de la universidad con habitaciones, puertas, baño con letrero y objetos.
 - **Percepción:** Gemini con las imágenes de las cámaras del NAO para reconocer objetos y letreros. Los 2
   **sonares** del NAO (`ALSonar`, raycast en la física) sirven para no chocar.
 - **Navegación:** mapa de ocupación construido mientras camina, exploración por fronteras, rutas A* y
