@@ -138,7 +138,7 @@ body.panel-visible .cam-tech { display: inline; }
   --ok: #4ade80;
   --glow: 0 0 0 1px rgba(58, 160, 255, .45), 0 6px 24px rgba(58, 160, 255, .25);
 }
-.glass, .hud-player, .hud-btn, .hud-volume { background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.glass, .hud-player, .hud-btn { background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
 
 /* El título técnico vive dentro del panel oculto */
 #panel #hud { position: static; padding: 14px 0 6px; pointer-events: auto; }
@@ -240,7 +240,7 @@ body.panel-visible .hud-actions { right: calc(var(--panel-w) + 16px); }
 .hud-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 @keyframes hud-pulse { 50% { box-shadow: 0 0 0 4px rgba(58, 160, 255, .18); } }
 /* Volumen: solo el ícono; el control vertical baja al pasar el cursor (o con foco, en táctil) */
-.hud-volume { position: relative; }
+.hud-volume { position: relative; } /* solo envuelve el botón redondo y el control: sin caja propia */
 .hud-volume-pop {
   position: absolute; top: calc(100% + 8px); left: 50%; transform: translate(-50%, -6px); width: 44px; padding: 10px 0 14px;
   display: grid; justify-items: center; gap: 8px; border-radius: 22px; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s;
