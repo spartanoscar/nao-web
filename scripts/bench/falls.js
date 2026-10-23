@@ -9,7 +9,7 @@ async (directions) => {
   const { postureJoints } = await import('/src/naoqi/postures.ts');
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const wait = (ms) => window.nao.wait(ms); // reloj del motor: igual a ×1 que a ×10
   const TILT = (25 * Math.PI) / 180;
   // Dirección de la caída en el mundo (Z arriba, X adelante, Y izquierda); el giro es sobre z × dirección
   const DIRS = {
@@ -39,10 +39,10 @@ async (directions) => {
     physics.reset({ position: [p[0], p[1], p[2] + 0.01], quaternion: q }, postureJoints('StandInit'));
     await wait(3000);
     const fallen = `${torso()} · detecta ${posture.getPostureFamily()}`;
-    const t0 = performance.now();
+    const t0 = window.nao.clock() * 1000;
     const ok = await posture.goToPosture('StandInit', 0.8);
     await wait(1500);
-    out.push(`${dir}: cae → ${fallen} · goToPosture(StandInit) → ${ok}${ok ? '' : ` (${posture.lastFailure})`} · queda ${torso()} · ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    out.push(`${dir}: cae → ${fallen} · goToPosture(StandInit) → ${ok}${ok ? '' : ` (${posture.lastFailure})`} · queda ${torso()} · ${((window.nao.clock() * 1000 - t0) / 1000).toFixed(1)} s`);
   }
   return out;
 }

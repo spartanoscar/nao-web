@@ -1,6 +1,8 @@
 // Banco de fidelidad rápido: las rutinas originales de Aldebaran en el simulador del laboratorio (src/lab/labSim.ts:
 // física aparte, sin dibujar, ~14× tiempo real), para probar muchas combinaciones de física en segundos.
-// window.__configs = [{ label, torque, handBox, friction, footFriction }] → cada una arma su propia física.
+// window.__configs = [{ label, hulls, self }] → cada una arma su propia física; hulls: true colisiona con las envolventes
+// de las mallas oficiales (sim/officialMeshes.ts collisionHulls), si no con las formas simples (sim/shapes.ts); self: true
+// activa el choque del robot consigo mismo.
 // window.__only = ['SitToCrouch', …] limita las rutinas. Sin __configs prueba la física actual.
 async () => {
   const { LabSim } = await import('/src/lab/labSim.ts');
@@ -18,17 +20,13 @@ async () => {
     ['BellyToStand', 'LyingBelly', 'Standing'],
   ].filter(([n]) => !window.__only || window.__only.includes(n));
   const configs = window.__configs ?? [{ label: 'física actual' }];
-  const g = globalThis;
-  const keys = ['__torque', '__handBox', '__friction', '__footFriction'];
-  const saved = Object.fromEntries(keys.map((k) => [k, g[k]]));
+  const { collisionHulls } = await import('/src/sim/officialMeshes.ts');
+  const meshes = new Map(window.nao.model.official.filter((o) => o.name.startsWith('mesh:')).map((o) => [o.name.slice(5), o]));
+  const hulls = collisionHulls(meshes);
   const out = [];
   const t0 = performance.now();
   for (const cfg of configs) {
-    g.__torque = cfg.torque;
-    g.__handBox = cfg.handBox;
-    g.__friction = cfg.friction;
-    g.__footFriction = cfg.footFriction;
-    const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'));
+    const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'), { hulls: cfg.hulls ? hulls : undefined, selfCollision: !!cfg.self });
     const motion = () => lab.session.service('ALMotion');
     const posture = () => lab.session.service('ALRobotPosture');
     // Posturas de partida (fotos exactas, cada caso parte de la suya)
@@ -82,7 +80,6 @@ async () => {
     }
     out.push(`[${cfg.label}] ${passed}/${CASES.length} · ${lines.join(' · ')}`);
   }
-  Object.assign(g, saved);
   out.push(`${configs.length} configuraciones en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   return out;
 };

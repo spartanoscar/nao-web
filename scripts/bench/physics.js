@@ -7,7 +7,7 @@ async () => {
   const { session, state } = window.nao;
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const wait = (ms) => window.nao.wait(ms); // reloj del motor: igual a ×1 que a ×10
   const ang = () => {
     const [w, x, y, z] = state.root.quaternion;
     const zx = 2 * (x * z + w * y), zy = 2 * (y * z - w * x), zz = 1 - 2 * (x * x + y * y);

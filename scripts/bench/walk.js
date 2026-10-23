@@ -6,7 +6,7 @@ async () => {
   if (!window.nao.physics) return ['sin física (modo cinemático)'];
   const { session } = window.nao;
   const motion = session.service('ALMotion');
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const wait = (ms) => window.nao.wait(ms); // reloj del motor: igual a ×1 que a ×10
   const reset = async () => { document.querySelector('.chip[title^="Vuelve"]').click(); await wait(1500); };
   // [x, y, theta, girar antes hacia −Y]
   const goals = [[0, 0, Math.PI / 2], [0, 0, -Math.PI], [1, 0, 0, true], [0.6, 0.4, 0, true], [-0.25, 0, 0], [0, 0.15, 0], [0.5, -0.3, Math.PI / 2, true]];
@@ -15,9 +15,9 @@ async () => {
     await reset(); await motion.wakeUp(); await wait(600);
     if (face) { await motion.moveTo(0, 0, -Math.PI / 2); await wait(300); }
     const [x0, y0, t0] = motion.getRobotPosition(true);
-    const t = performance.now();
+    const t = window.nao.clock() * 1000;
     const ok = await motion.moveTo(x, y, th);
-    const secs = ((performance.now() - t) / 1000).toFixed(1);
+    const secs = ((window.nao.clock() * 1000 - t) / 1000).toFixed(1);
     await wait(500);
     const [x1, y1, t1] = motion.getRobotPosition(true);
     const [c, s] = [Math.cos(t0), Math.sin(t0)];

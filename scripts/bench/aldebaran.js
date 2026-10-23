@@ -11,7 +11,7 @@ async () => {
   if (!aldebaranMotions().length) return ['no están las rutinas: bash scripts/fetch-aldebaran-motions.sh'];
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const wait = (ms) => window.nao.wait(ms); // reloj del motor: igual a ×1 que a ×10
   const reset = async () => { document.querySelector('.chip[title^="Vuelve"]').click(); await wait(1500); };
   /** Acostado de espaldas (pitch −90°) o boca abajo (+90°) sobre el eje Y del mundo, motores encendidos */
   const lying = async (posture, sign) => {
@@ -54,15 +54,16 @@ async () => {
     const begin = posture.getPostureFamily();
     let prev = null;
     let maxDrop = 0;
-    const id = setInterval(() => {
+    const stopTick = window.nao.onTick(() => {
       const z = state.root.position[2];
-      const now = performance.now();
+      const now = window.nao.clock() * 1000;
+      if (prev && now - prev.t < 50) return; // cada 50 ms de simulación
       if (prev) maxDrop = Math.max(maxDrop, (prev.z - z) / ((now - prev.t) / 1000));
       prev = { z, t: now };
-    }, 50);
+    });
     await playAldebaranMotion(motion, name);
     await wait(1500);
-    clearInterval(id);
+    stopTick();
     const family = posture.getPostureFamily();
     const ok = family === expected;
     passed += ok ? 1 : 0;
