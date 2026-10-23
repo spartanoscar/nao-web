@@ -15,10 +15,11 @@
 //  −6.2└───────────┴───────────┘
 //    −8.25      −5.25       −2.25          2.25  → x
 //
-// Escala de una casa real (paredes de 2.5 m, puertas de 0.9 × 2.05 m, techo): el NAO (57 cm) es un juguete en una casa
-// de verdad, como en los juegos de juguetes. A su escala (~8 cm/s) un cuarto de 3 m ya es grande. Puertas sin hoja (no
-// agarra manijas, que le quedarían al doble de su altura): con menos de 0.9 m, el haz de los sonares (±37°) vería los
-// marcos y la marcha segura lo frenaría en la puerta (medido con la geometría del haz; también le pasaría a un NAO real).
+// Escala de una casa real (paredes de 2.5 m, techo): el NAO (57 cm) es un juguete en una casa de verdad, como en los
+// juegos de juguetes. A su escala (~8 cm/s) un cuarto de 3 m ya es grande. Puertas en arco de 1.2 × 2.05 m, sin hoja (no
+// agarra manijas, que le quedarían al doble de su altura). Con 0.9 m no salía de la casa (medido 2026-10-23): la marcha se
+// desviaba 23° en ~1 m y el sonar veía la pared junto al marco, así que la marcha segura lo frenaba adentro; con 1.2 m
+// los marcos quedan a 0.6 m del centro y no entran en la zona de seguridad (0.5 m) aunque llegue algo torcido.
 
 export type RoomId = 'pruebas' | 'laboratorio' | 'bano' | 'pasillo' | 'espejo' | 'casa';
 
@@ -58,7 +59,7 @@ export const HOME_ROOM: RoomId = 'casa';
 /** Alto de las paredes y del techo, y de las puertas (casa real) */
 export const WALL_HEIGHT = 2.5;
 export const WALL_THICKNESS = 0.1;
-export const DOOR_WIDTH = 0.9;
+export const DOOR_WIDTH = 1.2;
 export const DOOR_HEIGHT = 2.05;
 
 /**

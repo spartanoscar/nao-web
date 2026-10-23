@@ -382,6 +382,13 @@ function addRooms(zUp: THREE.Group) {
       sign.position.set(alongX ? along : w.from[0] + off, alongX ? w.from[1] + off : along, 0.5);
       inRooms(sign, ['pasillo']);
       zUp.add(sign);
+      // Y por dentro, el nombre del propio cuarto: el NAO sabe dónde está por lo que ve (no se le pasa el dato), como un
+      // NAO real con un letrero o un NAOmark. Sin esto, desde la casa creía estar en el laboratorio que se ve de enfrente
+      const inside = sign.clone();
+      facing(inside, alongX ? new THREE.Vector3(0, -door.side, 0) : new THREE.Vector3(-door.side, 0, 0));
+      inside.position.set(alongX ? along : w.from[0] - off, alongX ? w.from[1] - off : along, 0.5);
+      inRooms(inside, [door.sign]);
+      zUp.add(inside);
     }
   }
 }
