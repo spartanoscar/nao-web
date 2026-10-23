@@ -333,8 +333,12 @@ function addRooms(zUp: THREE.Group) {
   const t = WALL_THICKNESS;
   for (const p of wallPieces()) {
     const [cx, cy] = p.center;
+    // El cuarto al que mira cada cara se busca justo afuera de esa cara (la mitad del tamaño de la pieza en ese eje): en
+    // los cantos, medir desde el centro caía en el cuarto equivocado y el canto, en el mismo plano que la pared vecina,
+    // peleaba con ella mostrando otro papel (z-fighting en la esquina pasillo/laboratorio/sala de pruebas)
     const face = (nx: number, ny: number) => {
-      const room = roomAt(cx + nx * (t / 2 + 0.05), cy + ny * (t / 2 + 0.05));
+      const reach = (nx ? p.size[0] : p.size[1]) / 2 + 0.05;
+      const room = roomAt(cx + nx * reach, cy + ny * reach);
       return (room && papers.get(room)) || plain;
     };
     const geometry = new THREE.BoxGeometry(...p.size);
