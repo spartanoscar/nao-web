@@ -103,7 +103,11 @@ type brainRequest struct {
 	State  json.RawMessage `json:"state"`
 	Image  string          `json:"image"`
 	// Final: las últimas acciones incluían finish y todas salieron bien: se guardan y el turno termina sin consultar
-	Final   bool `json:"final"`
+	Final bool `json:"final"`
+	// Solo para experimentos (admin): Fresh cierra la conversación abierta antes de empezar; Variant "sin-metodo" quita
+	// del prompt cómo comprobar si algo es su reflejo (condición A de la prueba del espejo, scripts/bench/mirror.js)
+	Fresh   bool   `json:"fresh"`
+	Variant string `json:"variant"`
 	Results []struct {
 		ID       string          `json:"id"`
 		Name     string          `json:"name"`
@@ -156,7 +160,14 @@ func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "el mensaje debe tener entre 1 y 600 caracteres")
 			return
 		}
-		if t, err = b.start(ctx, u, text); err != nil {
+		admin := u.Role == "admin"
+		if req.Fresh && admin {
+			if _, err := b.auth.db.Exec(ctx, `UPDATE conversations SET ended_at = now() WHERE user_id = $1 AND ended_at IS NULL`, u.ID); err != nil {
+				log.Printf("cerebro %s: cerrar conversación: %v", u.Username, err)
+			}
+		}
+		selfCheck := !(admin && req.Variant == "sin-metodo")
+		if t, err = b.start(ctx, u, text, selfCheck); err != nil {
 			log.Printf("cerebro %s: %v", u.Username, err)
 			writeError(w, http.StatusInternalServerError, "no se pudo abrir la conversación")
 			return
@@ -227,7 +238,7 @@ func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // start: turno nuevo (cancela el anterior del mismo usuario) con la conversación vigente y su historial
-func (b *brain) start(ctx context.Context, u *user, text string) (*brainTurn, error) {
+func (b *brain) start(ctx context.Context, u *user, text string, selfCheck bool) (*brainTurn, error) {
 	db := b.auth.db
 	var conv int64
 	err := db.QueryRow(ctx, `
@@ -269,7 +280,7 @@ func (b *brain) start(ctx context.Context, u *user, text string) (*brainTurn, er
 	_, _ = rand.Read(buf)
 	t := &brainTurn{
 		id: base64.RawURLEncoding.EncodeToString(buf), userID: u.ID, conversation: conv,
-		system: systemPrompt(u), history: history, updated: time.Now(),
+		system: systemPrompt(u, selfCheck), history: history, updated: time.Now(),
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()

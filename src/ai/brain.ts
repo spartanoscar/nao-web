@@ -14,6 +14,8 @@ import { type Appearance, runSkill } from './skills';
 import type { Snapshot, Vision } from './vision';
 
 const CONVERSATION_WINDOW = 20_000;
+/** Habilidades que toman una foto para que Gemini la vea (con ellas, finish no cierra el turno) */
+const LOOKING = new Set(['look', 'look_at_point', 'scan']);
 const DEG = 180 / Math.PI;
 
 interface BrainCall {
@@ -71,7 +73,11 @@ export class Brain {
   }
 
   /** Lo que la persona dijo (voz) o escribió (texto). Cancela el turno anterior si seguía. */
-  async ask(text: string, source: 'voz' | 'texto'): Promise<void> {
+  /**
+   * `experiment` (solo surte efecto para un admin, scripts/bench/mirror.js): `fresh` empieza una conversación nueva y
+   * `variant: 'sin-metodo'` quita del prompt cómo comprobar si algo es su reflejo (condición A de la prueba del espejo).
+   */
+  async ask(text: string, source: 'voz' | 'texto', experiment: { fresh?: boolean; variant?: string } = {}): Promise<void> {
     const run = ++this.run;
     const cancelled = () => run !== this.run;
     const motion = this.session.service('ALMotion');
@@ -80,16 +86,25 @@ export class Brain {
     const origin = pose && { x: round(pose.x), y: round(pose.y), rumbo_grados: Math.round(pose.theta * DEG) };
     this.hooks.thinking(true);
     try {
-      let reply = await this.post({ text, source, state: this.snapshotState(origin), image: this.vision.view().jpeg });
+      let reply = await this.post({ text, source, state: this.snapshotState(origin), image: this.vision.view().jpeg, ...experiment });
+      // Una pregunta se responde: si miró algo y todavía no dijo nada desde entonces, finish no cierra el turno (en la
+      // prueba del espejo hacía la comprobación y terminaba callado 5 de 8 veces)
+      const question = text.includes('?');
+      let lookedSinceSay = false;
       while (!cancelled()) {
         this.hooks.spent(reply.spentTodayUsd);
-        if (reply.say) this.say(reply.say);
+        if (reply.say) {
+          this.say(reply.say);
+          lookedSinceSay = false;
+        }
         if (reply.done || !reply.calls?.length) break;
         this.hooks.thinking(false);
         const results = [];
         let image: Snapshot | undefined;
-        // finish: Gemini dice que con esto termina; si todo sale bien no se le vuelve a consultar
-        const finishing = reply.calls.some((c) => c.name === 'finish');
+        // finish: Gemini dice que con esto termina; si todo sale bien no se le vuelve a consultar. Salvo si en esas mismas
+        // acciones pidió mirar: entonces quiere ver la foto (prueba del espejo: levantaba el brazo, miraba, terminaba y
+        // nunca veía si el otro NAO lo imitaba ni decía la conclusión)
+        const finishing = reply.calls.some((c) => c.name === 'finish') && !reply.calls.some((c) => LOOKING.has(c.name));
         for (const call of reply.calls) {
           if (cancelled()) return;
           if (call.name === 'finish') continue;
@@ -99,13 +114,14 @@ export class Brain {
           this.hooks.action?.(call.name, call.args ?? {}, r.response);
           results.push({ id: call.id, name: call.name, response: r.response });
           if (r.image) image = r.image;
+          if (LOOKING.has(call.name)) lookedSinceSay = true;
         }
         if (cancelled()) return;
         const allOk = results.every((r) => r.response.ok !== false);
         for (const call of reply.calls) {
           if (call.name === 'finish') results.push({ id: call.id, name: call.name, response: { ok: allOk, ...(allOk ? {} : { nota: 'algo falló: revisa los resultados' }) } });
         }
-        if (finishing && allOk) {
+        if (finishing && allOk && !(question && lookedSinceSay)) {
           await this.post({ turn: reply.turn, results, final: true });
           break;
         }
