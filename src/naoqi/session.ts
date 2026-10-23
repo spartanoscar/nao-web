@@ -5,8 +5,10 @@ import { LedState } from '../robot/leds';
 import type { RobotState } from '../robot/state';
 import { ALAudioDevice } from './ALAudioDevice';
 import { ALLeds } from './ALLeds';
+import { ALMemory } from './ALMemory';
 import { ALMotion } from './ALMotion';
 import { ALRobotPosture } from './ALRobotPosture';
+import { ALSonar } from './ALSonar';
 import { ALTextToSpeech } from './ALTextToSpeech';
 import { ALVideoDevice } from './ALVideoDevice';
 import { MotionEngine } from './engine';
@@ -24,10 +26,14 @@ export class Session {
     const posture = new ALRobotPosture(this.engine, state, motion);
     motion.goToPosture = (name, speed) => posture.goToPosture(name, speed);
     this.ledService = new ALLeds(this.leds);
+    const sonar = new ALSonar();
+    const memory = new ALMemory(state, sonar);
+    motion.onMoveFailed = (value) => memory.insertData('ALMotion/MoveFailed', value);
     this.services = {
       ALMotion: motion, ALRobotPosture: posture, ALLeds: this.ledService, ALTextToSpeech: new ALTextToSpeech(),
       ALVideoDevice: new ALVideoDevice(),
       ALAudioDevice: new ALAudioDevice(),
+      ALMemory: memory, ALSonar: sonar,
     };
   }
 
@@ -37,6 +43,8 @@ export class Session {
   service(name: 'ALTextToSpeech'): ALTextToSpeech;
   service(name: 'ALVideoDevice'): ALVideoDevice;
   service(name: 'ALAudioDevice'): ALAudioDevice;
+  service(name: 'ALMemory'): ALMemory;
+  service(name: 'ALSonar'): ALSonar;
   service(name: string): object;
   service(name: string): object {
     const s = this.services[name];

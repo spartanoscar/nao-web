@@ -16,6 +16,13 @@ import { moveToPosture, nearestPosture, postureFamily } from './postures';
 import { Gait, WALK_POSE } from './walk';
 
 const SERVICE = 'ALMotion';
+/** Nombres de setExternalCollisionProtectionEnabled; en el NAO solo "Move" tiene efecto (doc) */
+const PROTECTION_NAMES = ['All', 'Move', 'Arms', 'LArm', 'RArm'];
+/**
+ * APPROX: del sonar (en el pecho) a la parte más adelantada del robot, la punta de los pies (~10 cm): la doc mide la
+ * zona de seguridad "between any part of the robot and any obstacle".
+ */
+const SONAR_TO_FRONT = 0.1;
 
 export class ALMotion {
   /** La pone Session: wakeUp/rest usan ALRobotPosture (y su camino entre posturas) */
@@ -23,12 +30,91 @@ export class ALMotion {
   private readonly gait: Gait;
   /** Cambia con cada orden de marcha: un moveTo en curso ve que lo interrumpieron */
   private moveRun = 0;
+  /**
+   * Protección contra colisiones externas (doc reflexes-external-collision): con "Move" activa, una marcha hacia un
+   * obstáculo dentro de la zona de seguridad no arranca o se detiene. APPROX: activa al arrancar (en el NAO real
+   * depende de que ALNavigation esté corriendo) y solo hacia adelante, que es lo que cubren los sonares del pecho.
+   */
+  private readonly protection = new Map(PROTECTION_NAMES.slice(1).map((n) => [n, true]));
+  private orthogonalDistance = 0.4;
+  private tangentialDistance = 0.1;
+  /** Datos del último evento ALMotion/MoveFailed: [causa, estado (0 no arrancó, 1 se detuvo), obstáculo en FRAME_WORLD] */
+  lastMoveFailure: [string, number, number[]] | null = null;
+  /** Cuántas veces falló una marcha por seguridad (las habilidades de la IA lo comparan antes y después) */
+  moveFailures = 0;
+  /** La pone Session: ALMemory guarda el evento (ALMotion/MoveFailed) */
+  onMoveFailed: ((value: [string, number, number[]]) => void) | null = null;
 
   constructor(
     private readonly engine: MotionEngine,
     private readonly state: RobotState,
   ) {
     this.gait = new Gait(engine, state);
+    this.gait.safety = (v) => this.obstacleAhead(v);
+    this.gait.onMoveFailed = (status, distance) => {
+      const root = this.state.root;
+      let obstacle = [0, 0, 0];
+      if (root) {
+        const [w, x, y, z] = root.quaternion;
+        const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+        const ahead = distance + SONAR_TO_FRONT;
+        obstacle = [root.position[0] + Math.cos(yaw) * ahead, root.position[1] + Math.sin(yaw) * ahead, 0];
+      }
+      this.lastMoveFailure = ['Safety', status, obstacle];
+      this.moveFailures++;
+      this.onMoveFailed?.(this.lastMoveFailure);
+      console.warn(`ALMotion: marcha ${status ? 'detenida' : 'no iniciada'} por seguridad: obstáculo a ${distance.toFixed(2)} m`);
+    };
+  }
+
+  /** Distancia del frente del robot al obstáculo si avanzar a `v` lo deja dentro de la zona de seguridad, o null */
+  private obstacleAhead(v: { x: number }): number | null {
+    const sonar = this.state.sonar;
+    if (!this.protection.get('Move') || v.x <= 0 || !sonar) return null;
+    const distance = Math.min(...sonar) - SONAR_TO_FRONT;
+    // Entre la tangencial (despacio) y la ortogonal (de frente a toda velocidad), según la fracción de velocidad
+    const zone = this.tangentialDistance + (this.orthogonalDistance - this.tangentialDistance) * Math.min(1, v.x);
+    return distance < zone ? Math.max(0, distance) : null;
+  }
+
+  // ─── Colisiones externas ────────────────────────────────────────────────────
+  // Doc: http://doc.aldebaran.com/2-8/naoqi/motion/reflexes-external-collision-api.html (no está en reference/)
+
+  /** "Enable/disable external collision protection of the robot. Only "Move" … is implemented" (NAO). */
+  setExternalCollisionProtectionEnabled(name: string, enable: boolean): void {
+    if (!PROTECTION_NAMES.includes(name)) {
+      throw new NaoqiError(SERVICE, 'setExternalCollisionProtectionEnabled', `name debe ser ${PROTECTION_NAMES.join(', ')}, no "${name}"`);
+    }
+    const names = name === 'All' ? PROTECTION_NAMES.slice(1) : name === 'Arms' ? ['Arms', 'LArm', 'RArm'] : [name];
+    for (const n of names) this.protection.set(n, Boolean(enable));
+  }
+
+  /** "Checks if the external collision protection is activated on the given name." */
+  getExternalCollisionProtectionEnabled(name: string): boolean {
+    if (name === 'All') return PROTECTION_NAMES.slice(1).every((n) => this.protection.get(n));
+    if (!this.protection.has(name)) {
+      throw new NaoqiError(SERVICE, 'getExternalCollisionProtectionEnabled', `name debe ser ${PROTECTION_NAMES.join(', ')}, no "${name}"`);
+    }
+    return this.protection.get(name)!;
+  }
+
+  /** Distancia de seguridad yendo de frente a toda velocidad (m, defecto 0.4). No menor que la tangencial. */
+  setOrthogonalSecurityDistance(distance: number): void {
+    this.orthogonalDistance = Math.max(Number(distance) || 0, this.tangentialDistance);
+  }
+
+  getOrthogonalSecurityDistance(): number {
+    return this.orthogonalDistance;
+  }
+
+  /** Distancia mínima a cualquier obstáculo durante la marcha (m, defecto 0.1). Negativa → 0. */
+  setTangentialSecurityDistance(distance: number): void {
+    this.tangentialDistance = Math.max(Number(distance) || 0, 0);
+    this.orthogonalDistance = Math.max(this.orthogonalDistance, this.tangentialDistance);
+  }
+
+  getTangentialSecurityDistance(): number {
+    return this.tangentialDistance;
   }
 
   // ─── Stiffness ──────────────────────────────────────────────────────────────

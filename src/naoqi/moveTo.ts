@@ -51,6 +51,8 @@ export function robotPose(state: RobotState): Pose2D | null {
 
 interface GaitControl {
   readonly active: boolean;
+  /** Veces que la marcha segura la detuvo (walk.ts) */
+  readonly safetyStops: number;
   setVelocity(v: Velocity): void;
   stop(): Promise<void>;
 }
@@ -102,6 +104,9 @@ export async function moveToPose(
   const target = { x: start.x + c * x - s * y, y: start.y + s * x + c * y };
   const heading = start.theta + theta;
   const fine = Math.hypot(x, y) < FINE_RANGE;
+  // La marcha segura lo detuvo (obstáculo en la zona de seguridad): termina en false, como el moveTo de NAOqi
+  const stops = gait.safetyStops;
+  const blocked = () => gait.safetyStops !== stops;
   // Holgado: ~5 cm/s avanzando, ~15°/s girando, más entrar y frenar
   const deadline = engine.time + 8 + Math.hypot(x, y) / 0.04 + (Math.abs(theta) + Math.PI) / 0.2;
   const tick = () => new Promise<void>((r) => engine.schedule(engine.time + TICK, r));
@@ -136,7 +141,7 @@ export async function moveToPose(
   // 1. Hasta el punto
   let mode: 'forward' | 'turn' | 'side' | 'back' | null = null;
   for (;;) {
-    if (cancelled() || fallen() || engine.time > deadline) return abort();
+    if (cancelled() || fallen() || blocked() || engine.time > deadline) return abort();
     const p = robotPose(state)!;
     const [dx, dy] = [target.x - p.x, target.y - p.y];
     const dist = Math.hypot(dx, dy);
@@ -166,12 +171,12 @@ export async function moveToPose(
   // 2. Al ángulo final (sentido nuevo: el de theta si queda casi de espaldas)
   spin = 0;
   for (;;) {
-    if (cancelled() || fallen() || engine.time > deadline) return abort();
+    if (cancelled() || fallen() || blocked() || engine.time > deadline) return abort();
     const error = wrapAngle(heading - robotPose(state)!.theta);
     if (Math.abs(error) < STOP_ANGLE) break;
     await drive({ x: 0, y: 0, theta: turnSign(error, Math.sign(theta)) });
     await tick();
   }
   await gait.stop();
-  return !cancelled() && !fallen();
+  return !cancelled() && !fallen() && !blocked();
 }

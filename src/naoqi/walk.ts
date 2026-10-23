@@ -109,6 +109,15 @@ export class Gait {
    * y se queda en lo último que se le comandó (p. ej. al frente para empujar). Se aplica desde el siguiente paso.
    */
   readonly armsEnabled = { LArm: true, RArm: true };
+  /**
+   * Marcha segura (ALMotion external collision protection "Move", la pone ALMotion): distancia al obstáculo si esta
+   * velocidad lo deja dentro de la zona de seguridad, o null. Bloqueada = no arranca (estado 0) o frena en el próximo
+   * paso (estado 1), como "the move will not be launched or will be stopped" de la doc.
+   */
+  safety: (v: Velocity) => number | null = () => null;
+  onMoveFailed: (status: 0 | 1, distance: number) => void = () => undefined;
+  /** Cuántas veces la detuvo la seguridad (moveTo termina en false si cambia) */
+  safetyStops = 0;
   private done: Promise<void> = Promise.resolve();
   private resolveDone: () => void = () => undefined;
 
@@ -133,6 +142,7 @@ export class Gait {
   setVelocity(v: Velocity): void {
     const c = (n: number) => (Number.isFinite(n) ? Math.min(Math.max(n, -1), 1) : 0);
     this.velocity = { x: c(v.x), y: c(v.y), theta: c(v.theta) };
+    this.checkSafety(this.current || this.exiting ? 1 : 0);
     const wanted = pick(this.velocity);
     if (!this.current && wanted) {
       // Si estaba frenando, retoma la marcha sin terminarla; si estaba quieto, empieza una nueva
@@ -198,6 +208,7 @@ export class Gait {
       this.engine.stopAll();
       return this.finish();
     }
+    this.checkSafety(1);
     const wanted = pick(this.velocity);
     if (wanted === gait) {
       const elapsed = (at - this.cycleStart) / gait.period;
@@ -222,6 +233,16 @@ export class Gait {
     void task.done.then(() => {
       if (generation === this.generation) this.finish();
     });
+  }
+
+  /** Obstáculo en la zona de seguridad: velocidad 0 (frena en el próximo paso o no arranca) y aviso */
+  private checkSafety(status: 0 | 1): void {
+    if (!pick(this.velocity)) return;
+    const distance = this.safety(this.velocity);
+    if (distance === null) return;
+    this.velocity = { x: 0, y: 0, theta: 0 };
+    this.safetyStops++;
+    this.onMoveFailed(status, distance);
   }
 
   private finish(): void {
