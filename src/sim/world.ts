@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { ENV_OBJECTS, MIRROR, MIRROR_FRAME } from './environment';
 import { Reflector } from 'three/addons/objects/Reflector.js';
+import { DOOR_WIDTH, ROOMS, type RoomId, WALLS, WALL_THICKNESS, roomAt, wallPieces } from './rooms';
 
 export interface World {
   renderer: THREE.WebGLRenderer;
@@ -28,6 +29,11 @@ export interface World {
   renderNow(): void;
   /** Corre justo después de cada cuadro dibujado (vistas extra en el mismo canvas, p. ej. las cámaras del NAO) */
   onAfterRender(cb: () => void): void;
+  /**
+   * Cuarto donde está el NAO (rooms.ts): la cámara del mundo solo ve ese cuarto y el pasillo (desde el pasillo, todos),
+   * y la sombra se centra en él. Las cámaras del NAO y el espejo ven todo lo que hay (capas de three.js).
+   */
+  setRoom(id: RoomId | null): void;
 }
 
 const BG = 0x0e1116;
@@ -68,11 +74,12 @@ export function createWorld(container: HTMLElement): World {
   // También dispara durante la inercia (damping) mientras controls.update() siga moviendo la cámara
   controls.addEventListener('change', () => invalidate());
 
-  addLights(scene);
-  addFloor(scene);
+  const sun = addLights(scene);
   const zUp = new THREE.Group();
   zUp.rotation.x = -Math.PI / 2;
   scene.add(zUp);
+  addFloor(scene, zUp);
+  addRooms(zUp);
   const objects = addObjects(zUp);
   addMirror(zUp);
 
@@ -111,14 +118,113 @@ export function createWorld(container: HTMLElement): World {
     draw();
   };
 
+  const setRoom = (id: RoomId | null) => {
+    camera.layers.set(0);
+    const all = !id || id === 'pasillo';
+    for (const r of Object.values(ROOMS)) if (all || r.id === id || r.id === 'pasillo') camera.layers.enable(r.layer);
+    // La sombra cubre el cuarto (el pasillo entero desde el pasillo); la luz llega siempre desde el mismo ángulo
+    const r = ROOMS[id ?? 'pasillo'];
+    const [cx, cy] = [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2];
+    const reach = Math.hypot(r.x[1] - r.x[0], r.y[1] - r.y[0]) / 2 + 0.3;
+    sun.target.position.set(cx, 0, -cy);
+    sun.position.set(cx + SUN_OFFSET.x, SUN_OFFSET.y, -cy + SUN_OFFSET.z);
+    Object.assign(sun.shadow.camera, { left: -reach, right: reach, top: reach, bottom: -reach });
+    sun.shadow.camera.updateProjectionMatrix();
+    invalidate(true);
+  };
+  setRoom(roomAt(0, 0));
+
   return {
-    renderer, scene, camera, controls, zUp, objects, invalidate, renderNow,
+    renderer, scene, camera, controls, zUp, objects, invalidate, renderNow, setRoom,
     onFrame: (cb) => void callbacks.push(cb),
     onAfterRender: (cb) => void afterRender.push(cb),
   };
 }
 
-function addLights(scene: THREE.Scene) {
+/** Pone un objeto (y todo lo que cuelga de él) en las capas de esos cuartos: lo ve la cámara del mundo desde ahí */
+function inRooms(obj: THREE.Object3D, rooms: readonly RoomId[]): void {
+  obj.traverse((o) => {
+    o.layers.set(ROOMS[rooms[0]].layer);
+    for (const r of rooms.slice(1)) o.layers.enable(ROOMS[r].layer);
+  });
+}
+
+/** Colores de acento de los letreros por cuarto (estilo juego: vidrio oscuro con borde de color) */
+const SIGN_ACCENT: Record<RoomId, string> = {
+  pruebas: '#f5a524', laboratorio: '#3aa0ff', bano: '#5fd3c4', pasillo: '#9aa4b2', espejo: '#b58cff', casa: '#4ade80',
+};
+
+function signTexture(text: string, accent: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 160;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#10151c';
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = accent;
+  g.lineWidth = 10;
+  g.strokeRect(5, 5, c.width - 10, c.height - 10);
+  g.fillStyle = accent;
+  g.fillRect(22, 28, 14, c.height - 56);
+  g.fillStyle = '#eef2f7';
+  const size = text.length > 12 ? 50 : 66;
+  g.font = `800 ${size}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  g.textBaseline = 'middle';
+  if ('letterSpacing' in g) (g as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '4px';
+  g.fillText(text, 58, c.height / 2 + 2, c.width - 80);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * Cuartos (rooms.ts): piso de color por cuarto, paredes macizas (las mismas piezas fijas que la física) y un letrero
+ * junto a cada puerta, del lado del pasillo, a la altura de la cámara del NAO (lo lee al pasar).
+ */
+function addRooms(zUp: THREE.Group) {
+  for (const r of Object.values(ROOMS)) {
+    const [w, d] = [r.x[1] - r.x[0], r.y[1] - r.y[0]];
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.92 }));
+    floor.position.set((r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2, 0.002);
+    floor.receiveShadow = true;
+    inRooms(floor, [r.id]);
+    zUp.add(floor);
+  }
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3b4451, roughness: 0.85 });
+  for (const p of wallPieces()) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(...p.size), wallMat);
+    wall.position.set(...p.center);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    inRooms(wall, p.rooms);
+    zUp.add(wall);
+  }
+  for (const w of WALLS) {
+    const alongX = w.from[1] === w.to[1];
+    for (const door of w.doors ?? []) {
+      const room = ROOMS[door.sign];
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.42, 0.13),
+        new THREE.MeshStandardMaterial({ map: signTexture(room.label, SIGN_ACCENT[room.id]), roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.25 }),
+      );
+      sign.material.emissiveMap = sign.material.map;
+      const normal = alongX ? new THREE.Vector3(0, door.side, 0) : new THREE.Vector3(door.side, 0, 0);
+      const up = new THREE.Vector3(0, 0, 1);
+      sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(up.clone().cross(normal), up, normal));
+      const along = door.at + DOOR_WIDTH / 2 + 0.3;
+      const off = door.side * (WALL_THICKNESS / 2 + 0.003);
+      sign.position.set(alongX ? along : w.from[0] + off, alongX ? w.from[1] + off : along, 0.5);
+      inRooms(sign, ['pasillo']);
+      zUp.add(sign);
+    }
+  }
+}
+
+/** Desde dónde llega el sol respecto al cuarto que se mira (three: Y arriba) */
+const SUN_OFFSET = { x: 2, y: 3.5, z: 1.5 };
+
+function addLights(scene: THREE.Scene): THREE.DirectionalLight {
   scene.add(new THREE.HemisphereLight(0xdde6ff, 0x1a1f28, 1.1));
 
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -133,24 +239,25 @@ function addLights(scene: THREE.Scene) {
   sun.shadow.camera.far = 8;
   sun.shadow.bias = -0.0005;
   scene.add(sun);
+  scene.add(sun.target);
 
   const rim = new THREE.DirectionalLight(0x6fa8ff, 0.6);
   rim.position.set(-2, 1.5, -2);
   scene.add(rim);
+  return sun;
 }
 
-function addFloor(scene: THREE.Scene) {
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(8, 64),
-    new THREE.MeshStandardMaterial({ color: 0x1b212b, roughness: 0.95 }),
-  );
-  floor.rotation.x = -Math.PI / 2;
+function addFloor(scene: THREE.Scene, zUp: THREE.Group) {
+  // Afuera de los cuartos: piso oscuro (lo ve todo, capa 0); cada cuarto pone su piso encima (addRooms)
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 24), new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.95 }));
+  floor.position.set(-3, -2, 0);
   floor.receiveShadow = true;
-  scene.add(floor);
+  zUp.add(floor);
 
-  // Cuadrícula de 10 cm: escala de referencia para el robot (57 cm de alto)
-  const grid = new THREE.GridHelper(6, 60, 0x3a4352, 0x262d39);
-  grid.position.y = 0.0005;
+  // Cuadrícula de 10 cm en la sala de pruebas: escala de referencia para el robot (57 cm de alto)
+  const grid = new THREE.GridHelper(4, 40, 0x3a4352, 0x262d39);
+  grid.position.y = 0.003;
+  inRooms(grid, ['pruebas']);
   scene.add(grid);
 }
 
@@ -191,6 +298,15 @@ function addMirror(zUp: THREE.Group) {
   );
   glass.position.x = t / 2 + 0.001;
   holder.add(glass);
+  inRooms(holder, ['espejo']);
+  // El Reflector clona la cámara una sola vez (con sus capas de ese momento): antes de cada reflejo copia las capas
+  // actuales, para que el espejo vea lo mismo que la cámara que lo mira (la del mundo cambia de capas por cuarto)
+  const reflect = glass.onBeforeRender.bind(glass);
+  const mirror = glass as unknown as { getReflectionCamera(c: THREE.Camera): THREE.Camera };
+  glass.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
+    mirror.getReflectionCamera(camera).layers.mask = camera.layers.mask;
+    reflect(renderer, scene, camera, geometry, material, group);
+  };
 }
 
 function addObjects(zUp: THREE.Group): Map<string, THREE.Mesh> {
@@ -206,6 +322,8 @@ function addObjects(zUp: THREE.Group): Map<string, THREE.Mesh> {
     box.rotation.z = yaw;
     box.castShadow = true;
     box.receiveShadow = true;
+    const room = roomAt(pos[0], pos[1]);
+    if (room) inRooms(box, [room]);
     zUp.add(box);
     meshes.set(name, box);
   }

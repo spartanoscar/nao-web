@@ -23,6 +23,9 @@ export class NaoCameras {
       // Frame óptico (convención ROS): Z adelante, X derecha, Y abajo. La cámara de three mira a −Z con
       // Y arriba: media vuelta sobre X
       cam.rotation.x = Math.PI;
+      // El NAO ve todo lo que físicamente tiene delante (por la puerta, el pasillo y los otros cuartos): todas las capas
+      // (la cámara del mundo solo ve el cuarto donde está, world.setRoom)
+      cam.layers.enableAll();
       const parent = model.frame(frame);
       if (!parent) throw new Error(`El URDF no tiene ${frame}`);
       parent.add(cam);

@@ -1,0 +1,136 @@
+// Mundo 1, "Laboratorio" (docs/PLAN.md F13): un pasillo con cuartos separados, cada uno un experimento. Datos
+// compartidos por el render (world.ts) y la física (las paredes son piezas fijas de MuJoCo, environment.ts ENV_FIXED).
+// Coordenadas Z arriba (URDF/MuJoCo), metros. La sala de pruebas queda centrada en el origen: ahí corren los bancos y
+// el laboratorio de movimientos, como antes.
+//
+//   y ↑
+//      ┌───────────┬───────────┬───────────────┐ 2.0
+//      │   BAÑO    │LABORATORIO│ SALA DE       │
+//   1.0├───────────┼───────────┤ PRUEBAS (0,0) │
+//      │           │           │               │
+//  −2.0└────┐ ┌────┴────┐ ┌────┴─────┐ ┌───────┤
+//      │  PASILLO                              │
+//  −3.2├────┘ └────┬────┘ └────┬─────────────────┘
+//      │  ESPEJO   │   CASA    │
+//  −6.2└───────────┴───────────┘
+//    −8.25      −5.25       −2.25          2.25  → x
+//
+// A la escala del NAO (57 cm, ~8 cm/s) un cuarto de 3 m ya es grande. Puertas de 0.9 m sin hoja (no agarra manijas):
+// con menos, el haz de los sonares (±37°) vería los marcos y la marcha segura lo frenaría en la puerta (medido con la
+// geometría del haz; también le pasaría a un NAO real).
+
+export type RoomId = 'pruebas' | 'laboratorio' | 'bano' | 'pasillo' | 'espejo' | 'casa';
+
+export interface Room {
+  id: RoomId;
+  /** Texto del letrero de la puerta */
+  label: string;
+  x: [number, number];
+  y: [number, number];
+  /** Color del piso (render) */
+  floor: number;
+  /** Donde aparece el NAO en este cuarto: centro del torso en el plano y rumbo (rad, 0 = +X) */
+  spawn: { x: number; y: number; yaw: number };
+  /** Capa de three.js: la cámara del mundo solo ve el cuarto donde está el NAO (más el pasillo) */
+  layer: number;
+}
+
+export const ROOMS: Record<RoomId, Room> = {
+  pruebas: { id: 'pruebas', label: 'SALA DE PRUEBAS', x: [-2.25, 2.25], y: [-2, 2], floor: 0x20262f, spawn: { x: 0, y: 0, yaw: 0 }, layer: 1 },
+  laboratorio: { id: 'laboratorio', label: 'LABORATORIO', x: [-5.25, -2.25], y: [-2, 1], floor: 0x232a33, spawn: { x: -3.75, y: -0.5, yaw: 0 }, layer: 2 },
+  bano: { id: 'bano', label: 'BAÑO', x: [-8.25, -5.25], y: [-2, 1], floor: 0x2b3a44, spawn: { x: -6.75, y: -0.5, yaw: -Math.PI / 2 }, layer: 3 },
+  pasillo: { id: 'pasillo', label: 'PASILLO', x: [-8.25, 2.25], y: [-3.2, -2], floor: 0x1d2229, spawn: { x: -3, y: -2.6, yaw: Math.PI }, layer: 4 },
+  espejo: { id: 'espejo', label: 'ESPEJO', x: [-8.25, -5.25], y: [-6.2, -3.2], floor: 0x2a2535, spawn: { x: -6.75, y: -4.6, yaw: -Math.PI / 2 }, layer: 5 },
+  casa: { id: 'casa', label: 'CASA', x: [-5.25, -2.25], y: [-6.2, -3.2], floor: 0x2e2a24, spawn: { x: -3.75, y: -4.7, yaw: Math.PI / 2 }, layer: 6 },
+};
+
+/** Donde aparece el NAO del usuario al entrar */
+export const HOME_ROOM: RoomId = 'casa';
+
+export const WALL_HEIGHT = 1;
+export const WALL_THICKNESS = 0.08;
+export const DOOR_WIDTH = 0.9;
+
+/**
+ * Pared recta (eje X o eje Y) de `from` a `to`, con puertas (centro a lo largo de la pared) y los cuartos desde los que
+ * se ve (las compartidas, desde los dos). `sign`: letrero junto a cada puerta, del lado del pasillo.
+ */
+export interface Wall {
+  from: [number, number];
+  to: [number, number];
+  doors?: { at: number; sign: RoomId; side: 1 | -1 }[];
+  rooms: RoomId[];
+}
+
+// side: hacia qué lado de la pared mira el letrero (+1 = +y / +x), el del pasillo
+export const WALLS: Wall[] = [
+  // Sala de pruebas
+  { from: [-2.25, 2], to: [2.25, 2], rooms: ['pruebas'] },
+  { from: [2.25, -2], to: [2.25, 2], rooms: ['pruebas'] },
+  { from: [-2.25, 1], to: [-2.25, 2], rooms: ['pruebas'] },
+  { from: [-2.25, -2], to: [-2.25, 1], rooms: ['pruebas', 'laboratorio'] },
+  { from: [-2.25, -2], to: [2.25, -2], doors: [{ at: 0, sign: 'pruebas', side: -1 }], rooms: ['pruebas', 'pasillo'] },
+  // Laboratorio y baño
+  { from: [-5.25, 1], to: [-2.25, 1], rooms: ['laboratorio'] },
+  { from: [-5.25, -2], to: [-5.25, 1], rooms: ['laboratorio', 'bano'] },
+  { from: [-5.25, -2], to: [-2.25, -2], doors: [{ at: -3.75, sign: 'laboratorio', side: -1 }], rooms: ['laboratorio', 'pasillo'] },
+  { from: [-8.25, 1], to: [-5.25, 1], rooms: ['bano'] },
+  { from: [-8.25, -2], to: [-8.25, 1], rooms: ['bano'] },
+  { from: [-8.25, -2], to: [-5.25, -2], doors: [{ at: -6.75, sign: 'bano', side: -1 }], rooms: ['bano', 'pasillo'] },
+  // Pasillo: extremos y pared sur (puertas del espejo y la casa)
+  { from: [-8.25, -3.2], to: [-8.25, -2], rooms: ['pasillo'] },
+  { from: [2.25, -3.2], to: [2.25, -2], rooms: ['pasillo'] },
+  { from: [-8.25, -3.2], to: [-5.25, -3.2], doors: [{ at: -6.75, sign: 'espejo', side: 1 }], rooms: ['pasillo', 'espejo'] },
+  { from: [-5.25, -3.2], to: [-2.25, -3.2], doors: [{ at: -3.75, sign: 'casa', side: 1 }], rooms: ['pasillo', 'casa'] },
+  { from: [-2.25, -3.2], to: [2.25, -3.2], rooms: ['pasillo'] },
+  // Espejo y casa
+  { from: [-8.25, -6.2], to: [-8.25, -3.2], rooms: ['espejo'] },
+  { from: [-8.25, -6.2], to: [-5.25, -6.2], rooms: ['espejo'] },
+  { from: [-5.25, -6.2], to: [-5.25, -3.2], rooms: ['espejo', 'casa'] },
+  { from: [-5.25, -6.2], to: [-2.25, -6.2], rooms: ['casa'] },
+  { from: [-2.25, -6.2], to: [-2.25, -3.2], rooms: ['casa'] },
+];
+
+/** Un tramo macizo de pared: centro, tamaño completo (x, y, z) y cuartos que lo ven */
+export interface WallPiece {
+  center: [number, number, number];
+  size: [number, number, number];
+  rooms: RoomId[];
+}
+
+/** Las paredes partidas en tramos macizos (sin las puertas). Se alargan medio grosor para cerrar las esquinas. */
+export function wallPieces(): WallPiece[] {
+  const out: WallPiece[] = [];
+  const t = WALL_THICKNESS;
+  for (const w of WALLS) {
+    const alongX = w.from[1] === w.to[1];
+    const [a, b] = alongX ? [w.from[0], w.to[0]] : [w.from[1], w.to[1]];
+    const fixed = alongX ? w.from[1] : w.from[0];
+    // Cortes: los bordes de cada puerta
+    const cuts: [number, number][] = [];
+    let start = Math.min(a, b) - t / 2;
+    for (const d of [...(w.doors ?? [])].sort((p, q) => p.at - q.at)) {
+      cuts.push([start, d.at - DOOR_WIDTH / 2]);
+      start = d.at + DOOR_WIDTH / 2;
+    }
+    cuts.push([start, Math.max(a, b) + t / 2]);
+    for (const [s, e] of cuts) {
+      if (e - s < 1e-3) continue;
+      const mid = (s + e) / 2;
+      out.push({
+        center: alongX ? [mid, fixed, WALL_HEIGHT / 2] : [fixed, mid, WALL_HEIGHT / 2],
+        size: alongX ? [e - s, t, WALL_HEIGHT] : [t, e - s, WALL_HEIGHT],
+        rooms: w.rooms,
+      });
+    }
+  }
+  return out;
+}
+
+/** En qué cuarto está un punto (el pasillo incluye las puertas hasta la mitad de la pared) */
+export function roomAt(x: number, y: number): RoomId | null {
+  for (const r of Object.values(ROOMS)) {
+    if (x >= r.x[0] && x <= r.x[1] && y >= r.y[0] && y <= r.y[1]) return r.id;
+  }
+  return null;
+}
