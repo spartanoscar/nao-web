@@ -5,11 +5,14 @@
 import type { RootPose } from '../robot/state';
 import type { UrdfRobot } from '../robot/urdf';
 import type { Progress, Result } from '../lab/search';
-import type { PoseRecorder } from './poseRecorder';
+import type { PoseOrigin, PoseRecorder } from './poseRecorder';
 
 const STORAGE_KEY = 'nao.lab';
 /** Desde dónde se prueba cada tarea en el grabador */
-const ORIGIN = { 'sit-down': 'stand', 'stand-up': 'sit' } as const;
+const ORIGIN: Record<string, PoseOrigin> = { 'sit-down': 'stand', 'stand-up': 'sit' };
+const IMITATE = 'imitate';
+
+type Saved = Result & { origin?: PoseOrigin };
 
 export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPose, recorder: PoseRecorder): void {
   const section = document.createElement('details');
@@ -35,7 +38,7 @@ export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPos
   let running = false;
   let stop = false;
   let history: number[] = [];
-  const results: Record<string, Result> = (() => {
+  const results: Record<string, Saved> = (() => {
     try {
       return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
     } catch {
@@ -72,7 +75,7 @@ export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPos
   };
 
   void import('../lab/tasks').then((m) => {
-    for (const t of m.TASKS) {
+    for (const t of [...m.TASKS, { id: IMITATE, label: 'Imitar lo grabado (poses del grabador o del modo animador)' }]) {
       const o = document.createElement('option');
       o.value = t.id;
       o.textContent = t.label;
@@ -103,8 +106,17 @@ export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPos
     history = [];
     status.textContent = 'Preparando la física del laboratorio…';
     try {
-      const [{ searchMotion }, { TASKS: tasks }] = await Promise.all([import('../lab/search'), import('../lab/tasks')]);
-      const task = tasks.find((t) => t.id === select.value)!;
+      const [{ searchMotion }, { TASKS: tasks, imitationTask }] = await Promise.all([import('../lab/search'), import('../lab/tasks')]);
+      let origin = ORIGIN[select.value];
+      let task = tasks.find((t) => t.id === select.value);
+      if (select.value === IMITATE) {
+        const frames = recorder.frames();
+        if (frames.length < 2) throw new Error('graba al menos 2 poses en el grabador (o con el modo animador)');
+        origin = recorder.origin;
+        task = imitationTask(frames, origin);
+        status.textContent = `Referencia: ${task.label}…`;
+      }
+      if (!task) throw new Error('tarea desconocida');
       const result = await searchMotion(urdf, root, task, {
         generations: Math.max(1, Math.min(2000, Number(gens.value) || 60)),
         seed: Date.now() % 100000,
@@ -116,15 +128,16 @@ export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPos
         },
       });
       const prev = results[task.id];
-      if (!prev || result.cost < prev.cost) {
-        results[task.id] = result;
+      // Imitar: cada búsqueda es de una referencia nueva, se guarda siempre la última
+      if (!prev || result.cost < prev.cost || task.id === IMITATE) {
+        results[task.id] = { ...result, origin };
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(results));
         } catch {
           /* sin almacenamiento */
         }
       }
-      status.textContent = `${stop ? 'Detenido' : 'Terminado'}: ${describe(result.progress)}${prev && result.cost >= prev.cost ? '\n(el guardado anterior era mejor: se conserva)' : ''}`;
+      status.textContent = `${stop ? 'Detenido' : 'Terminado'}: ${describe(result.progress)}${prev && result.cost >= prev.cost && task.id !== IMITATE ? '\n(el guardado anterior era mejor: se conserva)' : ''}`;
     } catch (e) {
       status.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
     } finally {
@@ -137,7 +150,7 @@ export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPos
   chip('Ver en el robot', 'Carga el mejor movimiento en el grabador y lo reproduce desde su postura de partida', async () => {
     const r = results[select.value];
     if (!r) return void (status.textContent = 'Primero busca un movimiento');
-    recorder.load(r.frames, ORIGIN[r.task]);
+    recorder.load(r.frames, r.origin ?? ORIGIN[r.task]);
     status.textContent = '▶ Reproduciendo el mejor movimiento…';
     const t = await recorder.play();
     status.textContent = t === null ? 'Hace falta la física (MuJoCo)' : `Listo (${t.toFixed(1)} s). Está en el grabador: puedes afinarlo o copiarlo.`;

@@ -28,6 +28,8 @@ export interface PoseRecorder {
   copy(): Promise<boolean>;
   count(): number;
   duration(): number;
+  /** Copia de las poses guardadas (para el laboratorio: "Imitar lo grabado") */
+  frames(): Keyframe[];
   /** Reemplaza las poses (p. ej. un movimiento encontrado por el laboratorio) y fija desde dónde se prueba */
   load(frames: Keyframe[], origin: PoseOrigin): void;
   /** Lo pone app.ts: abre el modo animador (botón del grabador) */
@@ -222,6 +224,7 @@ export function attachPoseRecorder(
       save();
       render();
     },
+    frames: () => frames.map((k) => ({ duration: k.duration, angles: { ...k.angles } })),
     count: () => frames.length,
     duration: () => frames.reduce((t, k) => t + k.duration, 0),
   };

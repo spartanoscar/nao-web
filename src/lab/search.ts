@@ -47,7 +47,7 @@ export async function searchMotion(
     lab.restore(start);
     const frames = decode(task, x, startAngles);
     const metrics = await evaluate(lab, frames);
-    return { frames, metrics, cost: task.score(metrics) };
+    return { frames, metrics, cost: task.score(metrics) + (task.prior?.(x) ?? 0) };
   };
 
   const x0 = encode(task);

@@ -202,6 +202,12 @@ tarea, manteniendo el equilibrio con física real, y que se ejecutan con la API 
   Una vez caído, todos los candidatos fallan parecido y no hay pista de hacia dónde mejorar. Próximo: semilla enseñada
   a mano con el modo animador siguiendo el video (51–63 s), puntaje por etapas (primero apoyar la mano y recoger las
   piernas sin caer, luego cuclillas) y penalizar el torso hacia atrás desde el principio.
+- **Imitación (2026-10-23):** "Imitar lo grabado" toma las poses del grabador o del modo animador (que se pueden
+  grabar sin física, aunque solas no se sostengan) como referencia y semilla. Costo = física (no caerse, sin golpe,
+  terminar en la familia de la última pose) + parecido (distancia media en rad a las poses grabadas ×10). Prueba con las
+  4 poses del camino viejo para sentarse: 241 intentos (111 s) → bajada 1.14 → 0.54 m/s, sentado derecho; sin referencia
+  hicieron falta 961 para lo mismo. Es el camino para levantarse: Oscar graba la referencia del video y el
+  laboratorio la vuelve factible.
 - **Siguiente:** robustez (variar fricción, masas, empujones), más tareas (agacharse a recoger, patear), seguir una
   búsqueda desde el mejor resultado anterior.
 - Interfaz: panel oculto → "Laboratorio de movimientos" (tarea, generaciones, Buscar/Detener, curva del costo, "Ver en

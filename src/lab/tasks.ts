@@ -4,7 +4,8 @@
 // aquí corre igual en un NAO real.
 
 import { JOINTS, JOINT_BY_NAME, COUPLED } from '../robot/naoV6';
-import { postureJoints } from '../naoqi/postures';
+import { nearestPosture, postureJoints } from '../naoqi/postures';
+import { RobotState } from '../robot/state';
 import type { LabSim, Sample } from './labSim';
 
 /** Lo que decide el optimizador en cada pose (brazos para apoyarse y equilibrar, piernas completas; asimétrico) */
@@ -43,7 +44,7 @@ export interface Metrics {
 }
 
 export interface Task {
-  id: 'sit-down' | 'stand-up';
+  id: 'sit-down' | 'stand-up' | 'imitate';
   label: string;
   /** Deja la simulación en el punto de partida (luego se toma la foto) */
   prepare(lab: LabSim): Promise<void>;
@@ -55,6 +56,8 @@ export interface Task {
   /** Desviación inicial de la búsqueda (rad) */
   sigma: number;
   score(m: Metrics): number;
+  /** Término que no necesita simular (p. ej. parecido a una referencia), sobre el vector del optimizador */
+  prior?(x: number[]): number;
 }
 
 /** Mezcla de dos poses (t = 0 → a, 1 → b) */
@@ -214,4 +217,77 @@ export async function evaluate(lab: LabSim, frames: Keyframe[], hold = 1.5): Pro
     duration: t,
     posture,
   };
+}
+
+/**
+ * Imitar lo grabado: las poses del grabador (o del modo animador, aunque se hayan grabado sin física) son la referencia
+ * y la semilla; el optimizador busca lo más parecido que se sostenga con física. Parecido = distancia (rad) de cada pose
+ * candidata a la grabada; la meta = terminar estable en la familia de la última pose (de pie, en cuclillas o sentado).
+ */
+export function imitationTask(frames: { duration: number; angles: Record<string, number> }[], origin: 'back' | 'sit' | 'stand'): Task {
+  const ref = frames.map((f) => f.angles);
+  const final = { ...ref[ref.length - 1] };
+  const target = (() => {
+    const st = new RobotState(final);
+    const { name } = nearestPosture(st, true);
+    return name === 'Sit' || name === 'SitRelax' ? 'Sitting' : name === 'Crouch' ? 'Crouching' : name.startsWith('Lying') ? 'Lying' : 'Standing';
+  })();
+  const seedPoses = ref.slice(0, -1).map(pick);
+  const task: Task = {
+    id: 'imitate',
+    label: `Imitar lo grabado (${frames.length} poses → ${target})`,
+    async prepare(lab) {
+      const motion = lab.session.service('ALMotion');
+      if (origin === 'stand') return fromStandInit(lab);
+      if (origin === 'sit') {
+        const names = ALL.filter((j) => !j.endsWith('Hand'));
+        motion.setAngles(names, motion.getAngles(names, true), 0.2);
+        motion.setStiffnesses('Body', 1);
+        await lab.drive(lab.session.service('ALRobotPosture').goToPosture('Sit', 1), 10);
+        await lab.hold(1.5);
+        return;
+      }
+      // Boca arriba: como "Empezar boca arriba" del grabador
+      const lying = postureJoints('LyingBack');
+      const c = Math.SQRT1_2;
+      lab.physics.reset({ position: [0, 0, 0.08], quaternion: [c, 0, -c, 0] }, lying);
+      await lab.hold(1.2);
+      motion.setStiffnesses('Body', 1);
+      await lab.hold(0.5);
+    },
+    final,
+    seed: seedPoses.length ? seedPoses : [pick(final)],
+    seedDurations: (seedPoses.length ? frames.slice(0, -1) : frames).map((f) => f.duration),
+    finalDuration: frames[frames.length - 1].duration,
+    sigma: 0.08,
+    score(m) {
+      let c = 0;
+      if (target !== 'Lying' && m.fell) c += 60;
+      if (target === 'Sitting') {
+        if (m.posture !== 'Sitting') c += 25;
+        c += Math.abs(m.endPitch + 36) / 3 + Math.max(0, Math.abs(m.endRoll) - 8) / 2;
+      } else if (target === 'Standing' || target === 'Crouching') {
+        c += 120 * Math.max(0, (target === 'Standing' ? 0.28 : 0.2) - m.endZ);
+        c += Math.max(0, m.endTilt - 12) / 2;
+      }
+      c += 30 * Math.max(0, m.maxDrop - 0.35);
+      c += 3 * Math.max(0, m.maxSpin - 1.5);
+      return c;
+    },
+    prior(x) {
+      // Distancia media (rad) de las poses candidatas a las grabadas, ×10: alejarse 0.1 rad en promedio cuesta 1
+      let sum = 0;
+      let n = 0;
+      let i = 0;
+      for (const pose of seedPoses) {
+        for (const j of SEARCH_JOINTS) {
+          sum += (x[i++] - pose[j]) ** 2;
+          n++;
+        }
+        i++; // duración
+      }
+      return n ? 10 * Math.sqrt(sum / n) : 0;
+    },
+  };
+  return task;
 }
