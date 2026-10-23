@@ -49,7 +49,8 @@ export function attachLabPanel(host: HTMLElement, urdf: UrdfRobot, root: RootPos
       `Gen ${p.generation} · ${p.episodes} intentos · ${Math.round(p.seconds)} s\n` +
       `Mejor: costo ${p.best.toFixed(1)} (semilla ${p.seed.cost.toFixed(1)}) · ${m.posture}` +
       ` · bajada máx ${m.maxDrop.toFixed(2)} m/s (semilla ${p.seed.metrics.maxDrop.toFixed(2)})` +
-      ` · giro máx ${m.maxSpin.toFixed(1)} rad/s · ${m.duration.toFixed(1)} s${m.fell ? ' · se cae' : ''}`
+      ` · giro máx ${m.maxSpin.toFixed(1)} rad/s · torso ${Math.round(m.endPitch ?? 0)}° atrás/adelante, ${Math.round(m.endRoll ?? 0)}° de lado` +
+      ` · ${m.duration.toFixed(1)} s${m.fell ? ' · se cae' : ''}`
     );
   };
   const draw = () => {

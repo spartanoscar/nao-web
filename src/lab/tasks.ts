@@ -33,9 +33,11 @@ export interface Metrics {
   maxSpin: number;
   /** Ángulo máximo del torso respecto a la vertical (°) */
   maxTilt: number;
-  /** Altura e inclinación al final (m, °) */
+  /** Altura e inclinación al final (m, °): total respecto a la vertical, adelante (+) / atrás (−) y de costado */
   endZ: number;
   endTilt: number;
+  endPitch: number;
+  endRoll: number;
   duration: number;
   posture: string;
 }
@@ -86,7 +88,9 @@ export const TASKS: Task[] = [
       let c = 0;
       if (m.fell) c += 60 + Math.max(0, m.maxTilt - 60) / 3;
       if (m.posture !== 'Sitting') c += 25;
-      c += Math.abs(m.endTilt - 36) / 4; // Sit estable: torso ~36° atrás
+      // Sit estable: torso ~36° hacia atrás y derecho de lado. Solo con la inclinación total se iba de costado
+      // (−14° atrás, 33° de lado: cumplía los 36° ladeado)
+      c += Math.abs(m.endPitch + 36) / 3 + Math.max(0, Math.abs(m.endRoll) - 8) / 2;
       c += 40 * Math.max(0, m.maxDrop - 0.2); // sin golpe al sentarse
       c += 4 * Math.max(0, m.maxSpin - 0.8); // sin giros bruscos del torso
       c += 0.5 * m.duration;
@@ -205,6 +209,8 @@ export async function evaluate(lab: LabSim, frames: Keyframe[], hold = 1.5): Pro
     maxTilt,
     endZ: end.z,
     endTilt: end.tilt / DEG,
+    endPitch: end.pitch / DEG,
+    endRoll: end.roll / DEG,
     duration: t,
     posture,
   };

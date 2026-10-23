@@ -191,13 +191,19 @@ tarea, manteniendo el equilibrio con física real, y que se ejecutan con la API 
   NAOqi nueva): el mismo movimiento da siempre el mismo costo (verificado al cuarto decimal).
 - **Puntaje** (`src/lab/tasks.ts`): llegar a la postura (familia de NAOqi e inclinación del torso), no caerse, sin golpe
   (velocidad máxima de bajada del torso), sin giros bruscos (velocidad angular del torso), duración.
-- **Primer resultado, sentarse (StandInit → Sit):** semilla = el camino actual del grafo, que llega pero "cae sentado"
-  (bajada 1.14 m/s, giro 5.1 rad/s). 60 generaciones × 16 = 961 intentos en 8.7 min: **bajada 0.30 m/s (3.8× más
-  suave), giro 1.6 rad/s**, termina en Sit. Reproducido en el robot del mundo: bajada 0.28 m/s y Sit. Sin que nadie se
-  lo enseñara, el movimiento pasa por una rodilla y el costado con la mano hacia el suelo, como el NAO real del video
-  de referencia (youtube.com/watch?v=_Nva0G-d4c0, 29–41 s).
-- **Siguiente:** levantarse (Sit → Crouch), validación de robustez (variar fricción y masas, empujones), más tareas
-  (agacharse a recoger, patear) para mostrar que es general; conectar lo encontrado al grafo de posturas.
+- **Resultado, sentarse (StandInit → Sit):** semilla = el camino actual del grafo, que llega pero "cae sentado"
+  (bajada del torso 1.14 m/s, giro 5.1 rad/s). 961 intentos (60 generaciones × 16) en ~8 min: **bajada 0.53 m/s (2.2×
+  más suave), giro 2.5 rad/s**, termina en Sit con el torso −35° atrás y 11° de lado. Conectado al grafo como
+  StandInit → Sit (`naoqi/taught/SitDownControlled.json`); en el mundo 4 de 4: Sit, bajada 0.40–0.52 m/s.
+- **Lección (para el informe):** la primera búsqueda dio 0.30 m/s pero sentándose **ladeado** (−14° atrás, 33° de lado):
+  el puntaje solo pedía ~36° de inclinación total y el optimizador la cumplió de costado. Ahora mide atrás y de lado por
+  separado. El optimizador hace exactamente lo que se mide: el puntaje es la especificación.
+- **Levantarse (Sit → Crouch), primer intento:** 1 281 intentos sin éxito (siempre termina de espaldas; costo 112 → 106).
+  Una vez caído, todos los candidatos fallan parecido y no hay pista de hacia dónde mejorar. Próximo: semilla enseñada
+  a mano con el modo animador siguiendo el video (51–63 s), puntaje por etapas (primero apoyar la mano y recoger las
+  piernas sin caer, luego cuclillas) y penalizar el torso hacia atrás desde el principio.
+- **Siguiente:** robustez (variar fricción, masas, empujones), más tareas (agacharse a recoger, patear), seguir una
+  búsqueda desde el mejor resultado anterior.
 - Interfaz: panel oculto → "Laboratorio de movimientos" (tarea, generaciones, Buscar/Detener, curva del costo, "Ver en
   el robot" carga el mejor en el grabador y lo reproduce).
 

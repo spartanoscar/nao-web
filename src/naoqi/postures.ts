@@ -187,6 +187,9 @@ const EDGES: [RouteNode, RouteNode, RouteStep[]][] = [
   ['Crouch', 'StandInit', [all('StandInit')]],
   // Sentarse: brazos atrás para apoyarse y luego dejarse caer sobre el trasero (como una persona)
   ['Crouch', 'SitRelax', [{ posture: 'SitRelax', part: 'arms' }, all('SitRelax')]],
+  // Sentarse controlado: encontrado por el laboratorio de movimientos (src/lab/, CMA-ES); bajada del torso 0.53 m/s
+  // contra 1.14 del camino Crouch → SitRelax → Sit, que "caía sentado"
+  ['StandInit', 'Sit', [{ taught: 'SitDownControlled' }, { wait: 0.5 }]],
   ['SitRelax', 'Sit', [all('Sit')]],
   ['Sit', 'SitRelax', [all('SitRelax')]],
   ['SitRelax', 'LyingBack', [all('LyingBack')]],
