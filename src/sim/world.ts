@@ -6,7 +6,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { ENV_OBJECTS, MIRROR, MIRROR_FRAME } from './environment';
 import { Reflector } from 'three/addons/objects/Reflector.js';
-import { DOOR_WIDTH, ROOMS, type RoomId, WALLS, WALL_THICKNESS, roomAt, wallPieces } from './rooms';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { floorTexture, rugTexture, skyTexture, wallpaper } from './decor';
+import { DOOR_HEIGHT, DOOR_WIDTH, ROOMS, type Room, type RoomId, type Side, WALLS, WALL_HEIGHT, WALL_THICKNESS, roomAt, visibleFrom, wallPieces } from './rooms';
 
 export interface World {
   renderer: THREE.WebGLRenderer;
@@ -53,7 +55,12 @@ export function createWorld(container: HTMLElement): World {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
-  scene.fog = new THREE.Fog(BG, 4, 9);
+  // Todo está bajo techo y entre paredes: sin niebla. Reflejos de ambiente de un cuarto genérico (la carcasa, el
+  // azulejo y la madera reflejan algo en vez de negro)
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.25;
+  pmrem.dispose();
 
   const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.01, 50);
   camera.position.set(1.0, 0.55, 0.75);
@@ -62,7 +69,7 @@ export function createWorld(container: HTMLElement): World {
   controls.target.set(0, 0.28, 0);
   controls.enableDamping = true;
   controls.minDistance = 0.3;
-  controls.maxDistance = 5;
+  controls.maxDistance = 3;
   controls.maxPolarAngle = Math.PI / 2 - 0.02; // no atravesar el suelo
   controls.update();
 
@@ -108,6 +115,7 @@ export function createWorld(container: HTMLElement): World {
     const dt = Math.min(timer.getDelta(), 0.1);
     for (const cb of callbacks) cb(dt);
     controls.update();
+    keepInside();
     if (!dirty) return;
     dirty = false;
     draw();
@@ -115,13 +123,30 @@ export function createWorld(container: HTMLElement): World {
 
   const renderNow = () => {
     controls.update();
+    keepInside();
     draw();
   };
 
+  // Cámara de juego: siempre dentro del cuarto donde está el NAO y bajo el techo (no atraviesa paredes)
+  let bounds: { x: [number, number]; z: [number, number] } | null = null;
+  const keepInside = () => {
+    if (!bounds) return;
+    const p = camera.position;
+    const [x, y, z] = [
+      Math.min(Math.max(p.x, bounds.x[0]), bounds.x[1]),
+      Math.min(Math.max(p.y, 0.12), WALL_HEIGHT - 0.15),
+      Math.min(Math.max(p.z, bounds.z[0]), bounds.z[1]),
+    ];
+    if (x !== p.x || y !== p.y || z !== p.z) p.set(x, y, z);
+  };
   const setRoom = (id: RoomId | null) => {
+    const inner = id ? ROOMS[id] : null;
+    const m = WALL_THICKNESS / 2 + 0.12;
+    bounds = inner ? { x: [inner.x[0] + m, inner.x[1] - m], z: [-inner.y[1] + m, -inner.y[0] - m] } : null;
     camera.layers.set(0);
     const all = !id || id === 'pasillo';
-    for (const r of Object.values(ROOMS)) if (all || r.id === id || r.id === 'pasillo') camera.layers.enable(r.layer);
+    const seen = id ? [id, ...visibleFrom(id)] : [];
+    for (const r of Object.values(ROOMS)) if (all || seen.includes(r.id)) camera.layers.enable(r.layer);
     // La sombra cubre el cuarto (el pasillo entero desde el pasillo); la luz llega siempre desde el mismo ángulo
     const r = ROOMS[id ?? 'pasillo'];
     const [cx, cy] = [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2];
@@ -178,42 +203,178 @@ function signTexture(text: string, accent: string): THREE.CanvasTexture {
   return tex;
 }
 
+/** Coordenadas de textura del mundo (m): el papel de colgar no se estira en las paredes largas (decor.ts: 1 m de ancho
+ * × la altura de la pared) y el piso se repite cada 2 m */
+function worldUV(geometry: THREE.BufferGeometry, center: readonly number[]): void {
+  const pos = geometry.attributes.position;
+  const nor = geometry.attributes.normal;
+  const uv = geometry.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const [x, y, z] = [pos.getX(i) + center[0], pos.getY(i) + center[1], pos.getZ(i) + center[2]];
+    if (Math.abs(nor.getX(i)) > 0.5) uv.setXY(i, y, z / WALL_HEIGHT);
+    else if (Math.abs(nor.getY(i)) > 0.5) uv.setXY(i, x, z / WALL_HEIGHT);
+    else uv.setXY(i, x, y);
+  }
+  uv.needsUpdate = true;
+}
+
+/** Normal hacia el interior de una pared exterior del cuarto, y dónde queda esa pared */
+function sideOf(r: Room, side: Side): { normal: [number, number]; at: [number, number] } {
+  const [cx, cy] = [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2];
+  switch (side) {
+    case 'south': return { normal: [0, 1], at: [cx, r.y[0]] };
+    case 'north': return { normal: [0, -1], at: [cx, r.y[1]] };
+    case 'west': return { normal: [1, 0], at: [r.x[0], cy] };
+    case 'east': return { normal: [-1, 0], at: [r.x[1], cy] };
+  }
+}
+
+/** Orientación de un plano (cara +Z de PlaneGeometry) que mira hacia `normal`, con su "arriba" en +Z del mundo */
+function facing(obj: THREE.Object3D, normal: THREE.Vector3): void {
+  const up = new THREE.Vector3(0, 0, 1);
+  obj.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(up.clone().cross(normal), up, normal));
+}
+
 /**
- * Cuartos (rooms.ts): piso de color por cuarto, paredes macizas (las mismas piezas fijas que la física) y un letrero
- * junto a cada puerta, del lado del pasillo, a la altura de la cámara del NAO (lo lee al pasar).
+ * Cuartos (rooms.ts) a escala de una casa real, con estética de juguete en una casa de verdad: cada cara de pared con el
+ * papel de su cuarto (una pared compartida tiene una cara por lado), zócalo y moldura en la textura, marco y dintel en
+ * cada puerta, piso con textura, alfombra, techo con lámpara (luz cálida del cuarto) y una ventana con cielo. Las
+ * paredes son las mismas piezas fijas que la física. Letrero junto a cada puerta, del lado del pasillo, a la altura de
+ * la cámara del NAO (lo lee al pasar).
  */
 function addRooms(zUp: THREE.Group) {
-  for (const r of Object.values(ROOMS)) {
+  const papers = new Map<RoomId, THREE.MeshStandardMaterial>();
+  Object.values(ROOMS).forEach((r, i) => {
+    papers.set(r.id, new THREE.MeshStandardMaterial({ map: wallpaper(r.style.wall, r.style.paint, i + 1), roughness: 0.88 }));
     const [w, d] = [r.x[1] - r.x[0], r.y[1] - r.y[0]];
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.92 }));
-    floor.position.set((r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2, 0.002);
+    const [cx, cy] = [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2];
+    const floorMap = floorTexture(r.style.floorStyle, i + 7);
+    floorMap.repeat.set(w / 2, d / 2);
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, d),
+      new THREE.MeshStandardMaterial({ map: floorMap, roughness: r.style.floorStyle === 'tile' ? 0.35 : 0.7 }),
+    );
+    floor.position.set(cx, cy, 0.002);
     floor.receiveShadow = true;
     inRooms(floor, [r.id]);
     zUp.add(floor);
-  }
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3b4451, roughness: 0.85 });
+
+    if (r.style.rug === 'round') {
+      const rug = new THREE.Mesh(new THREE.CircleGeometry(0.75, 48), new THREE.MeshStandardMaterial({ map: rugTexture('round'), roughness: 1 }));
+      rug.position.set(cx, cy - 0.35, 0.004);
+      rug.receiveShadow = true;
+      inRooms(rug, [r.id]);
+      zUp.add(rug);
+    } else if (r.style.rug === 'runner') {
+      const len = w - 1.2;
+      const tex = rugTexture('runner');
+      tex.repeat.set(1, len / 0.7);
+      const rug = new THREE.Mesh(new THREE.PlaneGeometry(0.7, len), new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
+      rug.position.set(cx, cy, 0.004);
+      rug.rotation.z = Math.PI / 2;
+      rug.receiveShadow = true;
+      inRooms(rug, [r.id]);
+      zUp.add(rug);
+    }
+
+    // Techo (no da sombra: la luz principal entra desde arriba) y lámparas con luz cálida
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ color: 0xf5efe5, roughness: 1 }));
+    ceiling.position.set(cx, cy, WALL_HEIGHT);
+    ceiling.rotation.x = Math.PI;
+    inRooms(ceiling, [r.id]);
+    zUp.add(ceiling);
+    const lamps = r.id === 'pasillo' ? [-0.25, 0.25].map((k) => [cx + k * w, cy]) : [[cx, cy]];
+    for (const [lx, ly] of lamps) {
+      const shade = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.24, 0.06, 32),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: r.style.lamp, emissiveIntensity: 2.2 }),
+      );
+      shade.rotation.x = Math.PI / 2;
+      shade.position.set(lx, ly, WALL_HEIGHT - 0.03);
+      inRooms(shade, [r.id]);
+      zUp.add(shade);
+      const light = new THREE.PointLight(r.style.lamp, LAMP_INTENSITY, 0, 2);
+      light.position.set(lx, ly, WALL_HEIGHT - 0.35);
+      inRooms(light, [r.id]);
+      zUp.add(light);
+    }
+
+    // Ventana: cielo de día en un marco blanco con cruz y repisa (solo visual)
+    if (r.style.window) {
+      const { normal, at } = sideOf(r, r.style.window);
+      const n = new THREE.Vector3(normal[0], normal[1], 0);
+      const win = new THREE.Group();
+      const span = r.id === 'pasillo' ? 0.8 : 1.0;
+      const sky = new THREE.Mesh(new THREE.PlaneGeometry(span, 1.1), new THREE.MeshBasicMaterial({ map: skyTexture(), toneMapped: false }));
+      win.add(sky);
+      const trim = new THREE.MeshStandardMaterial({ color: 0xfbf7ef, roughness: 0.6 });
+      const bar = (w: number, h: number, x: number, y: number, depth = 0.04) => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), trim);
+        b.position.set(x, y, depth / 2);
+        b.castShadow = true;
+        win.add(b);
+      };
+      bar(span + 0.12, 0.06, 0, 0.58);
+      bar(span + 0.12, 0.06, 0, -0.58);
+      bar(0.06, 1.22, -span / 2 - 0.03, 0);
+      bar(0.06, 1.22, span / 2 + 0.03, 0);
+      bar(0.035, 1.1, 0, 0, 0.025);
+      bar(span, 0.035, 0, 0.1, 0.025);
+      bar(span + 0.24, 0.04, 0, -0.62, 0.12); // repisa
+      facing(win, n);
+      win.position.set(at[0] + normal[0] * (WALL_THICKNESS / 2 + 0.002), at[1] + normal[1] * (WALL_THICKNESS / 2 + 0.002), 1.5);
+      inRooms(win, [r.id]);
+      zUp.add(win);
+    }
+  });
+
+  // Paredes: cada cara con el papel del cuarto al que mira (el canto y lo de afuera, neutro)
+  const plain = new THREE.MeshStandardMaterial({ color: 0xece4d6, roughness: 0.9 });
+  const t = WALL_THICKNESS;
   for (const p of wallPieces()) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(...p.size), wallMat);
+    const [cx, cy] = p.center;
+    const face = (nx: number, ny: number) => {
+      const room = roomAt(cx + nx * (t / 2 + 0.05), cy + ny * (t / 2 + 0.05));
+      return (room && papers.get(room)) || plain;
+    };
+    const geometry = new THREE.BoxGeometry(...p.size);
+    worldUV(geometry, p.center);
+    // Orden de caras de BoxGeometry: +x, −x, +y, −y, +z, −z
+    const wall = new THREE.Mesh(geometry, [face(1, 0), face(-1, 0), face(0, 1), face(0, -1), plain, plain]);
     wall.position.set(...p.center);
     wall.castShadow = true;
     wall.receiveShadow = true;
     inRooms(wall, p.rooms);
     zUp.add(wall);
   }
+
+  // Marcos de puerta y letreros
+  const casing = new THREE.MeshStandardMaterial({ color: 0xfbf7ef, roughness: 0.55 });
   for (const w of WALLS) {
     const alongX = w.from[1] === w.to[1];
     for (const door of w.doors ?? []) {
+      const place = (along: number, z: number, size: [number, number, number]) => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(...(alongX ? size : [size[1], size[0], size[2]] as [number, number, number])), casing);
+        b.position.set(alongX ? along : w.from[0], alongX ? w.from[1] : along, z);
+        b.castShadow = true;
+        inRooms(b, w.rooms);
+        zUp.add(b);
+      };
+      // El marco sobresale 5 mm hacia el vano: si comparte el plano del canto de la pared, parpadea (z-fighting)
+      const depth = t + 0.03;
+      place(door.at - DOOR_WIDTH / 2 - 0.0275, DOOR_HEIGHT / 2, [0.065, depth, DOOR_HEIGHT]);
+      place(door.at + DOOR_WIDTH / 2 + 0.0275, DOOR_HEIGHT / 2, [0.065, depth, DOOR_HEIGHT]);
+      place(door.at, DOOR_HEIGHT + 0.04, [DOOR_WIDTH + 0.12, depth, 0.08]);
+
       const room = ROOMS[door.sign];
       const sign = new THREE.Mesh(
         new THREE.PlaneGeometry(0.42, 0.13),
         new THREE.MeshStandardMaterial({ map: signTexture(room.label, SIGN_ACCENT[room.id]), roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.25 }),
       );
       sign.material.emissiveMap = sign.material.map;
-      const normal = alongX ? new THREE.Vector3(0, door.side, 0) : new THREE.Vector3(door.side, 0, 0);
-      const up = new THREE.Vector3(0, 0, 1);
-      sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(up.clone().cross(normal), up, normal));
-      const along = door.at + DOOR_WIDTH / 2 + 0.3;
-      const off = door.side * (WALL_THICKNESS / 2 + 0.003);
+      facing(sign, alongX ? new THREE.Vector3(0, door.side, 0) : new THREE.Vector3(door.side, 0, 0));
+      const along = door.at + DOOR_WIDTH / 2 + 0.36;
+      const off = door.side * (t / 2 + 0.003);
       sign.position.set(alongX ? along : w.from[0] + off, alongX ? w.from[1] + off : along, 0.5);
       inRooms(sign, ['pasillo']);
       zUp.add(sign);
@@ -221,13 +382,18 @@ function addRooms(zUp: THREE.Group) {
   }
 }
 
+/** Intensidad de cada lámpara del techo (candelas, decaimiento físico) */
+const LAMP_INTENSITY = 5;
+
 /** Desde dónde llega el sol respecto al cuarto que se mira (three: Y arriba) */
-const SUN_OFFSET = { x: 2, y: 3.5, z: 1.5 };
+const SUN_OFFSET = { x: 0.8, y: 6, z: 0.6 };
 
 function addLights(scene: THREE.Scene): THREE.DirectionalLight {
-  scene.add(new THREE.HemisphereLight(0xdde6ff, 0x1a1f28, 1.1));
+  // Luz de casa: cielo cálido arriba, rebote de madera abajo; el "sol" entra casi vertical (sombras cortas bajo el NAO
+  // y los objetos; el techo no da sombra) y cada cuarto suma su lámpara cálida (addRooms)
+  scene.add(new THREE.HemisphereLight(0xfff3e2, 0x6b5440, 0.55));
 
-  const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+  const sun = new THREE.DirectionalLight(0xfff2dd, 1.5);
   sun.position.set(2, 3.5, 1.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -236,14 +402,11 @@ function addLights(scene: THREE.Scene): THREE.DirectionalLight {
   sun.shadow.camera.top = 2;
   sun.shadow.camera.bottom = -2;
   sun.shadow.camera.near = 0.5;
-  sun.shadow.camera.far = 8;
+  sun.shadow.camera.far = 10;
   sun.shadow.bias = -0.0005;
   scene.add(sun);
   scene.add(sun.target);
 
-  const rim = new THREE.DirectionalLight(0x6fa8ff, 0.6);
-  rim.position.set(-2, 1.5, -2);
-  scene.add(rim);
   return sun;
 }
 
@@ -255,7 +418,7 @@ function addFloor(scene: THREE.Scene, zUp: THREE.Group) {
   zUp.add(floor);
 
   // Cuadrícula de 10 cm en la sala de pruebas: escala de referencia para el robot (57 cm de alto)
-  const grid = new THREE.GridHelper(4, 40, 0x3a4352, 0x262d39);
+  const grid = new THREE.GridHelper(4, 40, 0x6f767e, 0x858c94);
   grid.position.y = 0.003;
   inRooms(grid, ['pruebas']);
   scene.add(grid);
