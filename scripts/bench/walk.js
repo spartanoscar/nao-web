@@ -9,7 +9,9 @@ async () => {
   const wait = (ms) => window.nao.wait(ms); // reloj del motor: igual a ×1 que a ×10
   const reset = async () => { document.querySelector('.chip[title^="Vuelve"]').click(); await wait(1500); };
   // [x, y, theta, girar antes hacia −Y]
-  const goals = [[0, 0, Math.PI / 2], [0, 0, -Math.PI], [1, 0, 0, true], [0.6, 0.4, 0, true], [-0.25, 0, 0], [0, 0.15, 0], [0.5, -0.3, Math.PI / 2, true]];
+  // La última era (0.5, −0.3): mirando a −Y queda sobre el borde de la pila de cajas (−0.5, −0.55); con la marcha segura
+  // (sonares) un NAO real no llega ahí, y antes "llegaba" empujando la pila. Va al lado despejado.
+  const goals = [[0, 0, Math.PI / 2], [0, 0, -Math.PI], [1, 0, 0, true], [0.6, 0.4, 0, true], [-0.25, 0, 0], [0, 0.15, 0], [0.5, 0.3, Math.PI / 2, true]];
   const out = [];
   for (const [x, y, th, face] of goals) {
     await reset(); await motion.wakeUp(); await wait(600);

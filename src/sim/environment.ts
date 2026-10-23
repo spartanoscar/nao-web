@@ -28,10 +28,12 @@ export interface FixedObject {
 }
 
 /**
- * Espejo de cuerpo entero para la *prueba del espejo* (docs/PLAN.md F13): detrás del robot al arrancar, mirando hacia
- * él (+X), apoyado en el piso. 1.0 × 1.1 m con marco de 4 cm: desde ~0.6 m el NAO (57 cm) se ve entero en su cámara.
+ * Espejo de cuerpo entero para la *prueba del espejo* (docs/PLAN.md F13): delante del robot al arrancar, mirando hacia
+ * él (−X), apoyado en el piso; el NAO se ve en sus cámaras sin girar. 1.0 × 1.1 m con marco de 4 cm: desde ~0.6 m el
+ * NAO (57 cm) se ve entero. En el camino solo hay cubos chicos (los sonares no los ven, como en el real); detrás, entre
+ * la pila de cajas y la caja gris, los sonares siempre veían alguna y la marcha segura no dejaba llegar.
  */
-export const MIRROR: FixedObject = { name: 'mirror', size: [0.05, 1.0, 1.1], pos: [-1.45, -0.1, 0.55], yaw: 0 };
+export const MIRROR: FixedObject = { name: 'mirror', size: [0.05, 1.0, 1.1], pos: [1.55, 0, 0.55], yaw: Math.PI };
 export const MIRROR_FRAME = 0.04;
 
 export const ENV_FIXED: readonly FixedObject[] = [MIRROR];
