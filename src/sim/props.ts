@@ -12,13 +12,13 @@ import type { RoomId } from './rooms';
 
 type Vec3 = [number, number, number];
 
-export type Look = 'wood' | 'riser' | 'concrete' | 'ramp' | 'step' | 'ceramic' | 'chrome' | 'fabric' | 'water' | 'label';
+export type Look = 'wood' | 'riser' | 'concrete' | 'ramp' | 'step' | 'ceramic' | 'chrome' | 'fabric' | 'water' | 'label' | 'paint' | 'leaf' | 'board';
 
 export interface PropPart {
   name: string;
   room: RoomId;
-  kind: 'box' | 'cylinder' | 'ellipse';
-  /** Tamaño completo. Cilindro: [diámetro, diámetro, alto]; elipse (plana): [ancho x, ancho y, grosor] */
+  kind: 'box' | 'cylinder' | 'ellipse' | 'sphere';
+  /** Tamaño completo. Cilindro: [diámetro, diámetro, alto]; elipse (plana): [ancho x, ancho y, grosor]; esfera: elipsoide */
   size: Vec3;
   /** Centro */
   pos: Vec3;
@@ -33,6 +33,14 @@ export interface PropPart {
   physics: boolean | 'only';
   /** Fricción propia (μ). APPROX: valores típicos de goma sobre cada material */
   friction?: number;
+  /**
+   * Mueble que tendrá un modelo 3D (Meshy, docs/MESHY.md): las piezas con el mismo id forman el placeholder. Si existe
+   * public/models/props/<id>.glb (listado en su manifest.json), se dibuja ese modelo ajustado a la caja del placeholder
+   * y las piezas simples se ocultan; la física sigue siendo la de las piezas (cajas estables y livianas).
+   */
+  model?: string;
+  /** Hacia dónde mira el frente del mueble (rad, 0 = +X), para orientar su modelo 3D */
+  facing?: number;
 }
 
 const parts: PropPart[] = [];
@@ -111,6 +119,38 @@ const add = (p: PropPart) => parts.push(p);
   // cubre; se ve como una elipse de agua
   add({ name: 'puddle', room: 'bano', kind: 'ellipse', size: [0.55, 0.38, 0.003], pos: [-6.0, -1.15, 0.0045], look: 'water', physics: false });
   add({ name: 'puddle_slip', room: 'bano', kind: 'box', size: [0.48, 0.3, 0.003], pos: [-6.0, -1.15, 0.0015], look: 'water', physics: 'only', friction: 0.1 });
+}
+
+// ─── Muebles (placeholders simples; cada uno con su modelo 3D pendiente en docs/MESHY.md) ─────────────────────
+{
+  // Casa: cama individual contra la pared oeste (cabecera al sur), mesita de noche y estante de juguetes
+  const bed = { model: 'bed', facing: Math.PI / 2, room: 'casa' as const };
+  add({ ...bed, name: 'bed_frame', kind: 'box', size: [0.9, 1.9, 0.32], pos: [-4.75, -5.2, 0.16], look: 'wood', physics: true });
+  add({ ...bed, name: 'bed_mattress', kind: 'box', size: [0.86, 1.84, 0.18], pos: [-4.75, -5.2, 0.41], look: 'fabric', color: 0xe9f1fb, physics: true });
+  add({ ...bed, name: 'bed_pillow', kind: 'box', size: [0.6, 0.34, 0.1], pos: [-4.75, -5.95, 0.55], look: 'fabric', color: 0xffffff, physics: false });
+  add({ ...bed, name: 'bed_blanket', kind: 'box', size: [0.88, 1.1, 0.04], pos: [-4.75, -4.85, 0.52], look: 'fabric', color: 0x5aa9e6, physics: false });
+  add({ ...bed, name: 'bed_headboard', kind: 'box', size: [0.9, 0.05, 0.9], pos: [-4.75, -6.12, 0.45], look: 'wood', physics: true });
+  add({ model: 'nightstand', facing: Math.PI / 2, room: 'casa', name: 'nightstand', kind: 'box', size: [0.4, 0.38, 0.5], pos: [-4.05, -5.95, 0.25], look: 'wood', color: 0xd6a06b, physics: true });
+  const shelf = { model: 'toy_shelf', facing: Math.PI, room: 'casa' as const };
+  add({ ...shelf, name: 'toy_shelf', kind: 'box', size: [0.3, 1.2, 0.9], pos: [-2.47, -4.95, 0.45], look: 'paint', color: 0xf7d774, physics: true });
+  add({ ...shelf, name: 'toy_shelf_board', kind: 'box', size: [0.31, 1.18, 0.02], pos: [-2.47, -4.95, 0.45], look: 'paint', color: 0xf2a65a, physics: false });
+
+  // Laboratorio: mesa baja de 35 cm (la cámara del NAO ve lo que hay encima), estantería y pizarra
+  const table = { model: 'lab_table', facing: Math.PI / 2, room: 'laboratorio' as const };
+  add({ ...table, name: 'lab_table_top', kind: 'box', size: [0.9, 0.5, 0.03], pos: [-2.75, -1.35, 0.335], look: 'paint', color: 0xf3f6f9, physics: true });
+  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    add({ ...table, name: `lab_table_leg_${dx}_${dy}`, kind: 'box', size: [0.04, 0.04, 0.32], pos: [-2.75 + dx * 0.41, -1.35 + dy * 0.21, 0.16], look: 'chrome', physics: true });
+  }
+  add({ model: 'lab_shelf', facing: 0, room: 'laboratorio', name: 'lab_shelf', kind: 'box', size: [0.35, 0.6, 1.2], pos: [-5.02, 0.55, 0.6], look: 'paint', color: 0xb8c4d0, physics: true });
+  add({ model: 'whiteboard', facing: -Math.PI / 2, room: 'laboratorio', name: 'whiteboard', kind: 'box', size: [1.2, 0.03, 0.8], pos: [-3.75, 0.93, 1.3], look: 'board', physics: false });
+
+  // Pasillo: planta grande al fondo (maceta con física; las hojas solo se ven)
+  const plant = { model: 'plant', facing: Math.PI, room: 'pasillo' as const };
+  add({ ...plant, name: 'plant_pot', kind: 'cylinder', size: [0.34, 0.34, 0.36], pos: [1.9, -2.85, 0.18], look: 'paint', color: 0xc8643b, physics: true });
+  add({ ...plant, name: 'plant_leaves', kind: 'sphere', size: [0.6, 0.6, 0.75], pos: [1.9, -2.85, 0.75], look: 'leaf', physics: false });
+
+  // Cuarto del espejo: un puf
+  add({ model: 'pouf', facing: Math.PI, room: 'espejo', name: 'pouf', kind: 'cylinder', size: [0.45, 0.45, 0.38], pos: [-5.75, -3.95, 0.19], look: 'fabric', color: 0xb58cff, physics: true });
 }
 
 export const PROPS: readonly PropPart[] = parts;

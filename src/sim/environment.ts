@@ -55,7 +55,7 @@ export const ENV_FIXED: readonly FixedObject[] = [
   MIRROR,
   ...wallPieces().map((w, i): FixedObject => ({ name: `wall_${i}`, size: w.size, pos: w.center, yaw: 0 })),
   // Objetos de los cuartos con física (sim/props.ts): rampa, escalones, escalera, lavamanos, inodoro, tapetes, piso del baño
-  ...PROPS.filter((p) => p.physics && p.kind !== 'ellipse').map((p): FixedObject => ({
+  ...PROPS.filter((p) => p.physics && p.kind !== 'ellipse' && p.kind !== 'sphere').map((p): FixedObject => ({
     name: p.name, size: p.size, pos: p.pos, yaw: p.yaw ?? 0, pitch: p.pitch, kind: p.kind === 'cylinder' ? 'cylinder' : 'box', friction: p.friction,
   })),
 ];

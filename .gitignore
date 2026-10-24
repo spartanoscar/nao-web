@@ -16,3 +16,6 @@ public/motions/aldebaran/
 
 # Binario de nao-api (se compila en scripts/deploy.sh api)
 server/nao-api
+
+# Modelos de prueba (nunca se suben: pueden ser de otros proyectos)
+public/models/props/_*

@@ -9,6 +9,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { floorTexture, rugTexture, skyTexture, wallpaper } from './decor';
 import { type Look, PROPS } from './props';
+import { loadPropModels } from './propModels';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOMS, type Room, type RoomId, type Side, WALLS, WALL_HEIGHT, WALL_THICKNESS, roomAt, visibleFrom, wallPieces } from './rooms';
 
 export interface World {
@@ -88,7 +89,7 @@ export function createWorld(container: HTMLElement): World {
   scene.add(zUp);
   addFloor(scene, zUp);
   addRooms(zUp);
-  addProps(zUp);
+  const placeholders = addProps(zUp);
   const objects = addObjects(zUp);
   addMirror(zUp);
 
@@ -160,6 +161,8 @@ export function createWorld(container: HTMLElement): World {
     invalidate(true);
   };
   setRoom(roomAt(0, 0));
+  // Modelos 3D de los muebles (docs/MESHY.md): reemplazan a sus placeholders cuando llegan; sin bloquear el arranque
+  void loadPropModels(zUp, placeholders, (obj, room) => inRooms(obj, [room]), () => invalidate(true));
 
   return {
     renderer, scene, camera, controls, zUp, objects, invalidate, renderNow, setRoom,
@@ -427,11 +430,18 @@ function propMaterial(look: Look, color?: number, text?: string): THREE.Material
     // Sobre azulejo blanco el agua casi no se veía: un azul más marcado y más opaco, con brillo
     case 'water': return new THREE.MeshStandardMaterial({ color: 0x4fa8e8, roughness: 0.02, transparent: true, opacity: 0.7, envMapIntensity: 2.5 });
     case 'label': return new THREE.MeshStandardMaterial({ map: labelTexture(text ?? ''), roughness: 0.9 });
+    case 'paint': return new THREE.MeshStandardMaterial({ color: color ?? 0xf7d774, roughness: 0.5 });
+    case 'leaf': return new THREE.MeshStandardMaterial({ color: color ?? 0x4f9d5d, roughness: 0.8, flatShading: true });
+    case 'board': return new THREE.MeshStandardMaterial({ color: color ?? 0xfafcff, roughness: 0.25 });
   }
 }
 
-/** Objetos fijos de los cuartos (props.ts); los que tienen física son las mismas piezas que MuJoCo */
-function addProps(zUp: THREE.Group) {
+/**
+ * Objetos fijos de los cuartos (props.ts); los que tienen física son las mismas piezas que MuJoCo. Devuelve las mallas
+ * de cada mueble con modelo 3D pendiente (por id), para ocultarlas cuando llegue el modelo (propModels.ts)
+ */
+function addProps(zUp: THREE.Group): Map<string, THREE.Object3D[]> {
+  const byModel = new Map<string, THREE.Object3D[]>();
   for (const p of PROPS) {
     if (p.physics === 'only') continue;
     const [sx, sy, sz] = p.size;
@@ -442,6 +452,9 @@ function addProps(zUp: THREE.Group) {
     } else if (p.kind === 'ellipse') {
       mesh = new THREE.Mesh(new THREE.CircleGeometry(0.5, 48), propMaterial(p.look, p.color));
       mesh.scale.set(sx, sy, 1);
+    } else if (p.kind === 'sphere') {
+      mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 1), propMaterial(p.look, p.color));
+      mesh.scale.set(sx, sy, sz);
     } else {
       const soft = p.look === 'ceramic' || p.look === 'fabric';
       const geometry = soft ? new RoundedBoxGeometry(sx, sy, sz, 3, Math.min(sx, sy, sz) * 0.3) : new THREE.BoxGeometry(sx, sy, sz);
@@ -455,7 +468,9 @@ function addProps(zUp: THREE.Group) {
     mesh.receiveShadow = true;
     inRooms(mesh, [p.room]);
     zUp.add(mesh);
+    if (p.model) byModel.set(p.model, [...(byModel.get(p.model) ?? []), mesh]);
   }
+  return byModel;
 }
 
 /** Intensidad de cada lámpara del techo (candelas, decaimiento físico) */
