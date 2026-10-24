@@ -102,9 +102,9 @@ const spawn = (id: SpawnId) => {
   const target = new Vector3(x, 0.28, -y); // three: Y arriba, z = −y del URDF
   const [ox, oy, oz] = [1.0, 0.27, 0.75];
   world.controls.target.copy(target);
-  world.camera.position.set(target.x + ox * c + oz * s, target.y + oy, target.z - ox * s + oz * c);
+  world.rig.position.set(target.x + ox * c + oz * s, target.y + oy, target.z - ox * s + oz * c);
   world.controls.update();
-  followed = [x, y];
+  world.focus(x, y, true);
   world.invalidate(true);
 };
 const behavior = createBehaviorPanel(panelHost, session, state, {
@@ -208,23 +208,11 @@ const cameras = new NaoCameras(nao);
 attachCameraViews(world, cameras);
 session.service('ALVideoDevice').source = { capture: (i, w, h) => cameras.capture(world.renderer, world.scene, i, w, h) };
 
-// La cámara sigue al robot cuando camina: se traslada con el torso (en el plano del suelo) y
-// conserva el ángulo que haya elegido el usuario. Three: x = X del mundo, z = −Y del mundo.
-let followed: [number, number] | null = null;
+// La cámara sigue al robot cuando camina (suavizado, en el plano del suelo) y conserva el ángulo y la distancia que haya
+// elegido el usuario (sim/chaseCamera.ts)
 const follow = () => {
   const root = state.root;
-  if (!root) return;
-  const [x, y] = root.position;
-  if (followed) {
-    const [dx, dz] = [x - followed[0], -(y - followed[1])];
-    if (Math.abs(dx) + Math.abs(dz) > 1e-5) {
-      world.camera.position.x += dx;
-      world.camera.position.z += dz;
-      world.controls.target.x += dx;
-      world.controls.target.z += dz;
-    }
-  }
-  followed = [x, y];
+  if (root) world.focus(root.position[0], root.position[1]);
 };
 
 // Apariencia del NAO del usuario (paleta libre, guardada en su cuenta): carcasa (mallas oficiales, pintado en memoria) y
@@ -297,7 +285,7 @@ const offset = new Vector3();
 const applyTilt = (dt: number) => {
   if (performance.now() / 1000 - tilt.at > TILT_TIMEOUT) return;
   if (Math.abs(tilt.x) < TILT_DEADZONE && Math.abs(tilt.y) < TILT_DEADZONE) return;
-  const { camera, controls } = world;
+  const { rig: camera, controls } = world; // se gira la guía del jugador, no la cámara acortada por las paredes
   offset.copy(camera.position).sub(controls.target);
   orbit.setFromVector3(offset);
   orbit.theta -= tilt.x * TILT_RATE.azimuth * dt;

@@ -10,13 +10,19 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { floorTexture, rugTexture, skyTexture, wallpaper } from './decor';
 import { type Look, PROPS } from './props';
 import { loadPropModels } from './propModels';
+import { ChaseCamera } from './chaseCamera';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOMS, type Room, type RoomId, type Side, WALLS, WALL_HEIGHT, WALL_THICKNESS, roomAt, visibleFrom, wallPieces } from './rooms';
 
 export interface World {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
+  /** La cámara que se dibuja (y con la que se elige con el ratón): la guía, acortada si una pared queda en medio */
   camera: THREE.PerspectiveCamera;
+  /** La guía del jugador (OrbitControls): ángulo y distancia elegidos; para mover la vista se mueve esta */
+  rig: THREE.PerspectiveCamera;
   controls: OrbitControls;
+  /** Seguir este punto del suelo (x, y del mundo, Z arriba); `snap`: ponerlo ya (aparecer en otro lugar) */
+  focus(x: number, y: number, snap?: boolean): void;
   /** Grupo con coordenadas Z arriba (URDF/MuJoCo): todo lo que mueve la física cuelga de aquí */
   zUp: THREE.Group;
   /** Mallas de los objetos del entorno por nombre (ver environment.ts) */
@@ -65,15 +71,18 @@ export function createWorld(container: HTMLElement): World {
   pmrem.dispose();
 
   const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.01, 50);
-  camera.position.set(1.0, 0.55, 0.75);
+  const rig = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.01, 50);
+  rig.position.set(1.0, 0.55, 0.75);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  const controls = new OrbitControls(rig, renderer.domElement);
   controls.target.set(0, 0.28, 0);
   controls.enableDamping = true;
   controls.minDistance = 0.3;
   controls.maxDistance = 3;
   controls.maxPolarAngle = Math.PI / 2 - 0.02; // no atravesar el suelo
   controls.update();
+  const chase = new ChaseCamera(camera, rig, controls.target);
+  const TARGET_HEIGHT = controls.target.y;
 
   let dirty = true;
   const invalidate = (shadows = false) => {
@@ -96,11 +105,13 @@ export function createWorld(container: HTMLElement): World {
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = container;
     renderer.setSize(w, h);
-    camera.aspect = w / h;
-    // En pantallas verticales (móvil) se abre el FOV para conservar el encuadre horizontal
-    const halfH = Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2));
-    camera.fov = camera.aspect < 1 ? Math.min(75, THREE.MathUtils.radToDeg(2 * Math.atan(halfH / camera.aspect))) : BASE_FOV;
-    camera.updateProjectionMatrix();
+    for (const cam of [camera, rig]) {
+      cam.aspect = w / h;
+      // En pantallas verticales (móvil) se abre el FOV para conservar el encuadre horizontal
+      const halfH = Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2));
+      cam.fov = cam.aspect < 1 ? Math.min(75, THREE.MathUtils.radToDeg(2 * Math.atan(halfH / cam.aspect))) : BASE_FOV;
+      cam.updateProjectionMatrix();
+    }
     invalidate();
   };
   new ResizeObserver(resize).observe(container);
@@ -118,7 +129,7 @@ export function createWorld(container: HTMLElement): World {
     const dt = Math.min(timer.getDelta(), 0.1);
     for (const cb of callbacks) cb(dt);
     controls.update();
-    keepInside();
+    if (moveCamera(dt)) dirty = true;
     if (!dirty) return;
     dirty = false;
     draw();
@@ -126,30 +137,35 @@ export function createWorld(container: HTMLElement): World {
 
   const renderNow = () => {
     controls.update();
-    keepInside();
+    moveCamera(0);
     draw();
   };
 
-  // Cámara de juego: siempre dentro del cuarto donde está el NAO y bajo el techo (no atraviesa paredes)
-  let bounds: { x: [number, number]; z: [number, number] } | null = null;
-  const keepInside = () => {
-    if (!bounds) return;
-    const p = camera.position;
-    const [x, y, z] = [
-      Math.min(Math.max(p.x, bounds.x[0]), bounds.x[1]),
-      Math.min(Math.max(p.y, 0.12), WALL_HEIGHT - 0.15),
-      Math.min(Math.max(p.z, bounds.z[0]), bounds.z[1]),
-    ];
-    if (x !== p.x || y !== p.y || z !== p.z) p.set(x, y, z);
-  };
-  const setRoom = (id: RoomId | null) => {
-    const inner = id ? ROOMS[id] : null;
-    const m = WALL_THICKNESS / 2 + 0.12;
-    bounds = inner ? { x: [inner.x[0] + m, inner.x[1] - m], z: [-inner.y[1] + m, -inner.y[0] - m] } : null;
+  // Cámara de juego (chaseCamera.ts): brazo con resorte hacia la guía del jugador. Se ven los cuartos visibles desde el
+  // del robot y desde el de la cámara (cruzando una puerta pueden ser distintos un momento)
+  let robotRoom: RoomId | null = null;
+  let cameraRoom: RoomId | null | undefined;
+  const showRooms = () => {
     camera.layers.set(0);
-    const all = !id || id === 'pasillo';
-    const seen = id ? [id, ...visibleFrom(id)] : [];
+    const ids = [robotRoom, cameraRoom ?? null];
+    const all = ids.some((id) => !id || id === 'pasillo');
+    const seen = ids.flatMap((id) => (id ? [id, ...visibleFrom(id)] : []));
     for (const r of Object.values(ROOMS)) if (all || seen.includes(r.id)) camera.layers.enable(r.layer);
+  };
+  const moveCamera = (dt: number): boolean => {
+    const moved = chase.update(dt);
+    const room = roomAt(camera.position.x, -camera.position.z);
+    if (room !== cameraRoom) {
+      cameraRoom = room;
+      showRooms();
+      return true;
+    }
+    return moved;
+  };
+  const focus = (x: number, y: number, snap = false) => chase.focus(new THREE.Vector3(x, TARGET_HEIGHT, -y), snap);
+  const setRoom = (id: RoomId | null) => {
+    robotRoom = id;
+    showRooms();
     // La sombra cubre el cuarto (el pasillo entero desde el pasillo); la luz llega siempre desde el mismo ángulo
     const r = ROOMS[id ?? 'pasillo'];
     const [cx, cy] = [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2];
@@ -165,7 +181,7 @@ export function createWorld(container: HTMLElement): World {
   void loadPropModels(zUp, placeholders, (obj, room) => inRooms(obj, [room]), () => invalidate(true));
 
   return {
-    renderer, scene, camera, controls, zUp, objects, invalidate, renderNow, setRoom,
+    renderer, scene, camera, rig, controls, focus, zUp, objects, invalidate, renderNow, setRoom,
     onFrame: (cb) => void callbacks.push(cb),
     onAfterRender: (cb) => void afterRender.push(cb),
   };
