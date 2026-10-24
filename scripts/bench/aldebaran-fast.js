@@ -1,8 +1,8 @@
 // Banco de fidelidad rápido: las rutinas originales de Aldebaran en el simulador del laboratorio (src/lab/labSim.ts:
 // física aparte, sin dibujar, ~14× tiempo real), para probar muchas combinaciones de física en segundos.
-// window.__configs = [{ label, hulls, self }] → cada una arma su propia física; hulls: true colisiona con las envolventes
+// window.__configs = [{ label, hulls, self, plastic }] → cada una arma su propia física; hulls: true colisiona con las envolventes
 // de las mallas oficiales (sim/officialMeshes.ts collisionHulls), si no con las formas simples (sim/shapes.ts); self: true
-// activa el choque del robot consigo mismo.
+// activa el choque del robot consigo mismo; plastic = μ de la carcasa (mjcf.ts shellFriction).
 // window.__only = ['SitToCrouch', …] limita las rutinas. Sin __configs prueba la física actual.
 async () => {
   const { LabSim } = await import('/src/lab/labSim.ts');
@@ -26,7 +26,7 @@ async () => {
   const out = [];
   const t0 = performance.now();
   for (const cfg of configs) {
-    const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'), { hulls: cfg.hulls ? hulls : undefined, selfCollision: !!cfg.self });
+    const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'), { hulls: cfg.hulls ? hulls : undefined, selfCollision: !!cfg.self, shellFriction: cfg.plastic });
     const motion = () => lab.session.service('ALMotion');
     const posture = () => lab.session.service('ALRobotPosture');
     // Posturas de partida (fotos exactas, cada caso parte de la suya)

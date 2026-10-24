@@ -262,8 +262,16 @@ const physicsReady = import('./physics/physics')
   .then(async ({ PhysicsSim }) => {
     if (SELF_COLLISION) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { selfCollision: true });
     if (!FAITHFUL_PHYSICS) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects);
-    const [{ collisionHulls }, meshes] = await Promise.all([import('./sim/officialMeshes'), officialReady]);
-    return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), selfCollision: true });
+    const [{ collisionHulls }, { SHELL_FRICTION }, meshes] = await Promise.all([
+      import('./sim/officialMeshes'),
+      import('./physics/mjcf'),
+      officialReady,
+    ]);
+    return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, {
+      hulls: collisionHulls(meshes),
+      selfCollision: true,
+      shellFriction: SHELL_FRICTION,
+    });
   })
   .then((sim) => {
     physics = sim;

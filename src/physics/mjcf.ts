@@ -62,6 +62,15 @@ function inertial(link: UrdfLink): string {
   return `<inertial pos="${v3(link.com)}" mass="${f(link.mass)}" fullinertia="${v3([ixx, iyy, izz, ixy, ixz, iyz])}"/>`;
 }
 
+/**
+ * μ de la carcasa de plástico del NAO contra el suelo (física fiel). APPROX: sin dato oficial; plástico sobre piso ~0.3–0.5.
+ * Medido (2026-10-24, video de un NAO real levantándose de espaldas, youtube.com/watch?v=JZV9lItJGUo): con μ = 1 (goma,
+ * como la suela) la cabeza se agarraba al suelo y formaba un arco, los codos no resbalaban bajo la espalda y al cerrar la
+ * cadera subían las piernas en vez del torso; con 0.4 la cabeza resbala, el torso sube sobre los codos y se incorpora
+ * como el real (−38° medido contra −37° del grafo de NAOqi).
+ */
+export const SHELL_FRICTION = 0.4;
+
 /** Pies: con la física fiel, caja con las medidas de su envolvente (ver collision en buildMjcf) */
 const FLAT_SOLE = new Set(['l_ankle', 'r_ankle']);
 
@@ -77,6 +86,11 @@ export interface CollisionOptions {
   hulls?: CollisionHulls;
   selfCollision?: boolean;
   exclude?: readonly (readonly [string, string])[];
+  /**
+   * μ de la carcasa (todo menos los pies) contra lo que toque; sin esto, μ = 1 como la suela. Con `priority="1"` MuJoCo
+   * usa la fricción de la carcasa en vez de la mayor de las dos, así el suelo y la suela no cambian.
+   */
+  shellFriction?: number;
 }
 
 /**
@@ -104,7 +118,7 @@ function excludes(bodies: ReadonlyMap<string, string>, extra: readonly (readonly
 export function buildMjcf(
   urdf: UrdfRobot,
   root: { position: Vec3; quaternion: [number, number, number, number] },
-  { hulls, selfCollision = false, exclude = [] }: CollisionOptions = {},
+  { hulls, selfCollision = false, exclude = [], shellFriction }: CollisionOptions = {},
 ): { xml: string; joints: PhysicalJoint[]; bodies: Map<string, string> } {
   const links = new Map(urdf.links.map((l) => [l.name, l]));
   const byParent = new Map<string, UrdfJoint[]>();
@@ -114,9 +128,12 @@ export function buildMjcf(
   const isPhysical = (j: UrdfJoint) => j.type === 'revolute' && !KINEMATIC.has(j.name) && JOINT_BY_NAME.has(j.name);
   // Colisión: la envolvente de la malla oficial si la hay (la forma del NAO real); si no, las formas simples
   const assets: string[] = [];
-  const contact = robotContact(selfCollision);
+  const soleContact = robotContact(selfCollision);
+  const shellContact =
+    shellFriction === undefined ? soleContact : `${soleContact} friction="${f(shellFriction)} 0.005 0.0001" priority="1"`;
   const collision = (link: string, pad: string): string[] => {
     const hull = hulls?.get(link);
+    const contact = FLAT_SOLE.has(link) ? soleContact : shellContact;
     if (!hull) return linkShapes(link).filter((s) => s.collide).map((s) => `${pad}${geom(s, contact)}`);
     if (FLAT_SOLE.has(link)) {
       // La suela es plana (medido: 34 vértices de la envolvente a < 1 mm del fondo, en toda la huella), pero MuJoCo
