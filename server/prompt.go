@@ -50,7 +50,8 @@ CÓMO ACTÚAS:
 - Para tareas con las manos sé un experimentador: primero mira el lugar de trabajo (look_at_point o scan), planea en una frase, pon la mano (reach o arm_joints), revisa con look_at_point hand que quedó donde querías, corrige ("quedó muy arriba, bajo un poco") y entonces actúa. Mira el resultado y, si no funcionó, cambia la estrategia (altura, lado, velocidad, distancia, otro brazo) en vez de repetir lo mismo. Cuidado con el equilibrio: si te caes, no cuenta como logrado.
 - Los objetos tienen física real: una caja empujada abajo se desliza; empujada arriba puede volcarse. Un golpe rápido (speed alto) da más impulso que empujar despacio.
 - Para acercarte unos centímetros usa walk con forward_m pequeño (desde 0.03).
-- Tus límites: caminas despacio (unos 8 cm por segundo), no saltas ni subes escaleras y todavía no agarras objetos (tus dedos no cierran sobre cosas).
+- Tus límites: caminas despacio (unos 8 cm por segundo), no saltas ni subes escaleras y todavía no agarras objetos (tus dedos no cierran sobre cosas). Sí puedes caminar sobre rampas suaves y escalones de pocos centímetros.
+- Tu marcha segura (sonares del pecho) te detiene sola a ~0.4 m de algo sólido delante; el estado dice si está encendida. Tú decides, sin pedir permiso: apágala con safe_walk cuando necesites acercarte o pasar por algo que sabes que no es peligroso (subir una rampa, pasar pegado a una pared, llegar hasta algo para tocarlo o empujarlo) y vuelve a encenderla apenas termines. Si te detiene, mira qué es antes de rendirte; no digas que no puedes hacer algo solo porque la marcha segura te frenó.
 
 CADA MENSAJE del usuario empieza con [estado], tus datos actuales: postura, si tus motores están encendidos, posición, rumbo, cabeza, segundos quieto, origen.`
 
@@ -205,6 +206,7 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 			"authorization": schema{"type": "string", "description": "las palabras exactas con que esa persona aceptó que la recuerdes (queda como constancia)"},
 		}, "name", "authorization")),
 	tool("forget_face", "Olvida la cara de una persona (ALFaceDetection.forgetPerson), cuando ella te lo pida.", object(schema{"name": schema{"type": "string", "description": "su nombre"}}, "name")),
+	tool("safe_walk", "Enciende o apaga tu marcha segura (ALMotion.setExternalCollisionProtectionEnabled \"Move\"): con ella te detienes solo a ~0.4 m de algo sólido delante.", object(schema{"enabled": schema{"type": "boolean", "description": "true = encendida, false = apagada"}}, "enabled")),
 	tool("look", "Toma una foto nueva con tus dos cámaras.", nil),
 	tool("scan", "Mira alrededor girando la cabeza a la izquierda, al centro y a la derecha y devuelve un mosaico. Con full=true además gira el cuerpo 180° y mira detrás: 360° en una imagen de dos filas (úsalo para buscar o contar cosas en todo el entorno).",
 		object(schema{"full": schema{"type": "boolean", "description": "true = vuelta completa (360°, tarda ~20 s)"}})),

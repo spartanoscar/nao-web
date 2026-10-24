@@ -150,6 +150,11 @@ export class Brain {
       if (!cancelled()) this.hooks.error(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
     } finally {
       this.active--;
+      // Red de seguridad: si la IA apagó la marcha segura y no la volvió a encender, al terminar la tarea se enciende
+      if (!motion.getExternalCollisionProtectionEnabled('Move') && !this.active) {
+        motion.setExternalCollisionProtectionEnabled('Move', true);
+        console.info('NAO ▶ marcha segura encendida de nuevo al terminar la tarea');
+      }
       if (!cancelled()) {
         this.hooks.thinking(false);
         this.lastReply = performance.now();
@@ -194,6 +199,7 @@ export class Brain {
       cabeza: { yaw: Math.round(yaw * DEG), pitch: Math.round(pitch * DEG) },
       quieto_seg: Math.round((performance.now() - this.stillSince) / 1000),
       como_te_ves: looks(this.hooks.appearance()),
+      marcha_segura: motion.getExternalCollisionProtectionEnabled('Move') ? 'encendida' : 'apagada',
       // Rostros reconocidos en la cámara del teléfono (ai/faces.ts); solo si está activa
       ...(this.vision.phone?.live
         ? { camara_telefono: { personas: this.vision.phone.faces().map((f) => f.name ?? (f.pending ? 'reconociendo…' : 'persona sin registrar')) } }

@@ -142,7 +142,7 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
     const why = fallen()
       ? 'me caí'
       : blocked !== null
-        ? `me detuve antes de chocar: mi sonar detecta algo sólido a ${blocked} m al frente y la marcha segura no deja avanzar más hacia allá`
+        ? `me detuve antes de chocar: mi sonar detecta algo sólido a ${blocked} m al frente y la marcha segura no deja avanzar más hacia allá. Mira qué es: si es algo que sabes que no es peligroso (una rampa, un escalón bajo, una pared al costado, algo que quieres tocar), apaga la marcha segura con safe_walk, sigue y vuelve a encenderla al terminar`
         : 'me interrumpieron o no llegué';
     return { ok, ...extra, ...where(), ...(ok ? {} : { postura: posture.getPostureFamily(), nota: why }) };
   };
@@ -236,6 +236,12 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
           nota: 'medido desde el centro entre tus pies: adelante positivo, izquierda positivo',
         },
       };
+    }
+    case 'safe_walk': {
+      // ALMotion.setExternalCollisionProtectionEnabled("Move", …): la decide la IA (rampa, pasar pegado a algo…)
+      const on = args.enabled !== false;
+      motion.setExternalCollisionProtectionEnabled('Move', on);
+      return { response: { ok: true, marcha_segura: on ? 'encendida' : 'apagada' } };
     }
     case 'push': {
       if (!(await standUp())) return { response: notStanding() };
