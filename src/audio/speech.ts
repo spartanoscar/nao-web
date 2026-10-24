@@ -1,7 +1,6 @@
 // Voz del robot en el navegador: Kokoro en un Web Worker (tts.worker.ts) + reproducción con WebAudio.
 // Las frases se generan una a una y se encadenan sin huecos: la primera suena sin esperar el resto.
 
-import { isAppleMobile } from '../ui/device';
 import type { SpeechBackend, SpeechRequest } from '../naoqi/ALTextToSpeech';
 import type { TtsRequest, TtsResponse } from './tts.worker';
 
@@ -66,9 +65,7 @@ export class KokoroSpeech implements SpeechBackend {
 
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
-    // En iPad/iPhone la voz liviana (WASM q8, 92 MB) en vez de la de GPU (fp32, 326 MB): Safari en iOS cierra la pestaña
-    // al pasar su límite de memoria (2026-10-24: el iPad se cayó dos veces a los 20–40 s de entrar, mientras cargaba la voz)
-    const w = new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module', name: isAppleMobile() ? 'device=wasm dtype=q8' : '' });
+    const w = new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e: MessageEvent<TtsResponse>) => this.onMessage(e.data);
     this.worker = w;
     return w;

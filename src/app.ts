@@ -6,6 +6,8 @@ import { MOTION_CYCLE } from './naoqi/engine';
 import { Session } from './naoqi/session';
 import { MotorSound } from './audio/motorSound';
 import { KokoroSpeech } from './audio/speech';
+import { NativeSpeech } from './audio/nativeSpeech';
+import { isAppleMobile } from './ui/device';
 import type { PhysicsClient } from './physics/physicsClient';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
@@ -39,6 +41,7 @@ import { attachChat } from './ui/chat';
 
 // Si la pestaña se cierra sola (iPad: límite de memoria), la próxima vez se sabe en qué iba (ui/crashLog.ts)
 const crash = startCrashLog();
+crash.report(); // con la sesión de la vez anterior: aunque esta vez también se caiga antes de entrar, ya se mandó
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
 const BOOT_POSTURE = postureJoints('Crouch');
@@ -114,7 +117,8 @@ const spawn = (id: SpawnId) => {
 // Sonido de los motores (sintetizado desde la física). El audio solo puede arrancar tras un gesto.
 const sound = new MotorSound();
 // Voz: Kokoro en un worker (el modelo se descarga la primera vez que el robot habla)
-const speech = new KokoroSpeech();
+// Voz: Kokoro (estilo NAO, ~300–740 MB); en iPad/iPhone la del sistema, porque iOS cerraba la pestaña por memoria
+const speech = isAppleMobile() ? new NativeSpeech() : new KokoroSpeech();
 speech.onReady = (engine) => crash.stage(`voz lista (${engine})`);
 const tts = session.service('ALTextToSpeech');
 tts.backend = speech;
@@ -170,6 +174,7 @@ const loadModel = async (onProgress: (loaded: number, total: number) => void) =>
   ledViews.push(new LedsView(nao));
   Object.assign((window as unknown as { nao: object }).nao, { meshes });
   officialLoaded(meshes);
+  crash.stage('modelo cargado');
   world.invalidate(true);
 };
 
@@ -330,7 +335,7 @@ Object.assign(window, {
 // Login + licencia + "Cargando universo…": el mundo se carga detrás y solo se muestra completo
 const user = await runBoot({ loadModel, physics: physicsReady, warmUp: () => world.renderNow() });
 crash.stage('en el mundo');
-crash.report();
+crash.report(); // otra vez por si al abrir aún no había sesión
 player.user = user;
 showMeshCredit();
 const hud = createHud(user, session.service('ALAudioDevice'));

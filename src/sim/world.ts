@@ -12,6 +12,7 @@ import { type Look, PROPS } from './props';
 import { loadPropModels } from './propModels';
 import { type Pods, addPods } from './pods';
 import { ChaseCamera } from './chaseCamera';
+import { isAppleMobile } from '../ui/device';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOMS, type Room, type RoomId, type Side, WALLS, WALL_HEIGHT, WALL_THICKNESS, roomAt, visibleFrom, wallPieces } from './rooms';
 
 export interface World {
@@ -50,12 +51,17 @@ export interface World {
 }
 
 const BG = 0x0e1116;
+/**
+ * iPad/iPhone: Safari en iOS cierra la pestaña al pasar su límite de memoria (y ahí la memoria gráfica cuenta): canvas a
+ * resolución 1×, sombra de 1024 y espejo de 512 (2026-10-24: el iPad se caía, una vez antes de entrar al mundo)
+ */
+const LIGHT = isAppleMobile();
 const BASE_FOV = 40;
 
 export function createWorld(container: HTMLElement): World {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   // ×1.5 es casi indistinguible de ×2 y son ~44% menos píxeles por frame
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setPixelRatio(LIGHT ? 1 : Math.min(window.devicePixelRatio, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   // La luz es fija: la sombra solo cambia cuando algo se mueve, no al orbitar la cámara
@@ -509,7 +515,7 @@ function addLights(scene: THREE.Scene): THREE.DirectionalLight {
   const sun = new THREE.DirectionalLight(0xfff2dd, 1.5);
   sun.position.set(2, 3.5, 1.5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(LIGHT ? 1024 : 2048, LIGHT ? 1024 : 2048);
   sun.shadow.camera.left = -2;
   sun.shadow.camera.right = 2;
   sun.shadow.camera.top = 2;
@@ -562,8 +568,8 @@ function addMirror(zUp: THREE.Group) {
   // APPROX: espejo de vidrio común (refleja ~90 %): un gris apenas más oscuro que el neutro (0x7f7f7f) del Reflector
   const glass = new Reflector(new THREE.PlaneGeometry(w - 2 * MIRROR_FRAME, h - 2 * MIRROR_FRAME), {
     color: 0x777777,
-    textureWidth: 1024,
-    textureHeight: 1024,
+    textureWidth: LIGHT ? 512 : 1024,
+    textureHeight: LIGHT ? 512 : 1024,
     clipBias: 0.003,
     multisample: 4,
   });

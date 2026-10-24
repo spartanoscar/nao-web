@@ -36,6 +36,8 @@ export interface CrashLog {
 
 export function startCrashLog(): CrashLog {
   const previous = read();
+  /** Ya llegó al servidor (si al abrir no había sesión, se reintenta al entrar) */
+  let sent = false;
   const trail: Trail = {
     started: Date.now(),
     last: Date.now(),
@@ -73,9 +75,12 @@ export function startCrashLog(): CrashLog {
     },
     event,
     report() {
-      if (!previous || previous.clean) return;
+      if (!previous || previous.clean || sent) return;
       const body = { kind: 'cierre inesperado', duracion_s: Math.round((previous.last - previous.started) / 1000), ...previous };
-      void fetch('/api/client-log', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+      sent = true;
+      void fetch('/api/client-log', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then((r) => (sent = r.ok))
+        .catch(() => (sent = false));
     },
   };
 }
