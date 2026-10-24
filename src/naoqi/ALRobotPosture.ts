@@ -9,6 +9,14 @@ import { MOTION_NETS, playMotionNet, sliceMotionNet } from './motionNet';
 import { TAUGHT_MOTIONS, playTaught } from './taughtMotion';
 import { playAldebaranMotion } from './aldebaranMotions';
 import {
+  type GraphStep,
+  hasPostureGraph,
+  nearestNamedPosture,
+  planGraphRoute,
+  playGraphRoute,
+  startingGraphPosture,
+} from './naoqiPostureGraph';
+import {
   IN_FAMILY,
   IN_POSTURE,
   POSTURE_FAMILIES,
@@ -22,6 +30,9 @@ import {
   startingPosture,
 } from './postures';
 
+/** Un paso: un tramo validado (postures.ts) o un camino del grafo real de NAOqi (naoqiPostureGraph.ts) */
+type Step = RouteStep | { graph: GraphStep[] };
+
 interface Run {
   cancelled: boolean;
   task: MotionTask | null;
@@ -32,6 +43,12 @@ export class ALRobotPosture {
   /** Motivo del último goToPosture fallido (para la UI y la consola) */
   lastFailure = '';
   private maxTries = 3;
+  /**
+   * Planear con el grafo de posturas real de NAOqi 2.8 (si se descargó). Lo activa la app solo con la física fiel: es
+   * la única donde se verificó (con las formas simples el robot no tiene la cadera donde se sienta el real y se va de
+   * espaldas en las rutas de sentado, scripts/bench/naoqi28.js); con las demás siguen los tramos validados.
+   */
+  useNaoqiGraph = false;
 
   constructor(
     private readonly engine: MotionEngine,
@@ -45,8 +62,13 @@ export class ALRobotPosture {
 
   /** Postura actual, o "Unknown" si el robot no está en ninguna predefinida */
   getPosture(): string {
-    const { name, error } = nearestPosture(this.state);
+    const { name, error } = this.nearest();
     return error < IN_POSTURE ? name : 'Unknown';
+  }
+
+  /** Postura predefinida más cercana: con el grafo de NAOqi, contra sus valores; si no, contra los de qiBullet */
+  private nearest(): { name: string; error: number } {
+    return (this.useNaoqiGraph && nearestNamedPosture(this.state)) || nearestPosture(this.state);
   }
 
   getPostureFamily(): string {
@@ -60,7 +82,8 @@ export class ALRobotPosture {
   /**
    * Blocking. "The robot detects in which posture it is, computes a path from its current posture
    * to its target posture, and applies it." Devuelve true si la alcanzó.
-   * Con física sigue el grafo de tramos validados (postures.ts); sin física interpola directo.
+   * Con física sigue el grafo real de NAOqi (useNaoqiGraph) o el de tramos validados (postures.ts); sin física
+   * interpola directo.
    */
   async goToPosture(postureName: string, speed: number): Promise<boolean> {
     const name = findPosture(postureName);
@@ -78,8 +101,16 @@ export class ALRobotPosture {
     // "Sets the maximum number of tries performed by goToPosture before returning a fail": si una rutina
     // deja al robot en otra postura (p. ej. rodó boca abajo), se vuelve a detectar y a planear desde ahí
     for (let attempt = 0; attempt < this.maxTries; attempt++) {
-      let route: RouteStep[] | null = [{ posture: name, part: 'all' }];
-      if (this.engine.physical) {
+      let route: Step[] | null = [{ posture: name, part: 'all' }];
+      if (this.engine.physical && this.useNaoqiGraph && hasPostureGraph()) {
+        const from = startingGraphPosture(this.state)!;
+        const nodes = planGraphRoute(from.id, name);
+        if (!nodes) {
+          this.lastFailure = `el grafo de NAOqi no tiene camino de la postura ${from.id} a ${name}`;
+          break;
+        }
+        route = [{ graph: nodes }];
+      } else if (this.engine.physical) {
         const from = startingPosture(this.state);
         route = planRoute(from, name);
         if (!route) {
@@ -92,7 +123,7 @@ export class ALRobotPosture {
         await this.runStep(step, speed, run);
       }
       if (run.cancelled) return false;
-      const { name: nearest, error } = nearestPosture(this.state);
+      const { name: nearest, error } = this.nearest();
       if (nearest === name && error < IN_FAMILY) {
         this.current = null;
         this.lastFailure = '';
@@ -105,8 +136,10 @@ export class ALRobotPosture {
     return false;
   }
 
-  private async runStep(step: RouteStep, speed: number, run: Run): Promise<void> {
-    if ('animation' in step) {
+  private async runStep(step: Step, speed: number, run: Run): Promise<void> {
+    if ('graph' in step) {
+      await playGraphRoute(this.motion, this.state, step.graph, speed);
+    } else if ('animation' in step) {
       const clip = MOTIONS.find((m) => m.name === step.animation);
       if (clip) await playMotion(this.motion, clip);
     } else if ('net' in step) {

@@ -126,7 +126,7 @@ export function familyOf(name: PostureName): string {
  * Gravedad en el marco del torso, como la mide la IMU (vector unitario; X adelante, Y izquierda, Z arriba):
  * no depende de hacia dónde mire el robot. null sin física.
  */
-function gravityInTorso(state: RobotState): [number, number, number] | null {
+export function gravityInTorso(state: RobotState): [number, number, number] | null {
   const root = state.root;
   if (!root) return null;
   const [w, x, y, z] = root.quaternion;

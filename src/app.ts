@@ -256,6 +256,13 @@ const loadModel = async (onProgress: (loaded: number, total: number) => void) =>
 
 // Rutinas originales de Aldebaran (sentarse/levantarse, descargadas por scripts/fetch-aldebaran-motions.sh)
 void import('./naoqi/aldebaranMotions').then(({ loadAldebaranMotions }) => loadAldebaranMotions());
+// Grafo de posturas real de NAOqi 2.8 (scripts/fetch-naoqi-postures.sh): goToPosture lo usa con la física fiel, la única
+// donde se verificó (ALRobotPosture.useNaoqiGraph)
+if (FAITHFUL_PHYSICS) {
+  void import('./naoqi/naoqiPostureGraph').then(async ({ loadPostureGraph }) => {
+    if (await loadPostureGraph()) session.service('ALRobotPosture').useNaoqiGraph = true;
+  });
+}
 
 // MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
 const physicsReady = import('./physics/physics')
