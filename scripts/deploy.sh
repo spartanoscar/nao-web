@@ -166,6 +166,13 @@ cmd_api() {
 # queda en $API_DIR/.env (NAO_WORLD_URL) y nao-api se reinicia. Sin esto, nao-api sirve la sala él mismo (plan B).
 cmd_world() {
   _require
+  # Token de Cloudflare (Workers Scripts: Edit) y cuenta: de .local/cloudflare.json si no vienen en el entorno, sin mostrarlos
+  local cf="$NAO_ROOT/.local/cloudflare.json"
+  [ -f "$cf" ] || cf="$NAO_ROOT/.local/cloudfare.json"
+  if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -f "$cf" ]; then
+    CLOUDFLARE_API_TOKEN="$(jq -r .api_token "$cf")"; CLOUDFLARE_ACCOUNT_ID="$(jq -r .account_id "$cf")"
+    export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+  fi
   (cd "$NAO_ROOT/world" && npm install --no-audit --no-fund >/dev/null && npx tsc --noEmit) || die "world/ no compila"
   _confirm_prod "desplegar la sala del mundo en Cloudflare y apuntar nao-api a ella" "$@" || return 1
   local out url
