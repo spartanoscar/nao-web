@@ -342,6 +342,13 @@ const brain = new Brain(session, state, vision, {
     hud.setUser(u);
     return { shell: u.shellColor, eyes: u.eyeColor };
   },
+  // "Te vas a llamar Lucky": se guarda en la cuenta y se ve al instante en la tarjeta (y la voz responde a ese nombre)
+  setRobotName: async (name) => {
+    const u = await updateMe({ robotName: name });
+    Object.assign(user, u);
+    hud.setUser(u);
+    return u.robotName;
+  },
   // "Descansa": se apaga como con el botón (se acuesta boca arriba primero)
   powerOff: () => power.turnOff(),
 });

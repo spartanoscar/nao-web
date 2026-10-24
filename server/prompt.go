@@ -123,13 +123,13 @@ func tool(name, desc string, params schema) schema {
 // decía "¡Claro, voy!" sin pedir ninguna; con hacer_tarea sola, en producción respondió "lo intentaré" con texto y no
 // actuó. Con la elección obligada acertó 16 de 16 frases de prueba (~1 s).
 var chatTools = []any{schema{"functionDeclarations": []any{
-	tool("hacer_tarea", "Pasa la petición a tu modo de acción (moverte, mirar, usar el cuerpo).", nil),
+	tool("hacer_tarea", "Pasa la petición a tu modo de acción (moverte, mirar, usar el cuerpo o cambiar algo tuyo que se guarda).", nil),
 	tool("responder", "Responde en voz alta sin moverte.", object(schema{"texto": schema{"type": "string", "description": "lo que dices"}}, "texto")),
 }}}
 
 const chatRule = `
 
-MODO CONVERSACIÓN: decide con una herramienta. Si la persona te pide hacer CUALQUIER cosa con el cuerpo o que necesite moverte o mirar (moverte, caminar, girar, patear, mirar alrededor, buscar, contar cosas, tocar, empujar, gestos, brazos, cabeza, luces, colores, posturas), o te pide intentarlo de nuevo, llama hacer_tarea, sin prometer nada. Si solo conversa o pregunta algo que puedes responder sin moverte, llama responder con lo que dirías.`
+MODO CONVERSACIÓN: decide con una herramienta. Si la persona te pide hacer CUALQUIER cosa con el cuerpo o que necesite moverte o mirar (moverte, caminar, girar, patear, mirar alrededor, buscar, contar cosas, tocar, empujar, gestos, brazos, cabeza, luces, colores, posturas), o cambiar algo tuyo que se guarda (tu nombre, tus colores, recordar u olvidar la cara de alguien, apagarte o descansar), o te pide intentarlo de nuevo, llama hacer_tarea, sin prometer nada. Si solo conversa o pregunta algo que puedes responder sin moverte, llama responder con lo que dirías.`
 
 // brainTools: lo que el navegador sabe hacer (src/ai/skills.ts). Mismo nombre en los dos lados.
 var brainTools = []any{schema{"functionDeclarations": []any{
@@ -200,6 +200,8 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 			"shell": schema{"type": "string", "description": "color de las piezas de color de la carcasa (el resto es blanco) en #rrggbb, u original para el azul de fábrica"},
 			"eyes":  schema{"type": "string", "description": "color de tus ojos en #rrggbb, u original para el de fábrica"},
 		})),
+	tool("my_name", "Cambia tu nombre y lo guarda como tuyo, cuando tu dueño te pone o te cambia el nombre (\"te vas a llamar Lucky\", \"tu nombre es Lucky\"). Desde ese momento respondes a ese nombre.",
+		object(schema{"name": schema{"type": "string", "description": "tu nuevo nombre, tal como se escribe (máx. 24 letras), o NAO para volver al de fábrica"}}, "name")),
 	tool("remember_face", "Aprende la cara de la persona que se ve SOLA en la cámara del teléfono, para reconocerla después (ALFaceDetection.learnFace). Úsala solo si esa persona te dijo que sí en esta conversación.",
 		object(schema{
 			"name":          schema{"type": "string", "description": "cómo se llama, como te lo dijo"},

@@ -41,6 +41,8 @@ export interface BrainHooks {
   /** Apariencia actual y cambiarla (guardada en la cuenta) */
   appearance(): Appearance;
   setAppearance(patch: Partial<Appearance>): Promise<Appearance>;
+  /** Cambiar y guardar su nombre (habilidad my_name); devuelve el que quedó */
+  setRobotName?(name: string): Promise<string>;
   /** Apagarse (habilidad rest): se acuesta boca arriba y apaga motores y luces */
   powerOff?(): Promise<boolean>;
   /** Para depurar: cada habilidad que ejecuta y su resultado */
@@ -133,7 +135,7 @@ export class Brain {
         for (const call of reply.calls) {
           if (cancelled()) return;
           if (call.name === 'finish') continue;
-          const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled, appearance: (p) => this.hooks.setAppearance(p), powerOff: this.hooks.powerOff && (() => this.hooks.powerOff!()) }).catch(
+          const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled, appearance: (p) => this.hooks.setAppearance(p), rename: this.hooks.setRobotName && ((n) => this.hooks.setRobotName!(n)), powerOff: this.hooks.powerOff && (() => this.hooks.powerOff!()) }).catch(
             (e: unknown) => ({ response: { ok: false, error: e instanceof Error ? e.message : String(e) } as Record<string, unknown>, image: undefined }),
           );
           this.hooks.action?.(call.name, call.args ?? {}, r.response);

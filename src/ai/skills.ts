@@ -29,6 +29,8 @@ export interface SkillContext {
   cancelled(): boolean;
   /** Cambia y guarda la apariencia (carcasa y ojos) del NAO del usuario */
   appearance?: (patch: Partial<Appearance>) => Promise<Appearance>;
+  /** Cambia y guarda el nombre del NAO del usuario (devuelve el que quedó) */
+  rename?: (name: string) => Promise<string>;
   /** Apagarse (ui/power.ts): se acuesta boca arriba, apaga motores y luces; false si no pudo acostarse */
   powerOff?: () => Promise<boolean>;
 }
@@ -448,6 +450,14 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       const name = String(args.name ?? '').trim();
       const ok = await faces.forgetPerson(name);
       return { response: ok ? { ok, olvidado: name } : { ok, error: `no tenía guardada la cara de ${name}` } };
+    }
+    case 'my_name': {
+      if (!ctx.rename) return { response: { ok: false, error: 'no puedo guardar mi nombre ahora' } };
+      // Sin comillas ni puntuación alrededor ("Lucky." → Lucky); NAO = el de fábrica
+      const name = String(args.name ?? '').trim().replace(/^["'«“¡¿]+|["'»”.!?,;:]+$/g, '').trim();
+      if (!name || [...name].length > 24) return { response: { ok: false, error: 'el nombre debe tener entre 1 y 24 letras' } };
+      const now = await ctx.rename(name.toLowerCase() === 'nao' ? '' : name);
+      return { response: { ok: true, nombre: now } };
     }
     case 'my_colors': {
       if (!ctx.appearance) return { response: { ok: false, error: 'no puedo guardar mi apariencia ahora' } };
