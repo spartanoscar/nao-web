@@ -151,6 +151,16 @@ const SONAR_GROUPS = new Uint8Array([1, 0, 0, 0, 0, 0]);
 const REST_SPEED = 1e-3;
 const REST_TIME = 1;
 
+/**
+ * Objetos dormidos: los cubos y cajas (environment.ts ENV_OBJECTS, todos en el laboratorio) salen de la física mientras
+ * están quietos y no hay ningún NAO cerca (el del jugador ni los de otras personas): sin contactos ni gravedad, no se
+ * mueven ni cuestan. Eran 24 de los 38 contactos de cada paso estando en otro cuarto (medido 2026-10-24: el paso bajaba
+ * ~20%). Duermen y despiertan todos juntos (una caja apilada sobre otra dormida se caería). Distancia en planta al torso.
+ */
+const OBJECT_WAKE_DIST = 1.5;
+const OBJECT_SLEEP_AFTER = 1;
+const OBJECT_CHECK = 0.1;
+
 export class PhysicsSim {
   private acc = 0;
   private readonly lastQpos: Float64Array;
@@ -174,6 +184,11 @@ export class PhysicsSim {
   /** Cuerpos de cada lugar y su contype/conaffinity de fábrica (para sacarlos del cálculo de choques mientras está vacío) */
   private ghostBodies: number[][] = [];
   private ghostMask: [number, number][] = [];
+  /** Objetos del entorno (cubos y cajas): cuerpo, primer dof y contype/conaffinity de cuerpo y geoms de fábrica */
+  private envBodies: { id: number; dof: number; body: [number, number]; geoms: [number, number, number][] }[] = [];
+  private objectsAsleep = false;
+  private objectsStill = 0;
+  private objectClock = 0;
 
   private constructor(
     private readonly mj: MainModule,
@@ -254,6 +269,14 @@ export class PhysicsSim {
       }),
     );
     sim.ghosts = sim.ghostBodies.map((ids) => ids.map((id) => model.body_mocapid[id]));
+    sim.envBodies = ENV_OBJECTS.map((o) => {
+      const b = model.body(`env_${o.name}`);
+      const id = b.id;
+      b.delete();
+      const geoms: [number, number, number][] = [];
+      for (let g = 0; g < model.ngeom; g++) if (model.geom_bodyid[g] === id) geoms.push([g, model.geom_contype[g], model.geom_conaffinity[g]]);
+      return { id, dof: model.body_dofadr[id], body: [model.body_contype[id], model.body_conaffinity[id]] as [number, number], geoms };
+    });
     sim.ghostMask = sim.ghostBodies.flat().map((id) => [model.body_contype[id], model.body_conaffinity[id]]);
     for (let k = 0; k < sim.ghosts.length; k++) sim.setGhost(k, null);
     const torso = model.body('torso');
@@ -282,6 +305,11 @@ export class PhysicsSim {
       stepped = true;
     }
     this.updateRest(dt);
+    this.objectClock += dt;
+    if (this.objectClock >= OBJECT_CHECK) {
+      this.updateObjectSleep(this.objectClock);
+      this.objectClock = 0;
+    }
     if (stepped) this.detectImpacts(dt);
     this.sonarClock += dt;
     if (this.sonarClock >= SONAR_PERIOD) {
@@ -317,6 +345,54 @@ export class PhysicsSim {
     };
     this.state.sonar = [read(this.sonars[0]), read(this.sonars[1])];
     this.state.sonarEchoes = echoes;
+  }
+
+  /** ¿Los cubos y cajas están dormidos? (fuera de la física hasta que se acerque un NAO) */
+  get objectsSleeping(): boolean {
+    return this.objectsAsleep;
+  }
+
+  /** Duerme o despierta los objetos del entorno (OBJECT_WAKE_DIST) */
+  private updateObjectSleep(dt: number): void {
+    if (!this.envBodies.length) return;
+    const xpos = this.data.xpos;
+    // Torsos de los NAO: el del jugador y los de otras personas que están en el mundo (lugar activo)
+    const nao: [number, number][] = [];
+    if (this.torsoBody >= 0) nao.push([xpos[3 * this.torsoBody], xpos[3 * this.torsoBody + 1]]);
+    this.ghosts.forEach((ids, k) => {
+      if (this.model.body_contype[this.ghostBodies[k][0]] === 0) return;
+      const p = this.data.mocap_pos;
+      nao.push([p[3 * ids[0]], p[3 * ids[0] + 1]]);
+    });
+    const near = this.envBodies.some(({ id }) => nao.some(([x, y]) => Math.hypot(xpos[3 * id] - x, xpos[3 * id + 1] - y) < OBJECT_WAKE_DIST));
+    if (this.objectsAsleep) {
+      if (near) this.setObjectsAsleep(false);
+      return;
+    }
+    const qvel = this.data.qvel;
+    const still = this.envBodies.every(({ dof }) => {
+      for (let i = 0; i < 6; i++) if (Math.abs(qvel[dof + i]) > REST_SPEED) return false;
+      return true;
+    });
+    this.objectsStill = still ? this.objectsStill + dt : 0;
+    if (!near && this.objectsStill >= OBJECT_SLEEP_AFTER) this.setObjectsAsleep(true);
+  }
+
+  private setObjectsAsleep(asleep: boolean): void {
+    this.objectsAsleep = asleep;
+    this.objectsStill = 0;
+    const m = this.model;
+    for (const { id, dof, body, geoms } of this.envBodies) {
+      m.body_contype[id] = asleep ? 0 : body[0];
+      m.body_conaffinity[id] = asleep ? 0 : body[1];
+      for (const [g, ct, ca] of geoms) {
+        m.geom_contype[g] = asleep ? 0 : ct;
+        m.geom_conaffinity[g] = asleep ? 0 : ca;
+      }
+      // Dormido: sin gravedad y quieto (sin contactos se caería por el piso)
+      m.body_gravcomp[id] = asleep ? 1 : 1e-9;
+      if (asleep) for (let i = 0; i < 6; i++) this.data.qvel[dof + i] = 0;
+    }
   }
 
   /** Golpes detectados desde la última llamada */
@@ -371,6 +447,16 @@ export class PhysicsSim {
       this.locked = true;
       this.stillFor = 0;
     }
+  }
+
+  /** Joints con física, en el orden en que se simulan (physicsWorker.ts manda comandos y recibe ángulos así) */
+  get jointNames(): string[] {
+    return this.joints.map((s) => s.name);
+  }
+
+  /** Bloqueada en reposo (motores apagados y quieto) */
+  get isLocked(): boolean {
+    return this.locked;
   }
 
   /** Lugares para otros NAO (CollisionOptions.ghosts) */

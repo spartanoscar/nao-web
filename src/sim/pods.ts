@@ -29,11 +29,11 @@ const END = (Y1 - Y0 - POD_COUNT * PITCH) / 2;
 const PAD = { x0: 1.85, h: 0.015 };
 const RAMP_X0 = 1.6;
 const WIDTH = 0.4;
-/** Pilares entre cápsulas: detrás del torso del NAO (aparece en x = 2.03), hasta el dintel */
+/** Pilares entre cápsulas: detrás del torso del NAO (aparece en x = 2.0), hasta el dintel */
 const PILLAR = { x0: 2.04, w: 0.04, h: 1.0 };
 const HEADER = { x0: 2.02, z0: 1.0, h: 0.12 };
-/** Donde aparece el torso (Crouch), mirando hacia afuera (−x) */
-const SPAWN_X = 2.03;
+/** Donde aparece el torso (Crouch), mirando hacia afuera (−x): a 20 cm de la pared (app.ts revisa ese margen) */
+const SPAWN_X = 2.0;
 
 /**
  * Cápsulas con un NAO quieto que no es de nadie (Oscar, 2026-10-24: "al menos 2 NAO que están ahí quietos"): la 1 y la 7,

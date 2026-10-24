@@ -190,9 +190,12 @@ export function buildMjcf(
     ghostLinks.map((l) => `<body name="ghost${k}_${l}" mocap="true" pos="0 0 ${GHOST_PARK_Z}">${collision(l, '', true).join('')}</body>`).join('\n'),
   );
 
+  // gravcomp ínfimo: MuJoCo solo compensa la gravedad en tiempo de ejecución si algún cuerpo la tenía al compilar
+  // (ngravcomp > 0). Con esto, physics.ts puede dejar un objeto dormido sin gravedad (body_gravcomp = 1); despierto, 1e-9
+  // de la gravedad no cambia nada
   const objects = ENV_OBJECTS.map(
     (o) =>
-      `<body name="env_${o.name}" pos="${v3(o.pos)}" quat="${v3(rpyToQuat([0, 0, o.yaw]))}">` +
+      `<body name="env_${o.name}" pos="${v3(o.pos)}" quat="${v3(rpyToQuat([0, 0, o.yaw]))}" gravcomp="1e-9">` +
       `<freejoint/><geom type="box" size="${v3(o.size.map((s) => s / 2))}" mass="${f(o.mass)}" contype="1" conaffinity="1"/></body>`,
   );
 

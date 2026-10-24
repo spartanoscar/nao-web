@@ -6,7 +6,7 @@ import { MOTION_CYCLE } from './naoqi/engine';
 import { Session } from './naoqi/session';
 import { MotorSound } from './audio/motorSound';
 import { KokoroSpeech } from './audio/speech';
-import type { PhysicsSim } from './physics/physics';
+import type { PhysicsClient } from './physics/physicsClient';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
 import { addChestLogo } from './sim/chestLogo';
@@ -72,7 +72,7 @@ const roomRoot = (id: SpawnId): RootPose => {
   return { position: [x, y, bootRoot.position[2] + z], quaternion: [c * bw - s * bz, c * bx - s * by, c * by + s * bx, c * bz + s * bw] };
 };
 
-let physics: PhysicsSim | null = null;
+let physics: PhysicsClient | null = null;
 /** Vuelve al hogar agachado y con los motores apagados, como recién encendido */
 const resetAtHome = () => {
   session.engine.stopAll();
@@ -171,11 +171,11 @@ const loadModel = async (onProgress: (loaded: number, total: number) => void) =>
 // Física MuJoCo (~2 MB, se carga aparte): colisión con la forma real de cada pieza (envolventes de las mallas oficiales,
 // por eso espera a que carguen) y choque del robot consigo mismo. goToPosture necesita el grafo de posturas de NAOqi
 // (scripts/fetch-naoqi-postures.sh): sin él no se entra.
-const physicsReady = Promise.all([import('./physics/physics'), import('./sim/officialMeshes'), import('./naoqi/naoqiPostureGraph'), officialReady]).then(
-  async ([{ PhysicsSim }, { collisionHulls }, { loadPostureGraph }, meshes]) => {
+const physicsReady = Promise.all([import('./physics/physicsClient'), import('./sim/officialMeshes'), import('./naoqi/naoqiPostureGraph'), officialReady]).then(
+  async ([{ PhysicsClient }, { collisionHulls }, { loadPostureGraph }, meshes]) => {
     if (!(await loadPostureGraph())) throw new Error('falta el grafo de posturas de NAOqi (scripts/fetch-naoqi-postures.sh)');
     // Con lugar para los NAO de las otras cápsulas del mundo compartido (cuerpos sólidos que mueven sus dueños)
-    physics = await PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), ghosts: POD_COUNT });
+    physics = await PhysicsClient.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), ghosts: POD_COUNT });
     // El NAO del usuario aparece en su cápsula (nao-api la reparte al entrar) o, mientras no llega, en el centro de la sala
     place(shared.myPod >= 0 ? `pod${shared.myPod}` : HOME_ROOM);
     world.invalidate(true);
@@ -251,50 +251,35 @@ const trackRoom = () => {
 const tickHooks = new Set<() => void>();
 
 /**
- * Simulación: motor de NAOqi y física intercalados en pasos de un ciclo (20 ms, como el DCM), en tramos de como mucho
- * SIM_CHUNK. Entre tramos se cede el turno (una tarea aparte con MessageChannel) para que avancen las promesas de NAOqi:
- * moveTo decide cada 0.1 s de simulación. Antes, a ×10 con el mundo completo cada cuadro tardaba ~100 ms y simulaba 1 s
- * de una vez: el motor calculaba una vez para 50 pasos de física y moveTo corregía una vez por segundo; la marcha se
- * desviaba y se caía (medido 2026-10-24: marcha 7/7 → 4/7). Así la simulación rápida es la misma que a ×1.
+ * Simulación: motor de NAOqi (aquí) y física (MuJoCo en un Web Worker, physics/physicsClient.ts) intercalados ciclo a
+ * ciclo (≤ 20 ms, como el DCM): el motor decide los comandos del ciclo, el worker lo simula y devuelve el estado, y
+ * recién entonces empieza el siguiente. Cada ciclo es una tarea aparte, así que entre ciclos avanzan las promesas de NAOqi
+ * (moveTo decide cada 0.1 s de simulación) igual a ×1 que a ×10. Antes la física corría aquí mismo y dibujar esperaba a
+ * MuJoCo: con el NAO de pie se llevaba ~la mitad de cada segundo y con dos pestañas el computador se saturaba (medido
+ * 2026-10-24). Historia: a ×10 se llegó a simular 1 s de una vez y la marcha bajó de 7/7 a 4/7 (moveTo corregía una vez
+ * por segundo); por eso el paso a paso.
  */
-const SIM_CHUNK = 5 * MOTION_CYCLE;
 /** Simulación pendiente (s); si la computadora no alcanza, no se acumula más que esto (la velocidad real baja) */
 const MAX_SIM_DEBT = 1;
 let simDebt = 0;
-const simulate = (seconds: number) => {
-  if (!physics) return;
-  const steps = Math.max(1, Math.ceil(seconds / MOTION_CYCLE - 1e-6));
-  const h = seconds / steps;
-  for (let i = 0; i < steps; i++) {
-    session.update(h);
-    if (physics.step(h)) world.invalidate(true);
-    for (const fn of tickHooks) fn();
-  }
-};
-const pump = new MessageChannel();
-let pumping = false;
-const runChunk = () => {
-  const h = Math.min(simDebt, SIM_CHUNK);
-  if (h <= 1e-9) return;
+let cycling = false;
+const nextCycle = () => {
+  if (!physics || cycling || simDebt <= 1e-9) return;
+  const h = Math.min(simDebt, MOTION_CYCLE);
   simDebt -= h;
-  simulate(h);
-};
-pump.port1.onmessage = () => {
-  pumping = false;
-  runChunk();
-  if (simDebt > 1e-9) {
-    pumping = true;
-    pump.port2.postMessage(0);
-  }
+  cycling = true;
+  session.update(h);
+  void physics.cycle(h).then((moved) => {
+    cycling = false;
+    if (moved) world.invalidate(true);
+    for (const fn of tickHooks) fn();
+    nextCycle();
+  });
 };
 
 world.onFrame((dt) => {
   simDebt = Math.min(simDebt + dt * speed, MAX_SIM_DEBT);
-  runChunk();
-  if (simDebt > 1e-9 && !pumping) {
-    pumping = true;
-    pump.port2.postMessage(0);
-  }
+  nextCycle();
   applyTilt(dt);
   shared.update(dt);
   if (physics) {

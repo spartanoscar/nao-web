@@ -13,7 +13,7 @@ import type { LedState } from '../robot/leds';
 import { expandLed } from '../robot/leds';
 import type { RobotState, RootPose } from '../robot/state';
 import type { UrdfRobot } from '../robot/urdf';
-import type { PhysicsSim } from '../physics/physics';
+import type { PhysicsClient } from '../physics/physicsClient';
 import type { Pods } from '../sim/pods';
 import { PARKED, POD_COUNT } from '../sim/pods';
 import { type RemoteFrame, RemoteNao } from '../sim/remoteNao';
@@ -103,7 +103,7 @@ export interface SharedWorldOptions {
   state: RobotState;
   leds: LedState;
   invalidate(shadows?: boolean): void;
-  physics(): PhysicsSim | null;
+  physics(): PhysicsClient | null;
   /** Mallas oficiales para otro NAO (copia sin pintar) y cómo pintarle la carcasa; null si aún no cargan */
   meshes(): Map<string, THREE.Object3D> | null;
   paintShell(meshes: Iterable<THREE.Object3D>, hex: string): Promise<void>;
