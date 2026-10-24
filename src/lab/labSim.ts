@@ -91,10 +91,16 @@ export class LabSim {
 
   /**
    * Cede una microtarea en cada ciclo (para que avancen las promesas de NAOqi) y, cada 25 ciclos, el turno al
-   * navegador: con solo microtareas la página se congela mientras corre la búsqueda (medido).
+   * navegador: con solo microtareas la página se congela mientras corre la búsqueda (medido). Con un mensaje y no con
+   * setTimeout: en una pestaña de fondo Chrome lleva los setTimeout encadenados a 1 por segundo (o por minuto).
    */
   private breathe(i: number): Promise<void> {
-    return i % 25 === 24 ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve();
+    if (i % 25 !== 24) return Promise.resolve();
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      channel.port2.postMessage(0);
+    });
   }
 
   snapshot(): Snapshot {
