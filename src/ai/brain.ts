@@ -46,6 +46,9 @@ export interface BrainHooks {
 }
 
 /** Sin tildes y en minúsculas, para buscar el nombre del robot en lo que se dijo */
+/** Órdenes de parar (sin tildes, en minúsculas; la frase entera, con o sin el nombre adelante) */
+const STOP = /^\s*(?:[a-z]+[\s,]+)?(?:para(?:te)?|detente|deten|alto|quieto|quedate quieto|stop|basta|frena|no te muevas|deja de moverte)[\s.!]*$/;
+
 const plain = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export class Brain {
@@ -82,6 +85,14 @@ export class Brain {
     const cancelled = () => run !== this.run;
     const motion = this.session.service('ALMotion');
     if (motion.moveIsActive()) void motion.stopMove();
+    // "Para", "quieto", "detente"…: se obedece al instante aquí, sin IA ni tokens (corta el turno anterior arriba). Antes
+    // pasaba por Gemini y "quédate quieto" costó 4 consultas (paró, pero además miró, giró la cabeza y se acomodó)
+    if (STOP.test(plain(text))) {
+      await runSkill('stop', {}, { session: this.session, vision: this.vision, cancelled });
+      this.hooks.action?.('stop', {}, { ok: true });
+      this.say('Listo, me quedo quieto.');
+      return;
+    }
     const pose = robotPose(this.state);
     const origin = pose && { x: round(pose.x), y: round(pose.y), rumbo_grados: Math.round(pose.theta * DEG) };
     this.hooks.thinking(true);
