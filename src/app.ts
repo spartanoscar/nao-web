@@ -13,7 +13,8 @@ import { LedsView } from './sim/ledsView';
 import { NaoCameras } from './sim/naoCameras';
 import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
-import { HOME_ROOM, ROOMS, type RoomId, type SpawnId, roomAt, spawnLabel, spawnPoint } from './sim/rooms';
+import { HOME_ROOM, ROOMS, SPOTS, type RoomId, type SpawnId, roomAt, spawnLabel, spawnPoint } from './sim/rooms';
+import { spawnObstacles } from './sim/environment';
 import type { RootPose } from './robot/state';
 import { createBehaviorPanel } from './ui/behaviorPanel';
 import { attachCameraViews } from './ui/cameraViews';
@@ -57,6 +58,13 @@ const bootRoot = nao.kinematicRootPose();
  * aquí; el laboratorio de movimientos y los bancos de física siguen en el origen (bootRoot, la sala de pruebas).
  */
 let home: RootPose = bootRoot;
+// Ningún punto de aparición puede caer dentro o al lado de una pieza sólida (sim/environment.ts spawnObstacles): la
+// física sacaría al robot empujándolo y cualquier prueba desde ahí sería inválida
+for (const id of [...Object.keys(ROOMS), ...Object.keys(SPOTS)] as SpawnId[]) {
+  const { x, y } = spawnPoint(id);
+  const hits = spawnObstacles(x, y);
+  if (hits.length) console.error(`Punto de aparición "${id}" invadido por: ${hits.map((h) => `${h.name} a ${h.distance} m`).join(', ')}`);
+}
 /** Pose de arranque en un cuarto: la de bootRoot (apoyado en el suelo) girada a su rumbo y llevada a su punto */
 const roomRoot = (id: SpawnId): RootPose => {
   const { x, y, yaw } = spawnPoint(id);

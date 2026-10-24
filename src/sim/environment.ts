@@ -76,3 +76,29 @@ export const ENV_OBJECTS: readonly EnvObject[] = [
   { name: 'box_c', size: [0.4, 0.3, 0.3], pos: inLab(0.2, 0.9, 0.15), yaw: -0.2, color: CARDBOARD, mass: 0.5 },
   { name: 'box_d', size: [0.25, 0.25, 0.25], pos: inLab(-0.9, 0.4, 0.125), yaw: 0.8, color: 0x7c8696, mass: 0.6 },
 ];
+
+/** Margen libre alrededor de un punto de aparición (m): los pies del NAO ocupan ~16 × 16 cm y los brazos algo más */
+export const SPAWN_CLEARANCE = 0.25;
+
+/**
+ * Piezas fijas y objetos que invaden un punto de aparición (lo de menos de 3 cm de alto, como tapetes o el piso del baño,
+ * no cuenta: se puede estar encima). Un punto dentro de una pieza hace que la física saque al robot empujándolo (girado y
+ * en otro lugar) y toda prueba desde ahí queda inválida: el 2026-10-23 un "la marcha no sube la rampa" era el robot
+ * apareciendo dentro de la escalera. La app lo revisa al arrancar (app.ts) y scripts/bench/all.js antes de correr.
+ */
+export function spawnObstacles(x: number, y: number, clearance = SPAWN_CLEARANCE): { name: string; distance: number }[] {
+  const pieces = [...ENV_FIXED, ...ENV_OBJECTS.map((o) => ({ ...o, kind: 'box' as const }))];
+  return pieces.flatMap((o) => {
+    if (o.pos[2] + o.size[2] / 2 < 0.03) return [];
+    const [dx, dy] = [x - o.pos[0], y - o.pos[1]];
+    let distance: number;
+    if (o.kind === 'cylinder') distance = Math.max(0, Math.hypot(dx, dy) - o.size[0] / 2);
+    else {
+      // El punto en el marco de la pieza (girada `yaw`): distancia a su rectángulo en planta
+      const [c, s] = [Math.cos(o.yaw), Math.sin(o.yaw)];
+      const [lx, ly] = [c * dx + s * dy, -s * dx + c * dy];
+      distance = Math.hypot(Math.max(0, Math.abs(lx) - o.size[0] / 2), Math.max(0, Math.abs(ly) - o.size[1] / 2));
+    }
+    return distance < clearance ? [{ name: o.name, distance: +distance.toFixed(3) }] : [];
+  });
+}

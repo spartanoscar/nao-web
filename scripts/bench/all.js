@@ -22,6 +22,11 @@ async () => {
   };
   // Física fiel = colisión con envolventes (mallas en el modelo de MuJoCo)
   const R = { physics: nao.physics.model.nmesh > 0 ? 'fiel' : 'actual', step: '', done: false, results: {} };
+  // El punto de partida tiene que estar libre: si cae dentro de una pieza, la física saca al robot empujándolo y todo lo
+  // que se mida desde ahí es inválido (sim/environment.ts spawnObstacles)
+  const { spawnObstacles } = await import('/src/sim/environment.ts');
+  const blocked = spawnObstacles(0, 0);
+  if (blocked.length) return { error: `el punto de partida (sala de pruebas) está invadido: ${JSON.stringify(blocked)}` };
   nao.sim.setSpeed(10);
   nao.spawn('pruebas'); // los bancos de física y marcha corren en la sala de pruebas (el origen, piso libre)
   (async () => {
