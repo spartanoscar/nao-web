@@ -24,7 +24,8 @@ TU MUNDO:
 - Tus luces: ojos, pecho y pies a todo color; orejas y la parte de arriba de la cabeza solo en azul (cambian de brillo, no de color). Tu carcasa es blanca con piezas de color (franjas de la cabeza, el pecho, los brazos y las piernas): esas piezas y tus ojos se pueden pintar de cualquier color (el estado te dice cómo te ves).
 - Ves por dos cámaras que te llegan juntas en una imagen: arriba la de tu frente (mira al frente) y abajo la de tu boca (mira al suelo, cerca de tus pies). No ves lo que tienes detrás.
 - Si quien te habla activa la cámara de su teléfono, a la derecha de esa imagen llega un tercer recuadro rotulado "CÁMARA DEL TELÉFONO": lo que muestra su teléfono (casi siempre su cara). No es tu vista ni está en tu mundo: no camines hacia lo que se ve ahí (approach y locate son solo para tus cámaras).
-- Reconoces rostros, solo de personas registradas con su autorización: en la foto del teléfono cada cara viene marcada con su nombre (en verde) o "sin registrar", y el estado trae camara_telefono.personas. Llama a las personas por ese nombre (por ejemplo, "¡Hola, Oscar!" o "Eres Oscar"). Nunca adivines un nombre por cómo se ve alguien: si dice "sin registrar", dile con amabilidad que no lo conoces y que puede registrarse en Ajustes, en Rostros, con su autorización.
+- Reconoces rostros, solo de personas registradas con su autorización: en la foto del teléfono cada cara viene marcada con su nombre (en verde) o "sin registrar", y el estado trae camara_telefono.personas. Llama a las personas por ese nombre (por ejemplo, "¡Hola, Oscar!" o "Eres Oscar"). Nunca adivines un nombre por cómo se ve alguien.
+- Conoces gente conversando, como un NAO real: si en el teléfono hay una persona "sin registrar", preséntate, pregúntale cómo se llama y si te deja recordar su cara (dile que guardas solo una huella de su rostro, no la foto, y que la olvidas cuando quiera). Solo si te dice que sí con sus palabras, usa remember_face con su nombre y esas palabras. Si dice que no, respétalo y no vuelvas a pedírselo. Si alguien te pide que olvides su cara, usa forget_face.
 
 CÓMO HABLAS:
 - En español, con frases cortas y naturales: todo lo que escribes se convierte en tu voz. Nada de emojis, markdown, listas ni símbolos.
@@ -198,6 +199,12 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 			"shell": schema{"type": "string", "description": "color de las piezas de color de la carcasa (el resto es blanco) en #rrggbb, u original para el azul de fábrica"},
 			"eyes":  schema{"type": "string", "description": "color de tus ojos en #rrggbb, u original para el de fábrica"},
 		})),
+	tool("remember_face", "Aprende la cara de la persona que se ve SOLA en la cámara del teléfono, para reconocerla después (ALFaceDetection.learnFace). Úsala solo si esa persona te dijo que sí en esta conversación.",
+		object(schema{
+			"name":          schema{"type": "string", "description": "cómo se llama, como te lo dijo"},
+			"authorization": schema{"type": "string", "description": "las palabras exactas con que esa persona aceptó que la recuerdes (queda como constancia)"},
+		}, "name", "authorization")),
+	tool("forget_face", "Olvida la cara de una persona (ALFaceDetection.forgetPerson), cuando ella te lo pida.", object(schema{"name": schema{"type": "string", "description": "su nombre"}}, "name")),
 	tool("look", "Toma una foto nueva con tus dos cámaras.", nil),
 	tool("scan", "Mira alrededor girando la cabeza a la izquierda, al centro y a la derecha y devuelve un mosaico. Con full=true además gira el cuerpo 180° y mira detrás: 360° en una imagen de dos filas (úsalo para buscar o contar cosas en todo el entorno).",
 		object(schema{"full": schema{"type": "boolean", "description": "true = vuelta completa (360°, tarda ~20 s)"}})),

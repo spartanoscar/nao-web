@@ -421,6 +421,21 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
         },
       };
     }
+    case 'remember_face': {
+      // ALFaceDetection.learnFace (o reLearnFace si ya la conoce), con las palabras de la persona como autorización
+      const faces = session.service('ALFaceDetection');
+      const name = String(args.name ?? '').trim();
+      const known = faces.getLearnedFacesList().some((n) => n.toLowerCase() === name.toLowerCase());
+      faces.setLearningConsent(String(args.authorization ?? ''));
+      const ok = known ? await faces.reLearnFace(name) : await faces.learnFace(name);
+      return { response: ok ? { ok, aprendido: name, nota: known ? 'sumé otra toma de su cara' : 'ya reconozco su cara' } : { ok, error: faces.lastError } };
+    }
+    case 'forget_face': {
+      const faces = session.service('ALFaceDetection');
+      const name = String(args.name ?? '').trim();
+      const ok = await faces.forgetPerson(name);
+      return { response: ok ? { ok, olvidado: name } : { ok, error: `no tenía guardada la cara de ${name}` } };
+    }
     case 'my_colors': {
       if (!ctx.appearance) return { response: { ok: false, error: 'no puedo guardar mi apariencia ahora' } };
       const patch: Partial<Appearance> = {};

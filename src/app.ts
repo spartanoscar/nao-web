@@ -438,6 +438,7 @@ let captionError = '';
 // Cerebro (Gemini por el servidor): lo que se le dice o escribe → lo que responde y hace
 const vision = new Vision(session.service('ALVideoDevice'), cameras.cameras);
 vision.phone = faces; // con la cámara del teléfono activa, su foto va a la derecha de la imagen del turno
+session.service('ALFaceDetection').store = faces; // learnFace/forgetPerson con lo que ve el teléfono
 const brain = new Brain(session, state, vision, {
   robotName: () => user.robotName,
   thinking: (on) => (on ? transcript.show('thinking', 'nao', user.robotName, '…', false) : transcript.clear('thinking')),
@@ -481,8 +482,33 @@ attachPhoneLink(hud, session.service('ALVideoDevice'), {
  */
 const GREET_AGAIN_S = 600;
 const greeted = new Map<string, number>();
+/**
+ * Alguien nuevo en el teléfono: el NAO toma la iniciativa y le pregunta su nombre y si puede recordar su cara (un turno
+ * corto del modelo barato, ~US$0.001). Solo si la cara sigue ahí UNKNOWN_FOR_S y no hay otro turno en curso; a la misma
+ * cara (huella parecida) no se le vuelve a preguntar en ASK_AGAIN_S (quizá dijo que no). La respuesta abre la
+ * conversación y, si dice que sí, la IA usa remember_face.
+ */
+const UNKNOWN_FOR_S = 2;
+const ASK_AGAIN_S = 1800;
+let unknownSince = 0;
+const asked: { descriptor: Float32Array; at: number }[] = [];
+const meetStrangers = (now: number) => {
+  const strangers = faces.strangers();
+  if (!strangers.length) return void (unknownSince = 0);
+  unknownSince ||= now;
+  if (now - unknownSince < UNKNOWN_FOR_S || brain.busy) return;
+  const recent = asked.filter((a) => now - a.at < ASK_AGAIN_S);
+  const fresh = strangers.find((d) => !recent.some((a) => faces.same(a.descriptor, d)));
+  if (!fresh) return;
+  asked.splice(0, asked.length, ...recent, { descriptor: fresh, at: now });
+  void brain.ask(
+    '[evento] Apareció en la cámara del teléfono una persona que no conoces. Salúdala con naturalidad (no menciones el teléfono ni la palabra "registrar"), preséntate y pregúntale cómo se llama y si te deja recordar su cara.',
+    'evento',
+  );
+};
 faces.onUpdate = () => {
   const now = performance.now() / 1000;
+  meetStrangers(now);
   const names = faces.faces().flatMap((f) => (f.name ? [f.name] : []));
   for (const name of names) {
     const last = greeted.get(name);

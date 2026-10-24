@@ -54,6 +54,7 @@ const plain = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerC
 export class Brain {
   private run = 0;
   private lastReply = 0;
+  private active = 0;
   private speech: Promise<void> = Promise.resolve();
   /** Quieto desde (ms): para "quieto_seg" en el estado (si lleva mucho, se puede aburrir) */
   private stillSince = performance.now();
@@ -75,13 +76,19 @@ export class Brain {
     return [plain(this.hooks.robotName()), 'nao'].some((n) => n && new RegExp(`\\b${n}\\b`).test(t));
   }
 
-  /** Lo que la persona dijo (voz) o escribió (texto). Cancela el turno anterior si seguía. */
+  /** Hay un turno en curso (pensando o haciendo algo): los eventos no lo interrumpen */
+  get busy(): boolean {
+    return this.active > 0;
+  }
+
+  /** Lo que la persona dijo (voz) o escribió (texto), o un evento del mundo. Cancela el turno anterior si seguía. */
   /**
    * `experiment` (solo surte efecto para un admin, scripts/bench/mirror.js): `fresh` empieza una conversación nueva y
    * `variant: 'sin-metodo'` quita del prompt cómo comprobar si algo es su reflejo (condición A de la prueba del espejo).
    */
-  async ask(text: string, source: 'voz' | 'texto', experiment: { fresh?: boolean; variant?: string } = {}): Promise<void> {
+  async ask(text: string, source: 'voz' | 'texto' | 'evento', experiment: { fresh?: boolean; variant?: string } = {}): Promise<void> {
     const run = ++this.run;
+    this.active++;
     const cancelled = () => run !== this.run;
     const motion = this.session.service('ALMotion');
     if (motion.moveIsActive()) void motion.stopMove();
@@ -142,6 +149,7 @@ export class Brain {
     } catch (e) {
       if (!cancelled()) this.hooks.error(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
     } finally {
+      this.active--;
       if (!cancelled()) {
         this.hooks.thinking(false);
         this.lastReply = performance.now();

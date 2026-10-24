@@ -7,20 +7,22 @@
 //   2. Puntos de la cara (68, versión diminuta) + huella de 128 números SOLO si hay una cara lo bastante grande
 //      (≥ MIN_FACE px) y clara (score ≥ MIN_SCORE) que todavía no esté identificada: una cara reconocida se sigue de
 //      cuadro en cuadro por su posición (se superpone con la de antes) y se vuelve a verificar cada RECHECK_S.
-//   3. La huella se compara aquí con las de las personas registradas por el usuario (GET /api/faces, nunca de otros):
-//      distancia euclidiana < MATCH (el umbral habitual de face-api es 0.6; más estricto para no confundir).
+//   3. La huella se compara aquí con las de las personas registradas por el usuario (GET /api/faces, nunca de otros).
+//      Confianza = 1 − distancia euclidiana; se reconoce con confianza ≥ el umbral de ALFaceDetection (defecto de la doc
+//      0.4 → distancia < 0.6, el umbral habitual de face-api). APPROX: NAOqi no publica cómo calcula su puntaje.
 //
 // Nunca se guarda ni se envía la foto para reconocer: solo viaja a Gemini dentro de la imagen del turno (ai/vision.ts),
 // como lo que ve el NAO. Registrar una persona exige su autorización (Ley 1581): ui/faces.ts.
 
 import type * as FaceApi from '@vladmandic/face-api';
+import type { FaceStore } from '../naoqi/ALFaceDetection';
 
 const MODELS = '/models/face';
 /** Lado mínimo de la caja (px de la foto de 320) para intentar reconocer: más chica, la huella no es confiable */
 const MIN_FACE = 48;
 const MIN_SCORE = 0.6;
-/** Distancia máxima para decir "es esta persona" */
-const MATCH = 0.5;
+/** Tomas al aprender una cara (learnFace); reLearnFace suma una */
+const LEARN_SAMPLES = 3;
 /** Una cara ya reconocida se vuelve a verificar cada tanto (s); una desconocida, más seguido (quizá giró la cara) */
 const RECHECK_S = 3;
 const RETRY_UNKNOWN_S = 2;
@@ -48,11 +50,15 @@ export interface FaceStats {
 
 interface Track extends SeenFace {
   checkedAt: number;
+  /** La última huella de esta cara (para saber si un desconocido es el mismo de antes) */
+  descriptor?: Float32Array;
 }
 
 type Person = { name: string; embeddings: number[][] };
 
-export class FaceWatcher {
+export class FaceWatcher implements FaceStore {
+  /** ALFaceDetection.setRecognitionConfidenceThreshold */
+  threshold = 0.4;
   private api: typeof FaceApi | null = null;
   private loading: Promise<typeof FaceApi> | null = null;
   private heavy: Promise<void> | null = null;
@@ -77,6 +83,64 @@ export class FaceWatcher {
       /* sin red: se queda con las de antes */
     }
     for (const t of this.tracks) t.checkedAt = 0; // reconocer de nuevo con la lista nueva
+  }
+
+  /** Huellas de las caras desconocidas a la vista (app.ts: a quién ya se le preguntó) */
+  strangers(): Float32Array[] {
+    return this.live ? this.tracks.flatMap((t) => (!t.name && !t.pending && t.descriptor ? [t.descriptor] : [])) : [];
+  }
+
+  /** ¿Es la misma cara? (misma regla que para reconocer) */
+  same(a: Float32Array, b: Float32Array): boolean {
+    return !!this.api && 1 - this.api.euclideanDistance(a, b) >= this.threshold;
+  }
+
+  names(): string[] {
+    return this.people.map((p) => p.name);
+  }
+
+  /** ALFaceDetection.learnFace / reLearnFace: la cara que se ve sola en el teléfono, con la autorización */
+  async learn(name: string, consentNote: string, append: boolean): Promise<string | null> {
+    if (!this.live) return 'la cámara del teléfono no está activa: no veo a nadie';
+    const known = this.people.some((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (append && !known) return `no conozco a ${name}: primero hay que aprender su cara`;
+    const embeddings: number[][] = [];
+    for (let i = 0; i < (append ? 1 : LEARN_SAMPLES); i++) {
+      const { descriptor, faces } = await this.nextDescriptor();
+      if (!descriptor) return faces > 1 ? 'se ve más de una cara: debe verse solo la de esa persona' : 'no veo una cara clara en el teléfono';
+      // No aprender con otro nombre la cara de alguien que ya conoce
+      const { name: already } = this.match(descriptor);
+      if (already && already.toLowerCase() !== name.toLowerCase()) return `esa cara ya la conozco: es ${already}`;
+      embeddings.push(Array.from(descriptor));
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    try {
+      const res = await fetch('/api/faces', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, consent: true, consentNote, embeddings, append }),
+      });
+      if (!res.ok) return (await res.json().catch(() => ({}))).error ?? 'no se pudo guardar';
+    } catch {
+      return 'no hay conexión con el servidor';
+    }
+    await this.loadPeople();
+    return null;
+  }
+
+  /** ALFaceDetection.forgetPerson */
+  async forget(name: string): Promise<boolean> {
+    const person = this.people.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (!person) return false;
+    try {
+      const res = await fetch(`/api/faces/${encodeURIComponent(person.name)}`, { method: 'DELETE', credentials: 'same-origin' });
+      if (!res.ok) return false;
+    } catch {
+      return false;
+    }
+    await this.loadPeople();
+    return true;
   }
 
   /** ¿Hay foto reciente del teléfono? (cámara activa) */
@@ -177,7 +241,7 @@ export class FaceWatcher {
       }, { t: null, iou: 0.3 }).t;
       if (!track) continue;
       const { name, distance } = this.match(r.descriptor);
-      Object.assign(track, { name, distance, pending: false, checkedAt: now });
+      Object.assign(track, { name, distance, pending: false, checkedAt: now, descriptor: r.descriptor });
     }
     if (this.waiting) this.waiting(full.length === 1 ? full[0].descriptor : null, full.length);
   }
@@ -190,7 +254,7 @@ export class FaceWatcher {
         if (d < best.distance) best = { name: p.name, distance: d };
       }
     }
-    return best.distance < MATCH ? best : { name: null, distance: Number.isFinite(best.distance) ? best.distance : null };
+    return 1 - best.distance >= this.threshold ? best : { name: null, distance: Number.isFinite(best.distance) ? best.distance : null };
   }
 
   private load(): Promise<typeof FaceApi> {
