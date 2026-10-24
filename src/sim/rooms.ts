@@ -55,11 +55,11 @@ export const ROOMS: Record<RoomId, Room> = {
 
 /**
  * Puntos de aparición además del de cada cuarto. Rampa: en la sala de pruebas, frente a donde empieza la rampa
- * (props.ts: sube de x = −0.6 a 0.8 en y = 1.6), alineado con la subida: la punta de los pies a ~30 cm y la escalera
+ * (props.ts: sube de x = −0.6 a 0.8 en y = 1.1), alineado con la subida: la punta de los pies a ~30 cm y la escalera
  * (termina en x = −1.35) detrás, sin tocarla
  */
 export const SPOTS = {
-  rampa: { label: 'RAMPA', x: -1.0, y: 1.6, yaw: 0 },
+  rampa: { label: 'RAMPA', x: -1.0, y: 1.1, yaw: 0 },
 } as const;
 
 export type SpawnId = RoomId | keyof typeof SPOTS;
@@ -72,9 +72,9 @@ export function spawnLabel(id: SpawnId): string {
   return id in SPOTS ? SPOTS[id as keyof typeof SPOTS].label : ROOMS[id as RoomId].label;
 }
 
-/** Donde aparece el NAO del usuario al entrar. Temporal (Oscar, 2026-10-23): frente a la rampa, para estudiar la marcha
- * en pendiente; lo normal es 'casa' */
-export const HOME_ROOM: SpawnId = 'rampa';
+/** Donde aparece el NAO del usuario al entrar. Por ahora (Oscar, 2026-10-24) en el centro de la sala de pruebas, con la
+ * rampa, los escalones y la escalera alrededor; lo normal será 'casa' */
+export const HOME_ROOM: SpawnId = 'pruebas';
 
 /** Alto de las paredes y del techo, y de las puertas (casa real) */
 export const WALL_HEIGHT = 2.5;

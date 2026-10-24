@@ -15,14 +15,14 @@ const NAMES = JOINTS.map((j) => j.name).filter((n) => !(n in COUPLED));
 
 /**
  * Rutinas originales de Aldebaran que se pueden cargar como poses para repetirlas y ajustarlas (naoqi/aldebaranMotions.ts).
+ * Las de espaldas (BackToStand, BackToSitDown) se quitaron (Oscar, 2026-10-24): aquí nunca levantan; boca arriba se
+ * levanta con la vuelta boca abajo enseñada (postures.ts, taught/RollBackToBelly.json).
  * Varias rutinas = encadenadas como en la caja "Stand Up", con una pausa entre ellas (APPROX: la caja espera a que la
  * postura se estabilice, "Get Robot Pose", hasta 1 s).
  */
 const ORIGINALS: { label: string; origin: PoseOrigin; motions: string[] }[] = [
   { label: 'Levantarse desde sentado (SitToCrouch + CrouchToStand)', origin: 'sit', motions: ['SitToCrouch', 'CrouchToStand'] },
   { label: 'Sentado → cuclillas (SitToCrouch)', origin: 'sit', motions: ['SitToCrouch'] },
-  { label: 'Levantarse de espaldas (BackToStand)', origin: 'back', motions: ['BackToStand'] },
-  { label: 'Sentarse desde boca arriba (BackToSitDown)', origin: 'back', motions: ['BackToSitDown'] },
 ];
 const ORIGINAL_PAUSE = 0.5;
 

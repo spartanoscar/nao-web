@@ -48,9 +48,11 @@ const add = (p: PropPart) => parts.push(p);
 
 // ─── Sala de pruebas ───────────────────────────────────────────────────────────
 {
-  // Rampa: sube 8 cm en 1.4 m (3.3°) hacia +x, contra la pared norte, y una plataforma a esa altura
-  // Empieza en x = −0.6: entre la escalera (termina en −1.35) y la rampa queda espacio para pararse frente a ella
-  const [x0, x1, y, w, h, t] = [-0.6, 0.8, 1.6, 0.6, 0.08, 0.03];
+  // Rampa: sube 8 cm en 1.4 m (3.3°) hacia +x, y una plataforma a esa altura. Empieza en x = −0.6: entre la escalera
+  // (termina en −1.35) y la rampa queda espacio para pararse frente a ella. En y = 1.1, a 0.85 m de la pared norte: en
+  // y = 1.6 (0.35 m) la marcha, que se desvía unos 15°, metía la pared en el camino de los sonares y la marcha segura lo
+  // frenaba al pie de la rampa (medido 2026-10-24; a un NAO real le pasaría igual)
+  const [x0, x1, y, w, h, t] = [-0.6, 0.8, 1.1, 0.6, 0.08, 0.03];
   const len = Math.hypot(x1 - x0, h);
   const pitch = -Math.atan2(h, x1 - x0);
   add({
