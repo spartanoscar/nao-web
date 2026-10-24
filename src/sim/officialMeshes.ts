@@ -1,7 +1,7 @@
 // Mallas 3D oficiales del NAO V4 (© Aldebaran / SoftBank Robotics, CC BY-NC-ND 4.0), servidas sin
 // modificar desde public/models/nao_meshes/ (scripts/fetch-nao-meshes.sh). Cada link del URDF
 // declara su malla en <visual> (escala 0.1, origen en el frame del link), así que encajan tal cual
-// en los frames de NaoModel. La física no las usa: colisiona con sim/shapes.ts.
+// en los frames de NaoModel. La física colisiona con su envolvente convexa (collisionHulls).
 //
 // Condición de Aldebaran: "can be redistributed, but in their installer form" (el usuario acepta la
 // licencia con un clic antes de recibirlas) → la UI pide aceptar antes de llamar a loadOfficialMeshes.
@@ -11,7 +11,6 @@ import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import type { UrdfRobot } from '../robot/urdf';
 import { rpyQuaternion } from './naoModel';
-import { isFingerLink } from './shapes';
 
 export const MESHES_BASE = '/models/nao_meshes/';
 export const MESHES_LICENSE_URL = `${MESHES_BASE}LICENSE.txt`;
@@ -70,6 +69,8 @@ export async function loadOfficialMeshes(
 }
 
 /** Los dedos no tienen cuerpo en la física (siguen a LHand/RHand): su forma va con la muñeca */
+/** Dedos (sin masa en el URDF, siguen a LHand/RHand): van con la muñeca */
+const isFingerLink = (link: string) => /Finger\d\d_link$|Thumb\d_link$/.test(link);
 const handBody = (link: string) => (isFingerLink(link) ? (link.startsWith('L') ? 'l_wrist' : 'r_wrist') : link);
 
 /**
@@ -125,24 +126,9 @@ export function collisionHulls(
 // ─── Color de la carcasa y lente de los ojos ──────────────────────────────────
 // La textura oficial es un atlas con zonas rotuladas por Aldebaran ("Structure", "Main Skin",
 // "Inside", "Eyes", "Colored part"). Se dibuja en memoria una copia (el archivo no se modifica):
-// - "Colored part" del color de carcasa elegido (azul = el original);
+// - "Colored part" del color de carcasa elegido (null = el azul original);
 // - "Eyes" como lente ahumada: en la textura los ojos son azul fijo y cualquier LED encima se teñía
 //   de azul; en el robot real el ojo es una lente oscura con los LEDs detrás.
-
-export interface ShellColor {
-  id: string;
-  label: string;
-  /** null = textura original (azul) */
-  hex: number | null;
-}
-
-/** Variantes de color del NAO V4. APPROX: Aldebaran no publica los códigos; tonos aproximados. */
-export const SHELL_COLORS: readonly ShellColor[] = [
-  { id: 'blue', label: 'Azul', hex: null },
-  { id: 'red', label: 'Rojo', hex: 0xcc1f2a },
-  { id: 'orange', label: 'Naranja', hex: 0xf0701a },
-  { id: 'black', label: 'Negro', hex: 0x262628 },
-];
 
 /** "Colored part" en textureNAO.png (640×400): medido, un rectángulo exacto de #0826e0 */
 const COLORED_PART = { x: 465, y: 0, w: 129, h: 167 };
@@ -177,9 +163,9 @@ function tintedAtlas(hex: number | null): Promise<HTMLCanvasElement> {
   return p;
 }
 
-/** Pinta las mallas oficiales con el color de carcasa dado (y la lente de los ojos) */
-export async function setShellColor(meshes: Iterable<THREE.Object3D>, color: ShellColor): Promise<void> {
-  const atlas = await tintedAtlas(color.hex);
+/** Pinta las mallas oficiales con el color de carcasa dado (null = el de fábrica) y la lente de los ojos */
+export async function setShellColor(meshes: Iterable<THREE.Object3D>, hex: number | null): Promise<void> {
+  const atlas = await tintedAtlas(hex);
   let texture: THREE.CanvasTexture | null = null;
   for (const root of meshes) {
     root.traverse((o) => {

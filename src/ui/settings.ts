@@ -1,5 +1,5 @@
-// Ajustes (modal grande, estilo juego): tu perfil (foto, nombre, cerrar sesión) y tu NAO (nombre e instrucciones
-// propias que se sumarán al prompt base cuando llegue la IA). Sin botones de guardar: cada cambio se guarda solo 3 s
+// Ajustes (modal grande, estilo juego): tu perfil (foto, nombre, cerrar sesión), tu NAO (nombre, colores e
+// instrucciones propias que se suman al prompt base), la biblioteca, los rostros y en qué cuarto del mundo aparecer. Sin botones de guardar: cada cambio se guarda solo 3 s
 // después de la última edición (PATCH /api/me) y aparece un "✓ Guardado" discreto. Se cierra con la ✕, con
 // "Cerrar" o con Esc (no al hacer clic afuera, para no perder lo escrito); al cerrar se guarda lo pendiente.
 
@@ -14,12 +14,27 @@ const RETRY_DELAY = 5000;
 const AVATAR_SIZE = 256;
 /** Colores de fábrica (textureNAO.png "Colored part" y los ojos por defecto de ALLeds) para mostrar en el selector */
 const FACTORY = { shellColor: '#0826e0', eyeColor: '#d1d1ff' } as const;
+/** Variantes de color de fábrica del NAO V4 ("" = el azul original). APPROX: Aldebaran no publica los códigos. */
+const SHELL_PRESETS: [string, string][] = [['', 'Azul'], ['#cc1f2a', 'Rojo'], ['#f0701a', 'Naranja'], ['#262628', 'Negro']];
 const ROLE: Record<User['role'], string> = { admin: 'Administrador', teacher: 'Docente', student: 'Estudiante' };
 
 export function attachSettings(
   button: HTMLButtonElement,
   user: User,
-  { onChange, onSpent, faces }: { onChange(user: User): void; onSpent(): void; faces: FaceWatcher },
+  {
+    onChange,
+    onSpent,
+    faces,
+    rooms,
+    onSpawn,
+  }: {
+    onChange(user: User): void;
+    onSpent(): void;
+    faces: FaceWatcher;
+    /** Cuartos donde se puede aparecer (sim/rooms.ts) */
+    rooms: { id: string; label: string }[];
+    onSpawn(id: string): void;
+  },
 ): void {
   const modal = document.createElement('div');
   modal.className = 'settings-modal';
@@ -32,6 +47,7 @@ export function attachSettings(
           <button type="button" role="tab" data-tab="general" aria-selected="true">General</button>
           <button type="button" role="tab" data-tab="library" aria-selected="false">Biblioteca</button>
           <button type="button" role="tab" data-tab="faces" aria-selected="false">Rostros</button>
+          <button type="button" role="tab" data-tab="world" aria-selected="false">Mundo</button>
         </nav>
         <span class="st-saved" aria-live="polite"></span>
         <button type="button" class="st-x" title="Cerrar" aria-label="Cerrar">${ICONS.close}</button>
@@ -54,7 +70,7 @@ export function attachSettings(
           <div class="st-colors">
             <div class="st-color" data-field="shellColor"><span>Carcasa</span>
               <label class="st-swatch" title="Elegir color"><input type="color" /></label>
-              <button type="button" class="st-link" hidden>Original</button></div>
+              <span class="st-presets">${SHELL_PRESETS.map(([hex, name]) => `<button type="button" class="st-preset" data-hex="${hex}" title="${name}" aria-label="Carcasa ${name}" style="--swatch: ${hex || FACTORY.shellColor}"></button>`).join('')}</span></div>
             <div class="st-color" data-field="eyeColor"><span>Ojos</span>
               <label class="st-swatch" title="Elegir color"><input type="color" /></label>
               <button type="button" class="st-link" hidden>Original</button></div>
@@ -68,6 +84,11 @@ export function attachSettings(
       </div>
       <div class="st-library" data-panel="library" hidden></div>
       <div class="st-faces" data-panel="faces" hidden></div>
+      <div class="st-world" data-panel="world" hidden>
+        <h3>Aparecer en</h3>
+        <p class="st-help"><span>Tu NAO aparece en ese cuarto agachado y con los motores apagados, como recién encendido.</span></p>
+        <div class="st-rooms">${rooms.map((r) => `<button type="button" class="st-room" data-room="${r.id}">${r.label}</button>`).join('')}</div>
+      </div>
       <footer class="st-foot"><button type="button" class="st-close">Cerrar</button></footer>
     </div>`;
   document.body.append(modal);
@@ -149,12 +170,15 @@ export function attachSettings(
     field: el.dataset.field as keyof typeof FACTORY,
     input: el.querySelector<HTMLInputElement>('input')!,
     swatch: el.querySelector<HTMLElement>('.st-swatch')!,
-    reset: el.querySelector<HTMLButtonElement>('.st-link')!,
+    /** Volver al de fábrica (la carcasa lo hace con su círculo azul) */
+    reset: el.querySelector<HTMLButtonElement>('.st-link'),
   }));
+  const presets = [...modal.querySelectorAll<HTMLButtonElement>('.st-preset')];
   const paintColor = (row: (typeof colorRows)[number], value: string) => {
     row.input.value = value || FACTORY[row.field];
     row.swatch.style.setProperty('--swatch', row.input.value);
-    row.reset.hidden = !value;
+    if (row.reset) row.reset.hidden = !value;
+    if (row.field === 'shellColor') for (const p of presets) p.setAttribute('aria-pressed', String(p.dataset.hex === value));
   };
   for (const row of colorRows) {
     const pick = (value: string) => {
@@ -164,7 +188,8 @@ export function attachSettings(
       queue({ [row.field]: value });
     };
     row.input.addEventListener('input', () => pick(row.input.value));
-    row.reset.addEventListener('click', () => pick(''));
+    row.reset?.addEventListener('click', () => pick(''));
+    if (row.field === 'shellColor') for (const p of presets) p.addEventListener('click', () => pick(p.dataset.hex!));
   }
 
   nameInput.addEventListener('input', () => {
@@ -218,6 +243,14 @@ export function attachSettings(
     else facesPanel.hide();
   };
   for (const t of tabs) t.addEventListener('click', () => selectTab(t.dataset.tab!));
+
+  // ─── Mundo ──────────────────────────────────────────────────────────────────
+  for (const b of modal.querySelectorAll<HTMLButtonElement>('.st-room')) {
+    b.addEventListener('click', () => {
+      onSpawn(b.dataset.room!);
+      close();
+    });
+  }
 
   // ─── Abrir y cerrar ─────────────────────────────────────────────────────────
   const close = () => {

@@ -24,7 +24,7 @@ export class Session {
   constructor(state: RobotState) {
     this.engine = new MotionEngine(state);
     const motion = new ALMotion(this.engine, state);
-    const posture = new ALRobotPosture(this.engine, state, motion);
+    const posture = new ALRobotPosture(state, motion);
     motion.goToPosture = (name, speed) => posture.goToPosture(name, speed);
     this.ledService = new ALLeds(this.leds);
     const sonar = new ALSonar();

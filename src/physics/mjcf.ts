@@ -1,12 +1,11 @@
 // Genera el modelo MuJoCo (MJCF) del NAO a partir del URDF oficial: cinemática, masas e inercias
-// (reference/urdf), límites V6 (naoV6), colisión = las mismas formas que se dibujan (sim/shapes) y
+// (reference/urdf), límites V6 (naoV6), colisión = la forma real de cada pieza (envolventes de las mallas oficiales) y
 // los objetos del entorno. El motor sigue el modelo de qiBullet (SoftBank): control de posición
 // con el torque máximo del URDF; la stiffness de NAOqi limita ese torque (ver physics.ts).
 
 import { JOINT_BY_NAME } from '../robot/naoV6';
 import type { UrdfJoint, UrdfLink, UrdfRobot, Vec3 } from '../robot/urdf';
 import { ENV_FIXED, ENV_OBJECTS } from '../sim/environment';
-import { linkShapes, type Shape } from '../sim/shapes';
 
 /** 500 Hz: el DCM del NAO real corre a 100 Hz; la física necesita pasos más finos */
 export const PHYSICS_TIMESTEP = 0.002;
@@ -40,22 +39,15 @@ export function rpyToQuat([r, p, y]: Vec3): [number, number, number, number] {
   return [cr * cp * cy + sr * sp * sy, sr * cp * cy - cr * sp * sy, cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy];
 }
 
-/** Sin auto-colisión el robot solo choca con el suelo y los objetos (conaffinity 0 entre sus piezas) */
+// Las piezas del robot chocan entre sí (salvo los pares de `exclude`), con el suelo y con los objetos.
 // group 1 = el robot, 2 = el suelo, 0 = objetos y piezas fijas (lo único que ven los sonares, physics.ts SONAR_GROUPS)
-const robotContact = (self: boolean) => `contype="1" conaffinity="${self ? 1 : 0}" group="1"`;
+const ROBOT_CONTACT = 'contype="1" conaffinity="1" group="1"';
 
-function geom(shape: Shape, common: string): string {
-  switch (shape.kind) {
-    case 'capsule':
-      return `<geom type="capsule" fromto="${v3(shape.from)} ${v3(shape.to)}" size="${f(shape.radius)}" ${common}/>`;
-    case 'sphere':
-      return `<geom type="sphere" pos="${v3(shape.center)}" size="${f(shape.radius)}" ${common}/>`;
-    case 'box':
-      return `<geom type="box" pos="${v3(shape.center)}" size="${v3(shape.size.map((s) => s / 2))}" ${common}/>`;
-    case 'disc':
-      return '';
-  }
-}
+/**
+ * Los codos no tienen malla oficial propia (la carcasa del brazo va en el bíceps y el antebrazo): una esfera en la
+ * articulación. APPROX: radio de la rótula del NAO (~2 cm).
+ */
+const ELBOW_RADIUS = 0.021;
 
 function inertial(link: UrdfLink): string {
   const [ixx, iyy, izz, ixy, ixz, iyz] = link.inertia;
@@ -63,7 +55,7 @@ function inertial(link: UrdfLink): string {
 }
 
 /**
- * μ de la carcasa de plástico del NAO contra el suelo (física fiel). APPROX: sin dato oficial; plástico sobre piso ~0.3–0.5.
+ * μ de la carcasa de plástico del NAO contra el suelo. APPROX: sin dato oficial; plástico sobre piso ~0.3–0.5.
  * Medido (2026-10-24, video de un NAO real levantándose de espaldas, youtube.com/watch?v=JZV9lItJGUo): con μ = 1 (goma,
  * como la suela) la cabeza se agarraba al suelo y formaba un arco, los codos no resbalaban bajo la espalda y al cerrar la
  * cadera subían las piernas en vez del torso; con 0.4 la cabeza resbala, el torso sube sobre los codos y se incorpora
@@ -71,24 +63,24 @@ function inertial(link: UrdfLink): string {
  */
 export const SHELL_FRICTION = 0.4;
 
-/** Pies: con la física fiel, caja con las medidas de su envolvente (ver collision en buildMjcf) */
+/** Pies: caja con las medidas de su envolvente (ver collision en buildMjcf) */
 const FLAT_SOLE = new Set(['l_ankle', 'r_ankle']);
 
 /** Envolventes convexas de las mallas oficiales por cuerpo (sim/officialMeshes.ts collisionHulls), en m */
 export type CollisionHulls = ReadonlyMap<string, ArrayLike<number>>;
 
 /**
- * Colisión del robot. Por defecto, las formas simples (sim/shapes.ts) y sin choque entre sus piezas (APPROX).
- * Física fiel: la forma real de cada pieza (envolventes de las mallas oficiales) y choque consigo mismo, como el
- * plástico del NAO real; `exclude` = pares de cuerpos que no chocan entre sí (ver physics.ts selfCollisionExcludes).
+ * Colisión del robot: la forma real de cada pieza (envolventes de las mallas oficiales; los codos, sin malla propia,
+ * una esfera) y choque consigo mismo, como el plástico del NAO real. `exclude` = pares
+ * de cuerpos que no chocan entre sí (ver physics.ts selfCollisionExcludes).
  */
 export interface CollisionOptions {
-  hulls?: CollisionHulls;
-  selfCollision?: boolean;
+  hulls: CollisionHulls;
   exclude?: readonly (readonly [string, string])[];
   /**
-   * μ de la carcasa (todo menos los pies) contra lo que toque; sin esto, μ = 1 como la suela. Con `priority="1"` MuJoCo
-   * usa la fricción de la carcasa en vez de la mayor de las dos, así el suelo y la suela no cambian.
+   * μ de la carcasa (todo menos los pies) contra lo que toque (SHELL_FRICTION si no se da; otro valor solo para
+   * bancos). Con `priority="1"` MuJoCo usa la fricción de la carcasa en vez de la mayor de las dos, así el suelo y la
+   * suela no cambian.
    */
   shellFriction?: number;
 }
@@ -118,7 +110,7 @@ function excludes(bodies: ReadonlyMap<string, string>, extra: readonly (readonly
 export function buildMjcf(
   urdf: UrdfRobot,
   root: { position: Vec3; quaternion: [number, number, number, number] },
-  { hulls, selfCollision = false, exclude = [], shellFriction }: CollisionOptions = {},
+  { hulls, exclude = [], shellFriction = SHELL_FRICTION }: CollisionOptions,
 ): { xml: string; joints: PhysicalJoint[]; bodies: Map<string, string> } {
   const links = new Map(urdf.links.map((l) => [l.name, l]));
   const byParent = new Map<string, UrdfJoint[]>();
@@ -126,15 +118,13 @@ export function buildMjcf(
 
   const joints: PhysicalJoint[] = [];
   const isPhysical = (j: UrdfJoint) => j.type === 'revolute' && !KINEMATIC.has(j.name) && JOINT_BY_NAME.has(j.name);
-  // Colisión: la envolvente de la malla oficial si la hay (la forma del NAO real); si no, las formas simples
+  // Colisión: la envolvente de la malla oficial (la forma del NAO real)
   const assets: string[] = [];
-  const soleContact = robotContact(selfCollision);
-  const shellContact =
-    shellFriction === undefined ? soleContact : `${soleContact} friction="${f(shellFriction)} 0.005 0.0001" priority="1"`;
+  const shellContact = `${ROBOT_CONTACT} friction="${f(shellFriction)} 0.005 0.0001" priority="1"`;
   const collision = (link: string, pad: string): string[] => {
-    const hull = hulls?.get(link);
-    const contact = FLAT_SOLE.has(link) ? soleContact : shellContact;
-    if (!hull) return linkShapes(link).filter((s) => s.collide).map((s) => `${pad}${geom(s, contact)}`);
+    const hull = hulls.get(link);
+    const contact = FLAT_SOLE.has(link) ? ROBOT_CONTACT : shellContact;
+    if (!hull) return link.endsWith('Elbow') ? [`${pad}<geom type="sphere" size="${f(ELBOW_RADIUS)}" ${contact}/>`] : [];
     if (FLAT_SOLE.has(link)) {
       // La suela es plana (medido: 34 vértices de la envolvente a < 1 mm del fondo, en toda la huella), pero MuJoCo
       // apoya una malla sobre el suelo en pocos puntos que saltan de vértice en vértice: de pie el robot temblaba
@@ -230,7 +220,9 @@ ${fixed.map((g) => `    ${g}`).join('\n')}
     <!-- "LHipYawPitch and RHipYawPitch are physically just one motor" -->
     <joint joint1="RHipYawPitch" joint2="LHipYawPitch" polycoef="0 1 0 0 0"/>
   </equality>
-  ${selfCollision ? `<contact>\n${excludes(bodies, exclude).map(([a, b]) => `    <exclude body1="${a}" body2="${b}"/>`).join('\n')}\n  </contact>` : ''}
+  <contact>
+${excludes(bodies, exclude).map(([a, b]) => `    <exclude body1="${a}" body2="${b}"/>`).join('\n')}
+  </contact>
   <actuator>
 ${actuators.join('\n')}
   </actuator>

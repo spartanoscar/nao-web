@@ -1,7 +1,6 @@
 // Mundo 1, "Laboratorio" (docs/PLAN.md F13): un pasillo con cuartos separados, cada uno un experimento. Datos
 // compartidos por el render (world.ts) y la física (las paredes son piezas fijas de MuJoCo, environment.ts ENV_FIXED).
-// Coordenadas Z arriba (URDF/MuJoCo), metros. La sala de pruebas queda centrada en el origen: ahí corren los bancos y
-// el laboratorio de movimientos, como antes.
+// Coordenadas Z arriba (URDF/MuJoCo), metros. La sala de pruebas queda centrada en el origen: ahí corren los bancos.
 //
 //   y ↑
 //      ┌───────────┬───────────┬───────────────┐ 2.0

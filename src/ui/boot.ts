@@ -1,6 +1,6 @@
 // Pantalla de entrada (estilo juego): login de usuarios registrados, aceptación obligatoria de la licencia del
-// modelo oficial y barra "Cargando universo…". Mientras la persona escribe, el mundo ya se carga detrás (física,
-// mallas, primer cuadro). Nunca se entra sin el modelo oficial cargado: si falla, se puede reintentar.
+// modelo oficial y barra "Cargando universo…". Mientras la persona escribe, el mundo ya se carga detrás (mallas,
+// física, primer cuadro). Nunca se entra sin el modelo oficial (si falla, se puede reintentar) ni sin la física.
 
 import { ApiError, type User, login, me } from '../net/api';
 import { MESHES_LICENSE_URL, acceptLicense, licenseAccepted } from './meshLicense';
@@ -8,8 +8,8 @@ import { MESHES_LICENSE_URL, acceptLicense, licenseAccepted } from './meshLicens
 export interface BootHooks {
   /** Descarga y monta las mallas oficiales (solo con la licencia aceptada) */
   loadModel(onProgress: (loaded: number, total: number) => void): Promise<void>;
-  /** Física: true = MuJoCo, false = modo cinemático (se entra igual) */
-  physics: Promise<boolean>;
+  /** Física MuJoCo lista (necesita las mallas); si falla no se entra */
+  physics: Promise<void>;
   /** Dibuja el mundo una vez (compila shaders y sombras) antes de mostrarlo */
   warmUp(): void;
 }
@@ -65,7 +65,7 @@ export function runBoot(hooks: BootHooks): Promise<User> {
     const detail = root.querySelector<HTMLElement>('.boot-detail')!;
 
     let user: User | null = null;
-    let physics: 'loading' | 'mujoco' | 'kinematic' = 'loading';
+    let physics: 'loading' | 'ready' | 'failed' = 'loading';
     let model: 'waiting' | 'loading' | 'done' | 'failed' = 'waiting';
     let modelProgress = 0;
     let entering = false;
@@ -74,18 +74,18 @@ export function runBoot(hooks: BootHooks): Promise<User> {
 
     const render = () => {
       const p =
-        (physics === 'loading' ? 0 : WEIGHT.physics) +
+        (physics === 'ready' ? WEIGHT.physics : 0) +
         (model === 'done' ? WEIGHT.model : WEIGHT.model * modelProgress) +
         (entering ? WEIGHT.world : 0);
       bar.style.width = `${Math.round(p * 100)}%`;
-      const loaded = physics !== 'loading' && model === 'done';
+      const loaded = physics === 'ready' && model === 'done';
       status.textContent = entering
         ? '¡Universo listo!'
         : loaded && !user
           ? 'Universo cargado · inicia sesión para entrar'
           : `Cargando universo… ${Math.round(p * 100)}%`;
       const parts = [
-        physics === 'loading' ? 'Física MuJoCo…' : physics === 'mujoco' ? 'Física MuJoCo ✓' : 'Física: modo simple',
+        physics === 'ready' ? 'Física MuJoCo ✓' : physics === 'failed' ? 'Física MuJoCo: no arrancó' : 'Física MuJoCo…',
         model === 'waiting'
           ? 'Modelo del NAO: acepta la licencia'
           : model === 'done'
@@ -131,7 +131,7 @@ export function runBoot(hooks: BootHooks): Promise<User> {
     };
 
     const tryEnter = () => {
-      if (entering || !user || model !== 'done' || physics === 'loading') return;
+      if (entering || !user || model !== 'done' || physics !== 'ready') return;
       entering = true;
       render();
       hooks.warmUp();
@@ -184,10 +184,18 @@ export function runBoot(hooks: BootHooks): Promise<User> {
       render();
     });
 
-    hooks.physics.then((ok) => {
-      physics = ok ? 'mujoco' : 'kinematic';
-      render();
-    });
+    hooks.physics.then(
+      () => {
+        physics = 'ready';
+        render();
+      },
+      (e) => {
+        console.error('Física no disponible:', e);
+        physics = 'failed';
+        error.textContent = 'No se pudo arrancar la física del NAO. Recarga la página.';
+        render();
+      },
+    );
     if (licenseAccepted()) startModel();
     // ¿Ya había sesión? (cookie de 30 días)
     me()

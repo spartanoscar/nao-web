@@ -1,9 +1,7 @@
 // Motor de movimiento: el equivalente al bucle interno de ALMotion. Avanza en ciclos fijos de 20 ms,
 // interpola las trayectorias activas y escribe en RobotState. Los servicios NAOqi (ALMotion,
-// ALRobotPosture…) solo traducen su API a llamadas de este motor.
-//
-// Además de los 26 joints hay dos canales de cuerpo (body.footSupport y body.pitch) para que las
-// posturas sentado/acostado orienten el torso. APPROX: sin física, ver BodySupport.
+// ALRobotPosture…) solo traducen su API a llamadas de este motor. El motor genera los comandos; los ángulos medidos
+// los escribe la física (physics.ts). Las manos siguen siendo cinemáticas.
 
 import { JOINT_BY_NAME, JOINTS } from '../robot/naoV6';
 import type { RobotState } from '../robot/state';
@@ -11,14 +9,10 @@ import type { RobotState } from '../robot/state';
 /** Ciclo de ALMotion: 20 ms */
 export const MOTION_CYCLE = 0.02;
 
-export const BODY_FOOT_SUPPORT = 'body.footSupport';
-export const BODY_PITCH = 'body.pitch';
-
 interface Channel {
   get(): number;
-  set(v: number): void;
   maxVelocity: number;
-  /** Los joints con stiffness 0 no obedecen; los canales de cuerpo siempre */
+  /** Los joints con stiffness 0 no obedecen */
   enabled(): boolean;
 }
 
@@ -29,8 +23,6 @@ interface CurveTrack {
   times: number[];
   values: number[];
   slopes: number[];
-  /** Tramos rectos entre keyframes (reproductores de keyframes de RoboCup) en vez de la curva de ALMotion */
-  linear: boolean;
 }
 
 /** Seguimiento reactivo de un objetivo (setAngles): velocidad continua, aceleración limitada */
@@ -67,13 +59,6 @@ class Task implements MotionTask {
 }
 
 export class MotionEngine {
-  /**
-   * true cuando hay simulación física: el motor solo genera comandos (los lee physics.ts) y los
-   * ángulos medidos los escribe la física. Las manos siguen siendo cinemáticas.
-   */
-  physical = false;
-  /** Lo llama manual(): con física, un joint sin motor se coloca a mano (ver PhysicsSim.placeJoint) */
-  onManual: ((name: string, value: number) => void) | null = null;
   private readonly channels = new Map<string, Channel>();
   private readonly tracks = new Map<string, Track>();
   /** Posición comandada (getAngles(useSensors=false)); difiere del sensor con stiffness 0 */
@@ -87,24 +72,10 @@ export class MotionEngine {
     for (const spec of JOINTS) {
       this.channels.set(spec.name, {
         get: () => state.get(spec.name),
-        set: () => undefined, // los joints se escriben en bloque al final del ciclo
         maxVelocity: spec.maxVelocity,
         enabled: () => state.getStiffness(spec.name) > 0,
       });
     }
-    // APPROX: velocidades de giro del cuerpo elegidas para que las transiciones se vean naturales
-    this.channels.set(BODY_FOOT_SUPPORT, {
-      get: () => state.body.footSupport,
-      set: (v) => state.setBody({ footSupport: v }),
-      maxVelocity: 3,
-      enabled: () => true,
-    });
-    this.channels.set(BODY_PITCH, {
-      get: () => state.body.pitch,
-      set: (v) => state.setBody({ pitch: v }),
-      maxVelocity: 2.5,
-      enabled: () => true,
-    });
   }
 
   /**
@@ -155,11 +126,10 @@ export class MotionEngine {
   /**
    * Trayectorias por keyframes, todas en paralelo. Tiempos en segundos desde ahora (estrictamente
    * crecientes, > 0); valores absolutos. Reemplaza cualquier comando previo sobre esos canales.
-   * `linear`: tramos rectos entre keyframes (como el reproductor de NaoTH) en vez de la curva suave.
    */
   interpolate(
     trajectories: Readonly<Record<string, { times: number[]; values: number[] }>>,
-    { continuous = false, linear = false }: { continuous?: boolean; linear?: boolean } = {},
+    { continuous = false }: { continuous?: boolean } = {},
   ): MotionTask {
     const task = new Task(this);
     for (const [name, { times, values }] of Object.entries(trajectories)) {
@@ -169,7 +139,7 @@ export class MotionEngine {
       const slopes = monotoneSlopes(ts, vs);
       // Encadenado: la curva nueva arranca con la velocidad que llevaba el joint (sin frenar en la unión)
       if (continuous) slopes[0] = this.tracks.get(name)?.vel ?? 0;
-      this.startTrack(name, { kind: 'curve', t: 0, times: ts, values: vs, slopes, linear }, task, start);
+      this.startTrack(name, { kind: 'curve', t: 0, times: ts, values: vs, slopes }, task, start);
     }
     if (task.remaining === 0) task.release();
     return task;
@@ -200,19 +170,6 @@ export class MotionEngine {
       this.startTrack(name, { kind: 'follow', target: this.clampValue(name, target), vmax }, task, this.command(name));
     }
     if (task.remaining === 0) task.release();
-  }
-
-  /** Mover un joint "a mano" (slider): cancela su comando y escribe directo */
-  manual(name: string, value: number): void {
-    this.stopChannels([name]);
-    if (this.physical && !name.endsWith('Hand')) {
-      const [min, max] = this.state.limits(name);
-      const v = Math.min(Math.max(value, min), max);
-      this.commanded.set(name, v);
-      if (this.state.getStiffness(name) === 0) this.onManual?.(name, v);
-      return;
-    }
-    this.commanded.set(name, this.state.set(name, value));
   }
 
   stopChannels(names: readonly string[]): void {
@@ -314,14 +271,8 @@ export class MotionEngine {
 
       tr.vel = (p - tr.pos) / h;
       tr.pos = p;
-      if (ch.enabled()) {
-        const isJoint = JOINT_BY_NAME.has(name);
-        // Con física los joints los mueve la simulación (salvo las manos); el apoyo del cuerpo también
-        if (!this.physical) {
-          if (isJoint) writes[name] = p;
-          else ch.set(p);
-        } else if (name.endsWith('Hand')) writes[name] = p;
-      }
+      // Los joints los mueve la simulación; las manos (sin física) se escriben aquí
+      if (ch.enabled() && name.endsWith('Hand')) writes[name] = p;
       if (finished) {
         this.commanded.set(name, p);
         this.tracks.delete(name);
@@ -358,14 +309,6 @@ function evalLinear(times: number[], values: number[], t: number): number {
 }
 
 /**
- * Valor en `t` de la curva que usa angleInterpolation entre keyframes (tiempos crecientes, el primero = inicio), para
- * convertir líneas de tiempo sin cambiar su forma (naoqi/aldebaranMotions.ts toKeyframes).
- */
-export function sampleMonotone(times: number[], values: number[], t: number): number {
-  return evalCurve({ kind: 'curve', t: 0, times, values, slopes: monotoneSlopes(times, values), linear: false }, t);
-}
-
-/**
  * Pendientes de una spline de Hermite monótona (Fritsch–Butland): no se pasa de los keyframes y
  * empieza/termina con velocidad nula. APPROX: ALMotion no documenta su interpolador exacto.
  */
@@ -379,9 +322,8 @@ function monotoneSlopes(times: number[], values: number[]): number[] {
   });
 }
 
-function evalCurve({ times, values, slopes, linear }: CurveTrack, t: number): number {
+function evalCurve({ times, values, slopes }: CurveTrack, t: number): number {
   if (t >= times[times.length - 1]) return values[values.length - 1];
-  if (linear) return evalLinear(times, values, t);
   const i = segment(times, t);
   const dt = times[i + 1] - times[i];
   const s = clamp((t - times[i]) / dt, 0, 1);

@@ -12,7 +12,7 @@ import { type ALValue, NaoqiError, perJoint, resolveCoupled, toNames, trajectori
 import type { MotionEngine } from './engine';
 import { type ArmSolution, solveArm } from './cartesian';
 import { moveToPose, robotPose } from './moveTo';
-import { moveToPosture, nearestPosture, postureFamily } from './postures';
+import { nearestPosture, postureFamily } from './postures';
 import { Gait, WALK_POSE } from './walk';
 
 const SERVICE = 'ALMotion';
@@ -27,7 +27,7 @@ const SONAR_TO_FRONT = 0.1;
 const HALF_WIDTH = 0.16;
 
 export class ALMotion {
-  /** La pone Session: wakeUp/rest usan ALRobotPosture (y su camino entre posturas) */
+  /** La pone Session: wakeUp/rest usan ALRobotPosture.goToPosture */
   goToPosture: ((name: string, speed: number) => Promise<boolean>) | null = null;
   private readonly gait: Gait;
   /** Cambia con cada orden de marcha: un moveTo en curso ve que lo interrumpieron */
@@ -137,8 +137,7 @@ export class ALMotion {
     if (this.robotIsWakeUp()) return true;
     await this.engine.interpolateStiffness(this.stiffnessTargets(1, 0.5)).done;
     if (postureFamily(this.state) !== 'Standing' || nearestPosture(this.state).error > 0.1) {
-      if (this.goToPosture) await this.goToPosture('StandInit', 0.5);
-      else await moveToPosture(this.engine, 'StandInit', 0.5).done;
+      await this.goToPosture?.('StandInit', 0.5);
     }
     return true;
   }
@@ -147,8 +146,7 @@ export class ALMotion {
   async rest(): Promise<void> {
     // De pie va a Crouch; sentado o acostado ya está en una posición segura
     if (this.robotIsWakeUp() && postureFamily(this.state) === 'Standing') {
-      if (this.goToPosture) await this.goToPosture('Crouch', 0.5);
-      else await moveToPosture(this.engine, 'Crouch', 0.5).done;
+      await this.goToPosture?.('Crouch', 0.5);
     }
     this.engine.stopAll();
     await this.engine.interpolateStiffness(this.stiffnessTargets(0, 0.3)).done;
@@ -256,7 +254,7 @@ export class ALMotion {
   async moveTo(x: number, y: number, theta: number): Promise<boolean> {
     if (!this.canWalk('moveTo')) return false;
     if (!this.state.root) {
-      console.warn('ALMotion::moveTo: sin física no hay odometría');
+      console.warn('ALMotion::moveTo: la física aún no arranca (sin odometría)');
       return false;
     }
     const run = ++this.moveRun;
@@ -414,7 +412,7 @@ export class ALMotion {
     const inTorso = kin.linkInTorso(link, angle);
     if (frame === 0) return inTorso;
     if (frame !== 1 && frame !== 2) throw new NaoqiError(SERVICE, method, 'frame debe ser FRAME_TORSO (0), FRAME_WORLD (1) o FRAME_ROBOT (2)');
-    // Sin física no hay pose del torso en el mundo: se toma el torso en el origen (APPROX)
+    // Antes de que arranque la física no hay pose del torso en el mundo: se toma el torso en el origen
     const root = this.state.root;
     const torso = root ? fromQuaternion(root.quaternion, root.position) : fromQuaternion([1, 0, 0, 0], [0, 0, 0]);
     const world = multiply(torso, inTorso);

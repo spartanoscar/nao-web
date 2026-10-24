@@ -16,13 +16,13 @@ const STRAFE_LEFT = new Set(['KeyQ']);
 const STRAFE_RIGHT = new Set(['KeyE']);
 const HANDLED = new Set([...FORWARD, ...BACKWARD, ...LEFT, ...RIGHT, ...STRAFE_LEFT, ...STRAFE_RIGHT]);
 
-/** El teclado no se roba cuando se escribe o se usa un control (los sliders usan las flechas) */
+/** El teclado no se roba cuando se escribe o se usa un control */
 function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
 
-export function attachKeyboard(session: Session, onStatus: (text: string) => void): void {
+export function attachKeyboard(session: Session): void {
   const motion = session.service('ALMotion');
   const held = new Set<string>();
   let shift = false;
@@ -46,21 +46,18 @@ export function attachKeyboard(session: Session, onStatus: (text: string) => voi
     if (moving && !motion.robotIsWakeUp()) {
       if (waking) return;
       waking = true;
-      onStatus('▶ ALMotion.wakeUp()');
       await motion.wakeUp();
       waking = false;
       last = '';
       return update();
     }
     motion.moveToward(v.x, v.y, v.theta);
-    onStatus(moving ? `▶ ALMotion.moveToward(${v.x}, ${v.y}, ${v.theta})` : '');
   };
 
   window.addEventListener('keydown', (e) => {
     shift = e.shiftKey;
     if (e.key === 'Shift') return void update(); // girar ↔ paso lateral con A/D ya apretada
-    // En el modo animador (ui/animator.ts) las teclas mueven piezas, no hacen caminar al robot
-    if (!HANDLED.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target) || document.body.classList.contains('animating')) return;
+    if (!HANDLED.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target)) return;
     e.preventDefault(); // las flechas no deben desplazar la página
     held.add(e.code);
     void update();

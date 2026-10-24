@@ -66,13 +66,14 @@ interface Voice {
   noiseGain: GainNode;
 }
 
+/** Volumen de los motores bajo el volumen general del robot (lo controla el HUD). APPROX: de oído. */
+const VOLUME = 0.7;
+
 export class MotorSound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private readonly voices = new Map<string, Voice>();
-  private volume = 0.7;
-  private enabled = true;
   /** Volumen general del robot (ALAudioDevice), por encima del de los motores */
   private output = 1;
 
@@ -88,22 +89,12 @@ export class MotorSound {
     compressor.threshold.value = -18;
     compressor.ratio.value = 4;
     this.master = ctx.createGain();
-    this.master.gain.value = this.enabled ? this.volume * this.output : 0;
+    this.master.gain.value = VOLUME * this.output;
     this.master.connect(compressor).connect(ctx.destination);
     // Ruido blanco compartido (2 s en bucle) para el roce de los engranajes
     this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  }
-
-  setEnabled(on: boolean): void {
-    this.enabled = on;
-    this.applyMaster();
-  }
-
-  setVolume(v: number): void {
-    this.volume = Math.min(Math.max(v, 0), 1);
-    this.applyMaster();
   }
 
   /**
@@ -112,7 +103,7 @@ export class MotorSound {
    */
   update(motors: readonly MotorTelemetry[], distance: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.enabled || ctx.state !== 'running') return;
+    if (!ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
     for (const m of motors) {
       const v = this.voice(m);
@@ -128,7 +119,7 @@ export class MotorSound {
   /** Golpe contra el suelo (de PhysicsSim.takeImpacts) */
   impact({ kind, speed }: Impact, distance: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.enabled || ctx.state !== 'running' || !this.master || !this.noise) return;
+    if (!ctx || ctx.state !== 'running' || !this.master || !this.noise) return;
     const cfg = IMPACT_SOUND[kind];
     const att = 1 / (1 + Math.max(distance - 0.6, 0) * 1.4);
     const strength = Math.min(Math.pow(speed / cfg.fullSpeed, 1.1), 1) * cfg.level * att;
@@ -171,7 +162,7 @@ export class MotorSound {
 
   private applyMaster(): void {
     if (!this.ctx || !this.master) return;
-    this.master.gain.setTargetAtTime(this.enabled ? this.volume * this.output : 0, this.ctx.currentTime, 0.05);
+    this.master.gain.setTargetAtTime(VOLUME * this.output, this.ctx.currentTime, 0.05);
   }
 
   private voice(m: MotorTelemetry): Voice {

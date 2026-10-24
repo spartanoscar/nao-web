@@ -30,7 +30,6 @@ export type TtsRequest =
   | { type: 'speak'; id: number; text: string; voice: string; lang: 'es' | 'en-us'; speed: number; fx: VoiceFx };
 
 export type TtsResponse =
-  | { type: 'progress'; loaded: number; total: number }
   | { type: 'ready'; engine: string }
   | { type: 'chunk'; id: number; text: string; audio: Float32Array; sampleRate: number; last: boolean }
   | { type: 'error'; id?: number; message: string };
@@ -72,22 +71,7 @@ function load(): Promise<KokoroTTS> {
 }
 
 function loadWith({ device, dtype }: Engine): Promise<KokoroTTS> {
-  const files = new Map<string, [number, number]>();
-  return KokoroTTS.from_pretrained(MODEL, {
-    dtype,
-    device,
-    progress_callback: (p: { status: string; file?: string; loaded?: number; total?: number }) => {
-      if (p.status !== 'progress' || !p.file) return;
-      files.set(p.file, [p.loaded ?? 0, p.total ?? 0]);
-      let loaded = 0;
-      let total = 0;
-      for (const [l, t] of files.values()) {
-        loaded += l;
-        total += t;
-      }
-      post({ type: 'progress', loaded, total });
-    },
-  });
+  return KokoroTTS.from_pretrained(MODEL, { dtype, device });
 }
 
 /** Palabras por trozo antes de cortar en una coma: el primer audio sale antes (cada trozo se genera entero) */

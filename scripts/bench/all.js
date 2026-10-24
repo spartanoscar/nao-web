@@ -1,27 +1,24 @@
 // Todos los bancos del mundo seguidos, a ×10 (misma física, más rápida), con la penetración de la forma real del NAO:
-// lo más que se hunde en el suelo y en su propio cuerpo durante cada banco (physics.ts PenetrationProbe), sea cual sea
-// la física en uso (?fisica=fiel o la de siempre). Se evalúa en la pestaña visible y devuelve enseguida un objeto que
-// se va llenando: { physics, step, done, results: { falls: [...], falls_s, falls_pen, … } } (window.__steps = ['falls']
-// limita los bancos). Tiempos en segundos de simulación.
+// lo más que se hunde en el suelo y en su propio cuerpo durante cada banco (physics.ts PenetrationProbe). Se evalúa en
+// la pestaña visible y devuelve enseguida un objeto que se va llenando: { step, done, results: { falls: [...], falls_s,
+// falls_pen, … } } (window.__steps = ['falls'] limita los bancos). Tiempos en segundos de simulación.
 async () => {
-  for (let i = 0; i < 240 && !(window.nao?.physics && window.nao.model.official.length); i++) await new Promise((r) => setTimeout(r, 250));
-  if (!window.nao.physics) return { error: 'sin física (modo cinemático)' };
+  for (let i = 0; i < 240 && !(window.nao?.physics && window.nao.meshes); i++) await new Promise((r) => setTimeout(r, 250));
+  if (!window.nao.physics) return { error: 'la física no arrancó' };
   const nao = window.nao;
   const load = async (name) =>
     (0, eval)(JSON.parse((await (await fetch(`/scripts/bench/${name}.js?raw&t=${Date.now()}`)).text()).replace(/^export default /, '').replace(/;\s*$/, '')));
   const { PenetrationProbe } = await import('/src/physics/physics.ts');
   const { collisionHulls } = await import('/src/sim/officialMeshes.ts');
   const { MOTIONS } = await import('/src/naoqi/motionFile.ts');
-  const meshes = new Map(nao.model.official.filter((o) => o.name.startsWith('mesh:')).map((o) => [o.name.slice(5), o]));
-  const probe = await PenetrationProbe.create(nao.urdf, nao.bootRoot, collisionHulls(meshes));
+  const probe = await PenetrationProbe.create(nao.urdf, nao.bootRoot, collisionHulls(nao.meshes));
   const names = Array.isArray(MOTIONS) ? MOTIONS.map((m) => m.name ?? m) : Object.keys(MOTIONS);
-  const steps = window.__steps ?? ['falls', 'walk', 'physics', 'motions', 'aldebaran'];
+  const steps = window.__steps ?? ['falls', 'walk', 'physics', 'motions'];
   const args = {
     falls: [['adelante', 'atrás', 'izquierda', 'derecha', 'adel-izq', 'adel-der', 'atrás-izq', 'atrás-der']],
     motions: [names],
   };
-  // Física fiel = colisión con envolventes (mallas en el modelo de MuJoCo)
-  const R = { physics: nao.physics.model.nmesh > 0 ? 'fiel' : 'actual', step: '', done: false, results: {} };
+  const R = { step: '', done: false, results: {} };
   // El punto de partida tiene que estar libre: si cae dentro de una pieza, la física saca al robot empujándolo y todo lo
   // que se mida desde ahí es inválido (sim/environment.ts spawnObstacles)
   const { spawnObstacles } = await import('/src/sim/environment.ts');

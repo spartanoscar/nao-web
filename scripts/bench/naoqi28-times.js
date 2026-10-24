@@ -1,6 +1,6 @@
 // Búsqueda de los tiempos de la ruta real de NAOqi para levantarse de espaldas (LyingBack → StandInit, 19 tramos del
 // grafo postures_naoh25.xml): las posturas quedan fijas (son las del robot real); CMA-ES (src/lab/cmaes.ts) busca solo la
-// duración de cada tramo, que NAOqi no publica. Física fiel con carcasa de plástico, en el simulador del laboratorio.
+// duración de cada tramo, que NAOqi no publica. En el simulador del laboratorio (física de la app, carcasa de plástico).
 // Cada candidato se evalúa en 4 episodios: 2 partidas (caída real de espaldas y boca arriba llegando desde sentado) ×
 // 2 escalas de tiempo (×0.9 y ×1.1), para no quedar en el filo. Costo por episodio: 0 si queda de pie; si no,
 // 1 + la fracción de la ruta en que el torso dejó de seguir la inclinación del real (±26°). Prior: alejarse de los tiempos
@@ -42,11 +42,10 @@ async () => {
     return { angles, times, duration: t };
   };
 
-  const meshes = new Map(window.nao.model.official.filter((o) => o.name.startsWith('mesh:')).map((o) => [o.name.slice(5), o]));
   const { urdf, bootRoot } = window.nao;
   const stand = postureJoints('StandInit');
   const V = window.__timesValidate; // { durations, scales, plastic } → valida en vez de buscar
-  const lab = await LabSim.create(urdf, bootRoot, stand, { hulls: collisionHulls(meshes), selfCollision: true, shellFriction: V?.plastic ?? 0.4 });
+  const lab = await LabSim.create(urdf, bootRoot, stand, { hulls: collisionHulls(window.nao.meshes), shellFriction: V?.plastic });
   const motion = () => lab.session.service('ALMotion');
   const posture = () => lab.session.service('ALRobotPosture');
 

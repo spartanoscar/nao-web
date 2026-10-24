@@ -9,7 +9,7 @@ import { KokoroSpeech } from './audio/speech';
 import type { PhysicsSim } from './physics/physics';
 import { RobotState } from './robot/state';
 import { parseUrdf } from './robot/urdf';
-import { addOfficialChestLogo, addPrimitiveChestLogo } from './sim/chestLogo';
+import { addChestLogo } from './sim/chestLogo';
 import { LedsView } from './sim/ledsView';
 import { NaoCameras } from './sim/naoCameras';
 import { NaoModel } from './sim/naoModel';
@@ -17,24 +17,16 @@ import { createWorld } from './sim/world';
 import { HOME_ROOM, ROOMS, SPOTS, type RoomId, type SpawnId, roomAt, spawnLabel, spawnPoint } from './sim/rooms';
 import { spawnObstacles } from './sim/environment';
 import type { RootPose } from './robot/state';
-import { createBehaviorPanel } from './ui/behaviorPanel';
 import { attachCameraViews } from './ui/cameraViews';
-import { attachHiddenPanel } from './ui/hiddenPanel';
-import { createJointPanel } from './ui/jointPanel';
-import { attachPoseRecorder } from './ui/poseRecorder';
-import { type SimControl, attachAnimator } from './ui/animator';
-import { attachLabPanel } from './ui/labPanel';
 import { attachKeyboard } from './ui/keyboard';
 import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
+import { attachRobotMenus } from './ui/robotMenus';
 import { attachSettings } from './ui/settings';
 import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
 import { createTranscript } from './ui/transcript';
-import { attachSoundControl } from './ui/soundControl';
-import { createVoicePanel } from './ui/voicePanel';
-import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
 import { Brain } from './ai/brain';
 import { Vision } from './ai/vision';
 import { FaceWatcher } from './ai/faces';
@@ -50,14 +42,13 @@ const world = createWorld(document.getElementById('app')!);
 const nao = new NaoModel(urdf);
 world.scene.add(nao.root);
 nao.apply(state);
-addPrimitiveChestLogo(nao, () => world.invalidate());
-// LEDs (ojos, orejas, cabeza, pecho, pies): una vista por cada modelo, ambas leen los mismos canales
-const ledViews = [new LedsView(nao, 'primitive')];
-// Pose de arranque apoyada en el suelo (calculada por el modelo cinemático), para la física y el reinicio
-const bootRoot = nao.kinematicRootPose();
+// LEDs (ojos, orejas, cabeza, pecho, pies): se montan sobre las mallas oficiales al cargarlas
+const ledViews: LedsView[] = [];
+// Pose de arranque apoyada en el suelo (Crouch en el origen, la sala de pruebas), para la física
+const bootRoot = nao.groundedRootPose();
 /**
- * Hogar: donde apareció el robot (un cuarto de sim/rooms.ts). "Reiniciar" y las poses de partida del grabador vuelven
- * aquí; el laboratorio de movimientos y los bancos de física siguen en el origen (bootRoot, la sala de pruebas).
+ * Hogar: donde apareció el robot (un cuarto de sim/rooms.ts). Aparecer en otro cuarto lo cambia; los bancos de física
+ * siguen en el origen (bootRoot, la sala de pruebas).
  */
 let home: RootPose = bootRoot;
 // Ningún punto de aparición puede caer dentro o al lado de una pieza sólida (sim/environment.ts spawnObstacles): la
@@ -76,20 +67,11 @@ const roomRoot = (id: SpawnId): RootPose => {
 };
 
 let physics: PhysicsSim | null = null;
-const modeLine = document.querySelector('#hud p')!;
-const setMode = (mode: string) => (modeLine.textContent = `Gemelo digital NAO V6 · NAOqi 2.8 · ${mode}`);
-setMode('cargando física…');
-
-const panelHost = document.getElementById('panel')!;
-// El título técnico (versión, modo de física) va dentro del panel oculto: la pantalla queda para el juego
-panelHost.prepend(document.getElementById('hud')!);
+/** Vuelve al hogar agachado y con los motores apagados, como recién encendido */
 const resetAtHome = () => {
   session.engine.stopAll();
   session.service('ALMotion').setStiffnesses('Body', 0);
   state.setMany(BOOT_POSTURE);
-  const { position, quaternion } = home;
-  const [w, , , z] = quaternion;
-  nao.setAnchor(position[0], position[1], 2 * Math.atan2(z, w)); // sin física (y para arrancarla) también ahí
   physics?.reset(home, BOOT_POSTURE);
 };
 /**
@@ -109,94 +91,13 @@ const spawn = (id: SpawnId) => {
   world.focus(x, y, true);
   world.invalidate(true);
 };
-const behavior = createBehaviorPanel(panelHost, session, state, {
-  onReset: resetAtHome,
-  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
-  onSpawn: (id) => spawn(id as SpawnId),
-});
-// Grabador de poses (enseñar movimientos a mano): la pose de partida sale directa, sin ponerse de pie antes
-const LYING_BACK = postureJoints('LyingBack');
-/** Motores encendidos sosteniendo la pose en la que está (sin moverlo hacia un comando viejo) */
-const holdCurrentPose = () => {
-  const motion = session.service('ALMotion');
-  const names = motion.getBodyNames('Body').filter((j) => !j.endsWith('Hand') && j !== 'RHipYawPitch');
-  void motion.angleInterpolationWithSpeed(names, names.map((j) => state.get(j)), 0.2);
-  motion.setStiffnesses('Body', 1);
-};
-/**
- * Con la física apagada (modo animador) las poses de partida son cinemáticas: ángulos de la postura y apoyo en el suelo
- * como esa postura (de pie sobre los pies; sentado o acostado, donde su centro de masa queda más bajo)
- */
-const startKinematic = (posture: Parameters<typeof postureJoints>[0], footSupport: number, pitch: number): boolean => {
-  session.engine.stopAll();
-  state.setMany(postureJoints(posture));
-  state.setBody({ footSupport, pitch });
-  return true;
-};
-// Boca arriba: colocado 90° hacia atrás sobre el eje Y del mundo (Z arriba), la espalda en el suelo
-const startLyingBack = async (): Promise<boolean> => {
-  if (!simControl.physics()) return startKinematic('LyingBack', 0, -Math.PI / 2);
-  if (!physics) return false;
-  session.engine.stopAll();
-  session.service('ALMotion').setStiffnesses('Body', 0);
-  state.setMany(LYING_BACK);
-  const [w, x, y, z] = home.quaternion;
-  const [c, s] = [Math.SQRT1_2, -Math.SQRT1_2];
-  const quaternion: [number, number, number, number] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
-  physics.reset({ position: [home.position[0], home.position[1], 0.08], quaternion }, LYING_BACK);
-  await new Promise((r) => setTimeout(r, 1200)); // que se asiente antes de encender los motores
-  holdCurrentPose();
-  return true;
-};
-// Sentado: desde el arranque (Crouch) con los motores encendidos, Crouch → SitRelax → Sit a velocidad máxima: 3.2 s y
-// sin ponerse de pie (5 de 5). Colocarlo de golpe en Sit no sirve: esa pose rígida se va de espaldas (medido, −40° → −87°
-// en 0.7 s); sentado se sostiene por cómo quedan los apoyos al llegar.
-const startSitting = async (): Promise<boolean> => {
-  if (!simControl.physics()) return startKinematic('Sit', 0, -0.6);
-  if (!physics) return false;
-  session.engine.stopAll();
-  session.service('ALMotion').setStiffnesses('Body', 0);
-  state.setMany(BOOT_POSTURE);
-  physics.reset(home, BOOT_POSTURE);
-  await new Promise((r) => setTimeout(r, 1000));
-  holdCurrentPose();
-  await new Promise((r) => setTimeout(r, 200));
-  return session.service('ALRobotPosture').goToPosture('Sit', 1);
-};
-// De pie: desde el arranque, wakeUp → StandInit
-const startStanding = async (): Promise<boolean> => {
-  if (!simControl.physics()) return startKinematic('StandInit', 1, 0);
-  if (!physics) return false;
-  session.engine.stopAll();
-  session.service('ALMotion').setStiffnesses('Body', 0);
-  state.setMany(BOOT_POSTURE);
-  physics.reset(home, BOOT_POSTURE);
-  await new Promise((r) => setTimeout(r, 1000));
-  return session.service('ALMotion').wakeUp();
-};
-const recorder = attachPoseRecorder(panelHost, session.service('ALMotion'), session.engine, {
-  back: startLyingBack,
-  sit: startSitting,
-  stand: startStanding,
-});
-// Laboratorio: busca movimientos equilibrados (CMA-ES sobre una física aparte) y los deja en el grabador
-attachLabPanel(panelHost, urdf, bootRoot, recorder);
-const joints = createJointPanel(panelHost, state, session.engine, {
-  onHover: (joint) => {
-    nao.highlight(joint);
-    world.invalidate();
-  },
-});
 
 // Sonido de los motores (sintetizado desde la física). El audio solo puede arrancar tras un gesto.
 const sound = new MotorSound();
-attachSoundControl(behavior.slot, sound);
 // Voz: Kokoro en un worker (el modelo se descarga la primera vez que el robot habla)
 const speech = new KokoroSpeech();
 const tts = session.service('ALTextToSpeech');
 tts.backend = speech;
-const voicePanel = createVoicePanel(behavior.slot, tts);
-speech.onStatus = (s) => voicePanel.setStatus(s);
 // Volumen general del robot (ALAudioDevice): lo controla el ícono del HUD
 session.service('ALAudioDevice').onOutputChange((gain) => {
   sound.setOutput(gain);
@@ -205,7 +106,7 @@ session.service('ALAudioDevice').onOutputChange((gain) => {
 const startAudio = () => sound.start();
 window.addEventListener('pointerdown', startAudio, { once: true });
 window.addEventListener('keydown', startAudio, { once: true });
-// Cámaras de la frente y la boca (frames ópticos del URDF), siempre visibles en recuadros a la izquierda
+// Cámaras de la frente y la boca (frames ópticos del URDF), siempre visibles a la izquierda
 const cameras = new NaoCameras(nao);
 attachCameraViews(world, cameras);
 session.service('ALVideoDevice').source = { capture: (i, w, h) => cameras.capture(world.renderer, world.scene, i, w, h) };
@@ -226,74 +127,37 @@ const paintEyes = (hex: string) => {
   else leds.reset('FaceLeds');
 };
 
-// Física fiel (?fisica=fiel, en evaluación): colisión con la forma real de cada pieza (envolventes de las mallas
-// oficiales) y choque del robot consigo mismo. Necesita las mallas: la física espera a que carguen.
-const FAITHFUL_PHYSICS = new URLSearchParams(location.search).get('fisica') === 'fiel';
-/** ?fisica=choque (en evaluación): las formas simples de siempre + choque del robot consigo mismo (piernas y brazos no se
- * atraviesan) */
-const SELF_COLLISION = new URLSearchParams(location.search).get('fisica') === 'choque';
 let officialLoaded: (meshes: ReadonlyMap<string, Object3D>) => void = () => {};
 const officialReady = new Promise<ReadonlyMap<string, Object3D>>((resolve) => (officialLoaded = resolve));
 
 // Mallas oficiales del NAO: se descargan solo con la licencia aceptada (pantalla de entrada, ui/boot.ts)
 const loadModel = async (onProgress: (loaded: number, total: number) => void) => {
-  const { loadOfficialMeshes, setShellColor, SHELL_COLORS } = await import('./sim/officialMeshes');
+  const { loadOfficialMeshes, setShellColor } = await import('./sim/officialMeshes');
   const meshes = await loadOfficialMeshes(urdf, onProgress);
   nao.setOfficialMeshes(meshes);
-  officialLoaded(meshes);
-  const paint = async (color: (typeof SHELL_COLORS)[number]) => {
-    await setShellColor(meshes.values(), color);
+  shell.paint = async (hex) => {
+    await setShellColor(meshes.values(), hex ? parseInt(hex.slice(1), 16) : null);
     world.invalidate();
   };
-  shell.paint = (hex) => paint(hex ? { id: 'custom', label: 'Personalizado', hex: parseInt(hex.slice(1), 16) } : SHELL_COLORS[0]);
-  const initial = rememberedShellColor(SHELL_COLORS);
-  await paint(initial); // siempre: también pone la lente oscura de los ojos
-  createShellColorPicker(behavior.slot, SHELL_COLORS, initial, (c) => void paint(c));
-  if (!addOfficialChestLogo(nao, () => world.invalidate())) console.warn('No encontré el pecho de la malla oficial para el logo');
-  ledViews.push(new LedsView(nao, 'official'));
+  await shell.paint(''); // siempre: también pone la lente oscura de los ojos
+  if (!addChestLogo(nao, () => world.invalidate())) console.warn('No encontré el pecho de la malla oficial para el logo');
+  ledViews.push(new LedsView(nao));
+  Object.assign((window as unknown as { nao: object }).nao, { meshes });
+  officialLoaded(meshes);
   world.invalidate(true);
 };
 
-// Rutinas originales de Aldebaran (sentarse/levantarse, descargadas por scripts/fetch-aldebaran-motions.sh)
-void import('./naoqi/aldebaranMotions').then(({ loadAldebaranMotions }) => loadAldebaranMotions());
-// Grafo de posturas real de NAOqi 2.8 (scripts/fetch-naoqi-postures.sh): goToPosture lo usa con la física fiel, la única
-// donde se verificó (ALRobotPosture.useNaoqiGraph)
-if (FAITHFUL_PHYSICS) {
-  void import('./naoqi/naoqiPostureGraph').then(async ({ loadPostureGraph }) => {
-    if (await loadPostureGraph()) session.service('ALRobotPosture').useNaoqiGraph = true;
-  });
-}
-
-// MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
-const physicsReady = import('./physics/physics')
-  .then(async ({ PhysicsSim }) => {
-    if (SELF_COLLISION) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { selfCollision: true });
-    if (!FAITHFUL_PHYSICS) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects);
-    const [{ collisionHulls }, { SHELL_FRICTION }, meshes] = await Promise.all([
-      import('./sim/officialMeshes'),
-      import('./physics/mjcf'),
-      officialReady,
-    ]);
-    return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, {
-      hulls: collisionHulls(meshes),
-      selfCollision: true,
-      shellFriction: SHELL_FRICTION,
-    });
-  })
-  .then((sim) => {
-    physics = sim;
-    session.engine.physical = true;
-    session.engine.onManual = (name, value) => sim.placeJoint(name, value);
+// Física MuJoCo (~2 MB, se carga aparte): colisión con la forma real de cada pieza (envolventes de las mallas oficiales,
+// por eso espera a que carguen) y choque del robot consigo mismo. goToPosture necesita el grafo de posturas de NAOqi
+// (scripts/fetch-naoqi-postures.sh): sin él no se entra.
+const physicsReady = Promise.all([import('./physics/physics'), import('./sim/officialMeshes'), import('./naoqi/naoqiPostureGraph'), officialReady]).then(
+  async ([{ PhysicsSim }, { collisionHulls }, { loadPostureGraph }, meshes]) => {
+    if (!(await loadPostureGraph())) throw new Error('falta el grafo de posturas de NAOqi (scripts/fetch-naoqi-postures.sh)');
+    physics = await PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes) });
     spawn(HOME_ROOM); // el NAO del usuario aparece en su punto de inicio (la física se arma en el origen)
-    setMode(FAITHFUL_PHYSICS ? 'física MuJoCo (fiel)' : SELF_COLLISION ? 'física MuJoCo (con choque propio)' : 'física MuJoCo');
     world.invalidate(true);
-    return true;
-  })
-  .catch((e) => {
-    console.warn('Física no disponible, modo cinemático:', e);
-    setMode('modo cinemático (sin física)');
-    return false;
-  });
+  },
+);
 
 // Inclinación del teléfono (ui/phoneLink.ts): gira la cámara alrededor del robot, como un joystick
 const TILT_DEADZONE = 0.08;
@@ -316,50 +180,17 @@ const applyTilt = (dt: number) => {
   controls.update(); // dispara 'change' → world.invalidate()
 };
 
-// Controles de simulación (modo animador): física sí/no y velocidad. ×N = N pasos del motor de NAOqi y de la física por
-// cuadro: la misma simulación, más rápido (techo práctico ~×10: la física da ~14 veces el tiempo real)
-let physicsOn = true;
+/**
+ * Velocidad de la simulación (bancos de prueba, consola): ×N = N veces más simulación por cuadro, la misma física.
+ * Techo práctico ~×10: la física da ~14 veces el tiempo real.
+ */
 let speed = 1;
-const simControl: SimControl = {
-  physics: () => physicsOn && physics !== null,
-  setPhysics(on) {
-    if (!physics || on === physicsOn) return;
-    const motion = session.service('ALMotion');
-    if (!on) {
-      // Sin física: queda donde está (posición y rumbo) y apoyado como su postura (de pie sobre los pies; sentado o
-      // acostado, donde su centro de masa queda más bajo, cerca de la inclinación que tenía)
-      const root = state.root;
-      if (root) {
-        const [w, x, y, z] = root.quaternion;
-        nao.setAnchor(root.position[0], root.position[1], Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)));
-        const family = session.service('ALRobotPosture').getPostureFamily();
-        state.setBody({ footSupport: family === 'Standing' || family === 'Crouching' ? 1 : 0, pitch: Math.atan2(2 * (x * z + w * y), 1 - 2 * (x * x + y * y)) });
-      }
-      session.engine.stopAll();
-      session.engine.physical = false;
-      state.clearRoot();
-    } else {
-      // Con física otra vez: arranca desde la pose que se ve, con los motores sosteniéndola
-      session.engine.stopAll();
-      const angles = Object.fromEntries(motion.getBodyNames('Body').map((j) => [j, state.get(j)]));
-      physics.reset(nao.kinematicRootPose(), angles);
-      session.engine.physical = true;
-      const names = motion.getBodyNames('Body').filter((j) => !j.endsWith('Hand') && j !== 'RHipYawPitch');
-      void motion.angleInterpolationWithSpeed(names, names.map((j) => state.get(j)), 0.2);
-      motion.setStiffnesses('Body', 1);
-    }
-    physicsOn = on;
-    world.invalidate(true);
-  },
+const sim = {
   speed: () => speed,
-  setSpeed(k) {
+  setSpeed(k: number) {
     speed = Math.min(Math.max(Math.round(k), 1), 10);
   },
 };
-
-// Modo animador: tocar la pieza y moverla con las flechas, en vez de 25 sliders (mismas poses que el grabador)
-const animator = attachAnimator(world, nao, session, recorder, simControl);
-recorder.openAnimator = () => animator.open();
 
 /** En qué cuarto está el torso: la cámara del mundo muestra ese cuarto y el pasillo (world.setRoom) */
 let currentRoom: RoomId | null | undefined;
@@ -386,11 +217,12 @@ const SIM_CHUNK = 5 * MOTION_CYCLE;
 const MAX_SIM_DEBT = 1;
 let simDebt = 0;
 const simulate = (seconds: number) => {
+  if (!physics) return;
   const steps = Math.max(1, Math.ceil(seconds / MOTION_CYCLE - 1e-6));
   const h = seconds / steps;
   for (let i = 0; i < steps; i++) {
     session.update(h);
-    if (physicsOn && physics?.step(h)) world.invalidate(true);
+    if (physics.step(h)) world.invalidate(true);
     for (const fn of tickHooks) fn();
   }
 };
@@ -432,15 +264,13 @@ world.onFrame((dt) => {
     trackRoom();
     world.invalidate(true);
   }
-  behavior.refresh();
-  joints.refresh();
 });
 
-// Acceso desde la consola del navegador mientras llega la consola de comandos (F4):
+// Acceso desde la consola del navegador:
 //   const motion = nao.session.service('ALMotion')
 //   await motion.angleInterpolation('HeadYaw', [1, -1, 0], [1, 2, 3], true)
-// Para la consola y los bancos (scripts/bench): `sim` = física sí/no y velocidad; `clock`/`wait`/`onTick` van con el
-// reloj del motor de NAOqi, no con el de la pared, así que los bancos dan lo mismo a ×1 que a ×10
+// Para la consola y los bancos (scripts/bench): `sim` = velocidad; `clock`/`wait`/`onTick` van con el reloj del motor
+// de NAOqi, no con el de la pared, así que los bancos dan lo mismo a ×1 que a ×10; `reset` vuelve al hogar agachado.
 const simWait = (ms: number) =>
   new Promise<void>((resolve) => {
     const end = session.engine.time + ms / 1000;
@@ -454,7 +284,7 @@ const onTick = (fn: () => void) => {
 Object.assign(window, {
   nao: {
     session, state, model: nao, world, ledViews, sound, cameras, urdf, bootRoot, get physics() { return physics; },
-    sim: simControl, clock: () => session.engine.time, wait: simWait, onTick, spawn, rooms: ROOMS,
+    sim, clock: () => session.engine.time, wait: simWait, onTick, spawn, reset: resetAtHome, rooms: ROOMS,
     get home() { return home; },
   },
 });
@@ -462,12 +292,9 @@ Object.assign(window, {
 // ─── Entrada al mundo ───────────────────────────────────────────────────────────
 // Login + licencia + "Cargando universo…": el mundo se carga detrás y solo se muestra completo
 const user = await runBoot({ loadModel, physics: physicsReady, warmUp: () => world.renderNow() });
-showMeshCredit((show) => {
-  nao.showPrimitives(show);
-  world.invalidate(true);
-});
+showMeshCredit();
 const hud = createHud(user, session.service('ALAudioDevice'));
-// La apariencia guardada en la cuenta gana sobre la del panel (que es solo de este navegador)
+// La apariencia guardada en la cuenta
 if (user.shellColor) void shell.paint?.(user.shellColor);
 if (user.eyeColor) paintEyes(user.eyeColor);
 const applyAppearance = (prev: { shellColor: string; eyeColor: string }, next: User) => {
@@ -487,8 +314,13 @@ attachSettings(hud.settingsButton, user, {
   },
   // La biblioteca terminó de guardar algo: el servidor ya lo cobró
   onSpent: () => void me().then((u) => u && hud.setSpent(u.spentTodayUsd)),
+  // Aparecer en un cuarto del mundo (sim/rooms.ts): agachado y con los motores apagados, como recién encendido
+  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
+  onSpawn: (id) => spawn(id as SpawnId),
 });
 const transcript = createTranscript();
+// Posturas y animaciones: dos íconos del HUD con su lista (ui/robotMenus.ts)
+attachRobotMenus(hud, session, (message) => transcript.notice(message));
 // Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla
 let naoLine = 0;
 tts.onSay = (text) => transcript.show(`nao-${naoLine++}`, 'nao', user.robotName, text, true);
@@ -577,7 +409,5 @@ faces.onUpdate = () => {
 // La voz se descarga y se calienta en segundo plano (la primera frase salía con varios segundos de espera);
 // después del primer cuadro del mundo, para no competir con lo que se ve
 setTimeout(() => speech.preload(tts.getVoice()), 1500);
-attachHiddenPanel();
-const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
-attachKeyboard(session, (text) => (keyStatus.textContent = text));
+attachKeyboard(session);
 Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces });

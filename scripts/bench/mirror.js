@@ -58,7 +58,7 @@ async (perCondition = 5, conditions = ['sin-metodo', 'con-metodo']) => {
           setups++;
           nao.sim.setSpeed(10);
           nao.spawn('espejo'); // de pie a 1.5 m del espejo, mirándolo
-          document.querySelector('.chip[title^="Vuelve"]').click();
+          window.nao.reset();
           await nao.wait(1500);
           motion.setMoveArmsEnabled(true, true);
           await motion.wakeUp();

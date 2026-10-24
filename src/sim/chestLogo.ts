@@ -49,15 +49,8 @@ function orient(mesh: THREE.Mesh, point: THREE.Vector3, normal: THREE.Vector3) {
   mesh.position.copy(point).addScaledVector(n, LIFT);
 }
 
-/** Logo sobre el disco del pecho del modelo de formas simples (sim/shapes.ts: cara frontal en x = 0.052) */
-export function addPrimitiveChestLogo(nao: NaoModel, onLoad: () => void): void {
-  const mesh = logoMesh(onLoad);
-  orient(mesh, new THREE.Vector3(0.052, CHEST_BUTTON.y, CHEST_BUTTON.z), new THREE.Vector3(1, 0, 0));
-  nao.attach('torso', mesh, 'primitive');
-}
-
 /** Logo sobre el pecho de la malla oficial: rayo desde delante hacia el botón */
-export function addOfficialChestLogo(nao: NaoModel, onLoad: () => void): boolean {
+export function addChestLogo(nao: NaoModel, onLoad: () => void): boolean {
   const torso = nao.frame('torso');
   const shell = torso?.getObjectByName('mesh:torso');
   if (!torso || !shell) return false;
@@ -78,6 +71,6 @@ export function addOfficialChestLogo(nao: NaoModel, onLoad: () => void): boolean
 
   const mesh = logoMesh(onLoad);
   orient(mesh, point, normal);
-  nao.attach('torso', mesh, 'official');
+  nao.attach('torso', mesh);
   return true;
 }

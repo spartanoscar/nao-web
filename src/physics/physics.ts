@@ -194,10 +194,10 @@ export class PhysicsSim {
     engine: MotionEngine,
     root: RootPose,
     objectMeshes: ReadonlyMap<string, ObjectSlot['target']>,
-    collision: CollisionOptions = {},
+    collision: CollisionOptions,
   ): Promise<PhysicsSim> {
     const mj = await loadMujoco({ locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path) });
-    if (collision.selfCollision && !collision.exclude) collision = { ...collision, exclude: selfCollisionExcludes(mj, urdf, collision) };
+    if (!collision.exclude) collision = { ...collision, exclude: selfCollisionExcludes(mj, urdf, collision) };
     const { xml, joints } = buildMjcf(urdf, root, collision);
     const model = mj.MjModel.from_xml_string(xml);
     const data = new mj.MjData(model);
@@ -355,18 +355,6 @@ export class PhysicsSim {
     }
   }
 
-  /** Mover un joint "a mano" con el motor apagado: se coloca directamente (como con la mano) */
-  placeJoint(name: string, value: number): void {
-    const s = this.joints.find((j) => j.name === name);
-    if (!s) return;
-    this.locked = false;
-    this.data.qpos[s.qpos] = value;
-    this.data.qvel[s.dof] = 0;
-    this.mj.mj_forward(this.model, this.data);
-    this.resetImpacts();
-    this.syncState(true);
-  }
-
   /** Vuelve a la pose dada (torso + ángulos) en reposo; los objetos vuelven a su sitio */
   reset(root: RootPose, angles: Readonly<Record<string, number>>): void {
     this.locked = false;
@@ -491,10 +479,9 @@ export interface Penetration {
 }
 
 /**
- * Medidor de penetración para los bancos: una física aparte con la colisión fiel (envolventes de las mallas oficiales y
- * choque consigo mismo) que no simula. En cada medición copia la pose de otra simulación y le pregunta a MuJoCo cuánto
- * se hunde la forma real del NAO en el suelo y en su propio cuerpo. Sirve con cualquier física, porque mide con la forma
- * real y no con la colisión que se esté usando.
+ * Medidor de penetración para los bancos: una física aparte con la misma colisión que no simula. En cada medición copia
+ * la pose de la simulación y le pregunta a MuJoCo cuánto se hunde la forma real del NAO en el suelo y en su propio
+ * cuerpo (los contactos de MuJoCo son blandos: siempre hay algo).
  */
 export class PenetrationProbe {
   private constructor(
@@ -506,9 +493,9 @@ export class PenetrationProbe {
     private readonly floor: number,
   ) {}
 
-  static async create(urdf: UrdfRobot, root: RootPose, hulls: NonNullable<CollisionOptions['hulls']>): Promise<PenetrationProbe> {
+  static async create(urdf: UrdfRobot, root: RootPose, hulls: CollisionOptions['hulls']): Promise<PenetrationProbe> {
     const mj = await loadMujoco({ locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path) });
-    const collision: CollisionOptions = { hulls, selfCollision: true };
+    const collision: CollisionOptions = { hulls };
     const { xml } = buildMjcf(urdf, root, { ...collision, exclude: selfCollisionExcludes(mj, urdf, collision) });
     const model = mj.MjModel.from_xml_string(xml);
     const data = new mj.MjData(model);

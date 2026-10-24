@@ -6,17 +6,6 @@ import { COUPLED, JOINT_BY_NAME, JOINTS, headPitchLimits } from './naoV6';
 
 const MASTER_OF = new Map(Object.entries(COUPLED));
 
-/**
- * Orientación del cuerpo respecto al suelo. En el robot real la decide la gravedad (y la mide la
- * IMU); sin física la fija quien mueve el robot. APPROX hasta tener simulación física.
- */
-export interface BodySupport {
-  /** 1 = el torso se orienta para que el pie de apoyo quede plano; 0 = se usa `pitch` */
-  footSupport: number;
-  /** Inclinación fija del torso (rad, + hacia delante). LyingBack = -π/2, LyingBelly = +π/2 */
-  pitch: number;
-}
-
 /** Pose del torso en el mundo (Z arriba, como el URDF). La escribe la simulación física. */
 export interface RootPose {
   position: [number, number, number];
@@ -27,7 +16,6 @@ export interface RootPose {
 export class RobotState {
   private readonly values = new Map<string, number>(JOINTS.map((s) => [s.name, 0]));
   private readonly stiffness = new Map<string, number>(JOINTS.map((s) => [s.name, 0]));
-  private readonly support: BodySupport = { footSupport: 1, pitch: 0 };
   private rootPose: RootPose | null = null;
 
   /** Se incrementa en cada cambio: los lectores (escena, UI) solo recalculan si cambió */
@@ -35,7 +23,7 @@ export class RobotState {
 
   /**
    * Sonares del pecho [izquierdo, derecho]: distancia al obstáculo más cercano en su haz (m). La escribe la física cada
-   * 100 ms (physics.ts); null sin física. No cuenta como cambio de la escena (no toca `revision`).
+   * 100 ms (physics.ts); null hasta la primera medida. No cuenta como cambio de la escena (no toca `revision`).
    */
   sonar: [number, number] | null = null;
   /**
@@ -101,25 +89,9 @@ export class RobotState {
     this.revision++;
   }
 
-  get body(): Readonly<BodySupport> {
-    return this.support;
-  }
-
-  setBody(patch: Partial<BodySupport>): void {
-    if (patch.footSupport !== undefined) this.support.footSupport = Math.min(Math.max(patch.footSupport, 0), 1);
-    if (patch.pitch !== undefined) this.support.pitch = patch.pitch;
-    this.revision++;
-  }
-
-  /** null = sin física: la escena calcula el apoyo de forma cinemática (BodySupport) */
+  /** Pose del torso que mide la física; null hasta que la física arranca */
   get root(): Readonly<RootPose> | null {
     return this.rootPose;
-  }
-
-  /** Sin física (se apagó): la escena vuelve a calcular el apoyo de forma cinemática */
-  clearRoot(): void {
-    this.rootPose = null;
-    this.revision++;
   }
 
   /** Lectura de la simulación: pose del torso + ángulos medidos, en una sola revisión */

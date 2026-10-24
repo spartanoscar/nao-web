@@ -13,7 +13,7 @@ async () => {
     const zx = 2 * (x * z + w * y), zy = 2 * (y * z - w * x), zz = 1 - 2 * (x * x + y * y);
     return `pitch ${Math.round(Math.atan2(zx, zz) * 57.3)}° roll ${Math.round(Math.atan2(-zy, zz) * 57.3)}° torso ${state.root.position[2].toFixed(2)} m`;
   };
-  const reset = async () => { document.querySelector('.chip[title^="Vuelve"]').click(); await wait(1500); };
+  const reset = async () => { window.nao.reset(); await wait(1500); };
   const go = async (name) => {
     const ok = await posture.goToPosture(name, 0.6);
     await wait(800);

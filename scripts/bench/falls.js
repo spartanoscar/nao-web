@@ -27,7 +27,7 @@ async (directions) => {
   };
   const out = [];
   for (const dir of directions) {
-    document.querySelector('.chip[title^="Vuelve"]').click();
+    window.nao.reset();
     await wait(1500);
     await motion.wakeUp();
     await wait(1000);

@@ -6,7 +6,7 @@
 // a path from its current posture to its target posture, and applies it" → nodo más cercano, camino más barato con los
 // costos del archivo y reproducción nodo a nodo con angleInterpolation. Ahí están las rutas que ninguna fuente abierta
 // traía: levantarse desde sentado apoyando la mano derecha (familia "Right") e incorporarse desde boca arriba.
-// Verificado (scripts/bench/naoqi28.js, física fiel): la inclinación del torso sigue la del real nodo a nodo
+// Verificado (scripts/bench/naoqi28.js): la inclinación del torso sigue la del real nodo a nodo
 // (sentado −22° contra −17°, apoyado en la mano −24° contra −20°, de pie 0° contra 2°).
 
 import { JOINT_BY_NAME } from '../robot/naoV6';
@@ -30,7 +30,7 @@ const MIN_STEP = 0.05;
 /**
  * Duración (s) de los tramos para incorporarse desde boca arriba hasta quedar sentado (2000 → 1005, el comienzo de
  * LyingBack → StandInit), buscada en el laboratorio (scripts/bench/naoqi28-times.js: CMA-ES sobre los tiempos con las
- * posturas de NAOqi fijas; física fiel, μ 0.4). Con el modelo de arriba se incorporaba pero se iba atrás al soltar los
+ * posturas de NAOqi fijas; μ de la carcasa 0.4). Con el modelo de arriba se incorporaba pero se iba atrás al soltar los
  * brazos (solo salía en el filo de la velocidad): es un movimiento balístico (NAOqi marca esa cadena, 2002 → 2006, con
  * enableAntiCollision 0) y el real lo hace en ~0.5 s (video). Del nodo 1005 en adelante (la ruta de Sit → Stand) sigue
  * el modelo. Validado (2026-10-24) en 6 partidas (caídas de espaldas recta, en diagonal y de 40°, desde sentado,

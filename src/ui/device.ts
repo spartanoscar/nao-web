@@ -10,7 +10,7 @@ export function isPhoneScreen(): boolean {
 
 export function showPhoneOnly(): void {
   // Sin mundo: fuera también el panel y sus controles
-  for (const id of ['app', 'hud', 'panel', 'panel-toggle', 'keys']) document.getElementById(id)?.remove();
+  document.getElementById('app')?.remove();
   const card = document.createElement('main');
   card.className = 'phone-only';
   card.innerHTML = `

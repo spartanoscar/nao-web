@@ -24,21 +24,10 @@ export function acceptLicense(): void {
   }
 }
 
-/** Atribución abajo a la derecha, con el botón para alternar modelo oficial / formas de colisión */
-export function showMeshCredit(showPrimitives: (show: boolean) => void): void {
+/** Atribución abajo a la derecha mientras se ve el modelo */
+export function showMeshCredit(): void {
   const credit = document.createElement('div');
   credit.id = 'mesh-credit';
   credit.innerHTML = `<a href="${MESHES_LICENSE_URL}" target="_blank" rel="noopener">${MESHES_ATTRIBUTION}</a>`;
-  let primitives = false;
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.textContent = 'ver colisión';
-  toggle.title = 'Alterna entre el modelo oficial y las formas que usa la física para chocar';
-  toggle.addEventListener('click', () => {
-    primitives = !primitives;
-    showPrimitives(primitives);
-    toggle.textContent = primitives ? 'ver modelo oficial' : 'ver colisión';
-  });
-  credit.append(' · ', toggle);
   document.body.append(credit);
 }

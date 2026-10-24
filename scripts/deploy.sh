@@ -71,7 +71,6 @@ _confirm_prod() {
 cmd_build() {
   # Las mallas oficiales no se versionan (licencia): se descargan del paquete ROS si faltan
   [ -d "$NAO_ROOT/public/models/nao_meshes/meshes" ] || bash "$NAO_ROOT/scripts/fetch-nao-meshes.sh" || die "no pude descargar las mallas"
-  [ -f "$NAO_ROOT/public/motions/aldebaran/StandUpX.xar" ] || bash "$NAO_ROOT/scripts/fetch-aldebaran-motions.sh" || die "no pude descargar las rutinas de Aldebaran"
   [ -f "$NAO_ROOT/public/motions/naoqi28/postures-h25.json" ] || bash "$NAO_ROOT/scripts/fetch-naoqi-postures.sh" || die "no pude descargar el grafo de posturas de NAOqi"
   [ -f "$NAO_ROOT/public/models/face/face_recognition_model.bin" ] || bash "$NAO_ROOT/scripts/copy-face-models.sh" || die "no pude copiar los modelos de rostros"
   (cd "$NAO_ROOT" && npm run build) || die "build falló"

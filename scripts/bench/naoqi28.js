@@ -3,8 +3,8 @@
 // archivo) y reproducción nodo a nodo con angleInterpolation en el simulador del laboratorio (física aparte, rápida).
 // APPROX: NAOqi es cerrado y no se sabe cuánto tarda cada tramo: aquí, el motor más exigido a la fracción `speed` de su
 // velocidad máxima (URDF) por el speedCoefficient del tramo.
-// window.__speeds = [0.5, 0.8], window.__configs = [{ label, hulls, self, plastic }], window.__only = ['Sit>Stand', …]
-// (plastic = μ de la carcasa, mjcf.ts shellFriction; la física fiel de la app usa SHELL_FRICTION)
+// window.__speeds = [0.5, 0.8], window.__configs = [{ label, plastic, torque, rotor }], window.__only = ['Sit>Stand', …]
+// (plastic = μ de la carcasa, mjcf.ts shellFriction; la app usa SHELL_FRICTION)
 async () => {
   const { LabSim } = await import('/src/lab/labSim.ts');
   const { postureJoints } = await import('/src/naoqi/postures.ts');
@@ -75,19 +75,14 @@ async () => {
     ['Sit', 'LyingBack', 'LyingBack'],
   ].filter(([a, b]) => !window.__only || window.__only.includes(`${a}>${b}`));
   const speeds = window.__speeds ?? [0.5, 0.8];
-  const configs = window.__configs ?? [{ label: 'física actual' }];
+  const configs = window.__configs ?? [{ label: 'física' }];
   const { urdf, bootRoot } = window.nao;
-  let hulls;
-  if (configs.some((c) => c.hulls)) {
-    const { collisionHulls } = await import('/src/sim/officialMeshes.ts');
-    hulls = collisionHulls(new Map(window.nao.model.official.filter((o) => o.name.startsWith('mesh:')).map((o) => [o.name.slice(5), o])));
-  }
+  const { collisionHulls } = await import('/src/sim/officialMeshes.ts');
+  const hulls = collisionHulls(window.nao.meshes);
   const out = [];
   const t0 = performance.now();
   for (const cfg of configs) {
-    // cfg.hullLinks = 'torso|Hip': envolvente oficial solo en esos links, formas simples en el resto
-    const only = cfg.hullLinks ? new Map([...hulls].filter(([link]) => new RegExp(cfg.hullLinks).test(link))) : hulls;
-    const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'), { hulls: cfg.hulls ? only : undefined, selfCollision: !!cfg.self, shellFriction: cfg.plastic });
+    const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'), { hulls, shellFriction: cfg.plastic });
     // Diagnóstico (no es un arreglo): cfg.torque = { re: 'Head|Shoulder', k: 1.5 } multiplica el torque de esos motores
     if (cfg.torque) for (const s of lab.physics.joints) if (new RegExp(cfg.torque.re).test(s.name)) s.stallTorque *= cfg.torque.k;
     // Diagnóstico: cfg.rotor = { '22NT Z13': g·cm², … } → armadura de cada articulación = inercia del rotor × reducción²

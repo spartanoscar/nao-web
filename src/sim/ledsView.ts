@@ -13,7 +13,6 @@ import { BRAIN, type LedState } from '../robot/leds';
 import type { Vec3 } from '../robot/urdf';
 import type { NaoModel } from './naoModel';
 
-type Layer = 'official' | 'primitive';
 type Rgb = [string, string, string];
 
 /** Un LED a lo largo de la tira: posición s ∈ [0, 1) y sus canales (monocromo repite el mismo) */
@@ -47,16 +46,13 @@ const CORE_ALPHA = 0.95;
 const GLOW_ALPHA = 0.28;
 
 /**
- * Ubicaciones (frame del link, metros). Oficial, medido sobre las mallas de Aldebaran: ojos por las
+ * Ubicaciones (frame del link, metros), medidas sobre las mallas de Aldebaran: ojos por las
  * caras con UV en la zona "Eyes" del atlas; orejas por el borde realzado alrededor del parlante
  * (vértices con |y| > 65.5 mm: centro x 0.5, z 55 mm, radio 28.6–33.1 mm).
  * APPROX: la cabeza es un rectángulo redondeado alrededor de los 3 sensores táctiles del URDF
  * (HeadTouchFront/Middle/Rear, de x = 31 a −26 mm) como en las fotos; la doc no da su forma.
  */
-const LAYOUT: Record<Layer, { eye: Vec3; eyeR: [number, number]; ear: Vec3; earR: [number, number]; chest: Vec3; footX: number }> = {
-  official: { eye: [0.0494, 0.0256, 0.0479], eyeR: [0.0058, 0.0102], ear: [0.0005, 0.064, 0.055], earR: [0.0286, 0.0331], chest: [0.0499, 0.0016, 0.0552], footX: 0.075 },
-  primitive: { eye: [0.058, 0.027, 0.048], eyeR: [0.004, 0.013], ear: [-0.005, 0.072, 0.055], earR: [0.017, 0.024], chest: [0.052, 0.0016, 0.0552], footX: 0.075 },
-};
+const L = { eye: [0.0494, 0.0256, 0.0479] as Vec3, eyeR: [0.0058, 0.0102], ear: [0.0005, 0.064, 0.055] as Vec3, earR: [0.0286, 0.0331], chest: [0.0499, 0.0016, 0.0552] as Vec3, footX: 0.075 };
 const BRAIN_RECT = { cx: 0.002, halfX: 0.043, halfY: 0.026, corner: 0.018, z: 0.14, width: 0.0032 };
 
 /** Círculo: s = 0 arriba, crece hacia `side` (ángulo de LED θ = 360·s) */
@@ -116,11 +112,7 @@ export class LedsView {
   private readonly strips: Strip[] = [];
   private shownRevision = -1;
 
-  constructor(
-    private readonly nao: NaoModel,
-    private readonly layer: Layer,
-  ) {
-    const L = LAYOUT[layer];
+  constructor(private readonly nao: NaoModel) {
     nao.root.updateMatrixWorld(true);
     const X: Vec3 = [1, 0, 0];
     const Y: Vec3 = [0, 1, 0];
@@ -189,7 +181,7 @@ export class LedsView {
     const glow = this.band(spec, spec.glowWidth, true);
     const group = new THREE.Group();
     group.add(core.mesh, glow.mesh);
-    this.nao.attach(spec.link, group, this.layer);
+    this.nao.attach(spec.link, group);
     this.strips.push({ spec, core, glow });
   }
 
@@ -247,7 +239,7 @@ export class LedsView {
   /** Del plano del recorrido al frame del link, proyectando cada vértice sobre la carcasa */
   private project(spec: StripSpec, plane: Float32Array): Float32Array {
     const frame = this.nao.frame(spec.link)!;
-    const surfaces = this.nao.surfaces(spec.link, this.layer);
+    const surfaces = this.nao.surfaces(spec.link);
     const [c, n, u, sd] = [spec.center, spec.normal, spec.up, spec.side].map((v) => new THREE.Vector3(...v));
     const out = new Float32Array((plane.length / 2) * 3);
     const ray = new THREE.Raycaster();

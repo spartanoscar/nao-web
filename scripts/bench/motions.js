@@ -16,7 +16,7 @@ async (names) => {
   const out = [];
   for (const name of names) {
     const clip = MOTIONS.find((m) => m.name === name);
-    document.querySelector('.chip[title^="Vuelve"]').click();
+    window.nao.reset();
     await wait(1500);
     await motion.wakeUp();
     await wait(1000);

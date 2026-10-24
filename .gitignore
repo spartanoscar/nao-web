@@ -11,8 +11,6 @@ local/
 # Mallas oficiales del NAO (CC BY-NC-ND 4.0): se descargan con scripts/fetch-nao-meshes.sh
 public/models/nao_meshes/
 
-# Rutinas originales de Aldebaran (Choregraphe 1.x): se descargan con scripts/fetch-aldebaran-motions.sh
-public/motions/aldebaran/
 # Grafo de posturas de NAOqi 2.8 (Choregraphe 2.8.7.4): se descarga con scripts/fetch-naoqi-postures.sh
 public/motions/naoqi28/
 

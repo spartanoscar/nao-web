@@ -4,17 +4,6 @@
 import type { SpeechBackend, SpeechRequest } from '../naoqi/ALTextToSpeech';
 import type { TtsRequest, TtsResponse } from './tts.worker';
 
-export interface SpeechStatus {
-  loading: boolean;
-  /** Bytes descargados del modelo */
-  loaded: number;
-  total: number;
-  /** Ya puede hablar */
-  ready: boolean;
-  speaking: boolean;
-  engine: string;
-}
-
 export class KokoroSpeech implements SpeechBackend {
   private worker: Worker | null = null;
   private ctx: AudioContext | null = null;
@@ -26,8 +15,6 @@ export class KokoroSpeech implements SpeechBackend {
   private current = 0;
   private playing = new Set<AudioBufferSourceNode>();
   private pending = new Map<number, { resolve: () => void; reject: (e: Error) => void; endAt: number; done: boolean }>();
-  onStatus: (s: SpeechStatus) => void = () => undefined;
-  private ready = false;
   /** Motor de inferencia en uso ("webgpu fp32" / "wasm q8") */
   engine = '';
 
@@ -46,7 +33,6 @@ export class KokoroSpeech implements SpeechBackend {
       fx: { pitchShift: req.pitchShift, doubleVoice: req.doubleVoice, doubleVoiceLevel: req.doubleVoiceLevel, doubleVoiceTimeShift: req.doubleVoiceTimeShift },
     } satisfies TtsRequest);
     this.gain!.gain.value = req.volume;
-    this.status(true);
     return done;
   }
 
@@ -62,7 +48,6 @@ export class KokoroSpeech implements SpeechBackend {
     this.playing.clear();
     for (const p of this.pending.values()) p.resolve();
     this.pending.clear();
-    this.status(false);
   }
 
   private ensureAudio(): void {
@@ -85,11 +70,9 @@ export class KokoroSpeech implements SpeechBackend {
   }
 
   private onMessage(m: TtsResponse): void {
-    if (m.type === 'progress') return this.onStatus({ loading: true, loaded: m.loaded, total: m.total, ready: false, speaking: false, engine: '' });
     if (m.type === 'ready') {
-      this.ready = true;
       this.engine = m.engine;
-      return this.status(this.pending.size > 0);
+      return;
     }
     if (m.type === 'error') {
       const p = m.id ? this.pending.get(m.id) : undefined;
@@ -97,7 +80,7 @@ export class KokoroSpeech implements SpeechBackend {
         this.pending.delete(m.id!);
         p.reject(new Error(m.message));
       } else console.warn('Voz:', m.message);
-      return this.status(false);
+      return;
     }
     // chunk: encadenar detrás de lo que ya está sonando
     const p = this.pending.get(m.id);
@@ -116,13 +99,8 @@ export class KokoroSpeech implements SpeechBackend {
       if (p.done && this.ctx && this.ctx.currentTime >= p.endAt - 0.05) {
         this.pending.delete(m.id);
         p.resolve();
-        this.status(false);
       }
     };
     if (m.last) p.done = true;
-  }
-
-  private status(speaking: boolean): void {
-    this.onStatus({ loading: !this.ready && speaking, loaded: 0, total: 0, ready: this.ready, speaking, engine: this.engine });
   }
 }

@@ -7,7 +7,7 @@ async () => {
   const { session } = window.nao;
   const motion = session.service('ALMotion');
   const wait = (ms) => window.nao.wait(ms); // reloj del motor: igual a ×1 que a ×10
-  const reset = async () => { document.querySelector('.chip[title^="Vuelve"]').click(); await wait(1500); };
+  const reset = async () => { window.nao.reset(); await wait(1500); };
   // [x, y, theta, girar antes hacia −Y]
   // La última era (0.5, −0.3): mirando a −Y queda sobre el borde de la pila de cajas (−0.5, −0.55); con la marcha segura
   // (sonares) un NAO real no llega ahí, y antes "llegaba" empujando la pila. Va al lado despejado.
