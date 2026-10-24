@@ -32,6 +32,8 @@ export class RemoteNao {
   private readonly tag: THREE.Sprite;
   private readonly frames: { t: number; f: RemoteFrame }[] = [];
   private lights = '';
+  /** Último estado ya mostrado sin nada más nuevo: mientras no llegue otro, no se recalcula ni se redibuja */
+  private settled: RemoteFrame | null = null;
   /** Hay estado para dibujar (antes del primero no se muestra) */
   shown = false;
 
@@ -92,6 +94,10 @@ export class RemoteNao {
     const at = now - DELAY;
     const fs = this.frames;
     if (!fs.length) return false;
+    // Ya se mostró el último estado y no llegó otro: nada cambió (si no, cada cuadro se redibujaba con sombras, la
+    // física nunca quedaba en reposo y con dos pestañas la computadora se saturaba; medido 2026-10-24)
+    const newest = fs[fs.length - 1];
+    if (this.settled === newest.f && at >= newest.t) return false;
     let i = fs.length - 1;
     while (i > 0 && fs[i - 1].t > at) i--;
     // fs[i] es el primero posterior a `at` (o el último); se interpola desde el anterior
@@ -111,6 +117,7 @@ export class RemoteNao {
     const position = a.position.map((v, j) => v + (b.position[j] - v) * k) as [number, number, number];
     this.state.setFromPhysics({ position, quaternion: [q.w, q.x, q.y, q.z] }, angles);
     for (const name of ['LHand', 'RHand']) if (name in angles) this.state.set(name, angles[name]);
+    if (at >= newest.t) this.settled = newest.f;
     this.setLights(b.on, b.eyes);
     let changed = this.model.apply(this.state);
     changed = this.view.update(this.leds) || changed;

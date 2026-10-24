@@ -171,6 +171,9 @@ export class PhysicsSim {
   /** Otros NAO del mundo compartido: links con forma (en este orden) y el índice mocap de cada uno, por lugar */
   ghostLinks: readonly string[] = [];
   private ghosts: number[][] = [];
+  /** Cuerpos de cada lugar y su contype/conaffinity de fábrica (para sacarlos del cálculo de choques mientras está vacío) */
+  private ghostBodies: number[][] = [];
+  private ghostMask: [number, number][] = [];
 
   private constructor(
     private readonly mj: MainModule,
@@ -242,14 +245,17 @@ export class PhysicsSim {
 
     const sim = new PhysicsSim(mj, model, data, slots, objects, state, engine);
     sim.ghostLinks = ghostLinks;
-    sim.ghosts = Array.from({ length: collision.ghosts ?? 0 }, (_, k) =>
+    sim.ghostBodies = Array.from({ length: collision.ghosts ?? 0 }, (_, k) =>
       ghostLinks.map((l) => {
         const b = model.body(`ghost${k}_${l}`);
-        const mocap = model.body_mocapid[b.id];
+        const id = b.id;
         b.delete();
-        return mocap;
+        return id;
       }),
     );
+    sim.ghosts = sim.ghostBodies.map((ids) => ids.map((id) => model.body_mocapid[id]));
+    sim.ghostMask = sim.ghostBodies.flat().map((id) => [model.body_contype[id], model.body_conaffinity[id]]);
+    for (let k = 0; k < sim.ghosts.length; k++) sim.setGhost(k, null);
     const torso = model.body('torso');
     sim.torsoBody = torso.id;
     torso.delete();
@@ -375,11 +381,19 @@ export class PhysicsSim {
   /**
    * Pone el NAO de otra persona (cuerpos mocap): `pose(link)` = posición y cuaternión [w, x, y, z] de cada link de
    * `ghostLinks` en el mundo (Z arriba); null = lo guarda bajo el suelo. Si queda cerca del robot en reposo, lo despierta
-   * (la física bloqueada no vería el choque).
+   * (la física bloqueada no vería el choque). Un lugar vacío sale del cálculo de choques (contype/conaffinity de sus
+   * cuerpos en 0): los 8 lugares, aun bajo el suelo, duplicaban el costo de cada paso (medido 2026-10-24: 0.55 → 1.04 ms;
+   * fuera del cálculo, 0.64).
    */
   setGhost(k: number, pose: ((link: string) => { position: ArrayLike<number>; quaternion: ArrayLike<number> }) | null): void {
     const ids = this.ghosts[k];
     if (!ids) return;
+    const bodies = this.ghostBodies[k];
+    const flat = k * this.ghostLinks.length;
+    bodies.forEach((id, i) => {
+      this.model.body_contype[id] = pose ? this.ghostMask[flat + i][0] : 0;
+      this.model.body_conaffinity[id] = pose ? this.ghostMask[flat + i][1] : 0;
+    });
     const pos = this.data.mocap_pos;
     const quat = this.data.mocap_quat;
     let near = false;
