@@ -229,6 +229,9 @@ const paintEyes = (hex: string) => {
 // Física fiel (?fisica=fiel, en evaluación): colisión con la forma real de cada pieza (envolventes de las mallas
 // oficiales) y choque del robot consigo mismo. Necesita las mallas: la física espera a que carguen.
 const FAITHFUL_PHYSICS = new URLSearchParams(location.search).get('fisica') === 'fiel';
+/** ?fisica=choque (en evaluación): las formas simples de siempre + choque del robot consigo mismo (piernas y brazos no se
+ * atraviesan) */
+const SELF_COLLISION = new URLSearchParams(location.search).get('fisica') === 'choque';
 let officialLoaded: (meshes: ReadonlyMap<string, Object3D>) => void = () => {};
 const officialReady = new Promise<ReadonlyMap<string, Object3D>>((resolve) => (officialLoaded = resolve));
 
@@ -257,6 +260,7 @@ void import('./naoqi/aldebaranMotions').then(({ loadAldebaranMotions }) => loadA
 // MuJoCo (~2 MB) se carga aparte: la escena aparece antes y, si falla, queda el modo cinemático
 const physicsReady = import('./physics/physics')
   .then(async ({ PhysicsSim }) => {
+    if (SELF_COLLISION) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { selfCollision: true });
     if (!FAITHFUL_PHYSICS) return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects);
     const [{ collisionHulls }, meshes] = await Promise.all([import('./sim/officialMeshes'), officialReady]);
     return PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), selfCollision: true });
@@ -266,7 +270,7 @@ const physicsReady = import('./physics/physics')
     session.engine.physical = true;
     session.engine.onManual = (name, value) => sim.placeJoint(name, value);
     spawn(HOME_ROOM); // el NAO del usuario aparece en su punto de inicio (la física se arma en el origen)
-    setMode(FAITHFUL_PHYSICS ? 'física MuJoCo (fiel)' : 'física MuJoCo');
+    setMode(FAITHFUL_PHYSICS ? 'física MuJoCo (fiel)' : SELF_COLLISION ? 'física MuJoCo (con choque propio)' : 'física MuJoCo');
     world.invalidate(true);
     return true;
   })
