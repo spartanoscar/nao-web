@@ -4,6 +4,7 @@
 import { LedState } from '../robot/leds';
 import type { RobotState } from '../robot/state';
 import { ALAudioDevice } from './ALAudioDevice';
+import { ALFaceDetection } from './ALFaceDetection';
 import { ALLeds } from './ALLeds';
 import { ALMemory } from './ALMemory';
 import { ALMotion } from './ALMotion';
@@ -33,7 +34,7 @@ export class Session {
       ALMotion: motion, ALRobotPosture: posture, ALLeds: this.ledService, ALTextToSpeech: new ALTextToSpeech(),
       ALVideoDevice: new ALVideoDevice(),
       ALAudioDevice: new ALAudioDevice(),
-      ALMemory: memory, ALSonar: sonar,
+      ALMemory: memory, ALSonar: sonar, ALFaceDetection: new ALFaceDetection(),
     };
   }
 
@@ -45,6 +46,7 @@ export class Session {
   service(name: 'ALAudioDevice'): ALAudioDevice;
   service(name: 'ALMemory'): ALMemory;
   service(name: 'ALSonar'): ALSonar;
+  service(name: 'ALFaceDetection'): ALFaceDetection;
   service(name: string): object;
   service(name: string): object {
     const s = this.services[name];
