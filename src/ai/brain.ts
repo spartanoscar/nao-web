@@ -17,6 +17,9 @@ const CONVERSATION_WINDOW = 20_000;
 /** Habilidades que toman una foto para que Gemini la vea (con ellas, finish no cierra el turno) */
 const LOOKING = new Set(['look', 'look_at_point', 'scan']);
 const DEG = 180 / Math.PI;
+/** Respuesta a un finish sin palabras después de mirar */
+const SAY_WHAT_YOU_SAW =
+  'Todavía no terminas: miraste y no le has dicho nada a la persona, que no ve tus fotos. Dile en una o dos frases lo que viste o concluiste y luego pon finish.';
 
 interface BrainCall {
   id: string;
@@ -114,10 +117,12 @@ export class Brain {
     this.hooks.thinking(true);
     try {
       let reply = await this.post({ text, source, state: this.snapshotState(origin), image: this.vision.view().jpeg, ...experiment });
-      // Una pregunta se responde: si miró algo y todavía no dijo nada desde entonces, finish no cierra el turno (en la
-      // prueba del espejo hacía la comprobación y terminaba callado 5 de 8 veces)
-      const question = text.includes('?');
+      // Lo que mira se cuenta: si miró algo y todavía no dijo nada desde entonces, finish no cierra el turno y se le pide
+      // (una vez) que diga lo que vio o concluyó. En la prueba del espejo hacía la comprobación y terminaba callado 5 de 8
+      // veces; luego solo se exigía con preguntas ("?") y "explora bien dónde estás" o "acércate a saludarlo" (frente al
+      // espejo) terminaban con el escaneo o la comprobación hechos y sin una palabra (Oscar, 2026-10-24)
       let lookedSinceSay = false;
+      let nudged = false;
       while (!cancelled()) {
         this.hooks.spent(reply.spentTodayUsd);
         if (reply.say) {
@@ -145,10 +150,14 @@ export class Brain {
         }
         if (cancelled()) return;
         const allOk = results.every((r) => r.response.ok !== false);
+        const silent = finishing && allOk && lookedSinceSay && !nudged;
+        if (silent) nudged = true;
         for (const call of reply.calls) {
-          if (call.name === 'finish') results.push({ id: call.id, name: call.name, response: { ok: allOk, ...(allOk ? {} : { nota: 'algo falló: revisa los resultados' }) } });
+          if (call.name !== 'finish') continue;
+          const nota = !allOk ? 'algo falló: revisa los resultados' : silent ? SAY_WHAT_YOU_SAW : undefined;
+          results.push({ id: call.id, name: call.name, response: { ok: allOk, ...(nota ? { nota } : {}) } });
         }
-        if (finishing && allOk && !(question && lookedSinceSay)) {
+        if (finishing && allOk && !silent) {
           await this.post({ turn: reply.turn, results, final: true });
           break;
         }
