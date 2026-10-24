@@ -86,12 +86,22 @@ func (r *relay) allowedOrigin(req *http.Request) bool {
 	return err == nil && u.Host != "" && r.origins[u.Hostname()]
 }
 
-// POST /api/rooms: sala nueva para el usuario de la sesión → {"room": "<código>"}
+// POST /api/rooms: la sala del usuario de la sesión → {"room": "<código>"}. Si ya tiene una (la pantalla recargó, o
+// volvió antes de 10 min), es la misma: el teléfono sigue conectado y no hay que escanear el QR otra vez.
 func (r *relay) handleCreateRoom(w http.ResponseWriter, req *http.Request) {
 	u, err := r.auth.current(req)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
 		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for c, rm := range r.rooms {
+		if rm.owner == u.ID {
+			rm.ownerName, rm.robotName = u.DisplayName, u.RobotName
+			writeJSON(w, http.StatusOK, map[string]string{"room": c})
+			return
+		}
 	}
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
@@ -99,14 +109,6 @@ func (r *relay) handleCreateRoom(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	code := base64.RawURLEncoding.EncodeToString(buf)
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for c, rm := range r.rooms {
-		if rm.owner == u.ID {
-			r.closeRoom(c, rm, "replaced")
-		}
-	}
 	if len(r.rooms) >= maxRooms {
 		writeError(w, http.StatusServiceUnavailable, "servidor ocupado")
 		return
@@ -147,8 +149,8 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 	r.readLoop(code, c)
 }
 
-// join: la pantalla debe ser del dueño; el teléfono necesita la pantalla presente (el QR solo lo muestra una
-// pantalla viva, así que sin ella el enlace es viejo)
+// join: la pantalla debe ser del dueño. El teléfono entra mientras la sala exista, aunque la pantalla se haya ido un
+// momento (recargó la página): la espera y sigue cuando vuelve. La sala se cierra tras 10 min sin pantalla.
 func (r *relay) join(code string, c *conn, owner int64) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -161,16 +163,13 @@ func (r *relay) join(code string, c *conn, owner int64) string {
 			return "not yours"
 		}
 		if rm.screen != nil {
-			rm.screen.ws.Close() // recargar la página del escritorio toma el control
+			// La pestaña nueva (o la misma recargada) toma el control; la otra se entera y deja de reconectar
+			closeWith(rm.screen, "replaced")
 		}
 		rm.screen = c
 	} else {
-		if rm.screen == nil {
-			return "no screen"
-		}
 		if rm.phone != nil {
-			trySend(rm.phone, text(map[string]any{"t": "replaced"}))
-			rm.phone.ws.Close()
+			closeWith(rm.phone, "replaced")
 		}
 		rm.phone = c
 		trySend(c, text(map[string]any{"t": "welcome", "name": rm.ownerName, "robot": rm.robotName}))
@@ -191,7 +190,7 @@ func (r *relay) leave(code string, c *conn) {
 		rm.screen = nil
 		rm.screenGone = time.Now()
 		if rm.phone != nil {
-			trySend(rm.phone, text(map[string]any{"t": "gone"}))
+			trySend(rm.phone, text(map[string]any{"t": "away"})) // el teléfono espera a que vuelva
 		}
 	case rm.phone:
 		rm.phone = nil
@@ -247,7 +246,7 @@ func (r *relay) janitor() {
 		r.mu.Lock()
 		for code, rm := range r.rooms {
 			if rm.screen == nil && time.Since(rm.screenGone) > orphanTTL {
-				r.closeRoom(code, rm, "gone")
+				r.closeRoom(code, rm, "closed")
 			}
 		}
 		r.mu.Unlock()
@@ -325,6 +324,12 @@ func (c *conn) writeLoop() {
 			}
 		}
 	}
+}
+
+// closeWith cierra con un motivo en el propio mensaje de cierre (llega aunque la cola de envío no alcance a salir)
+func closeWith(c *conn, reason string) {
+	_ = c.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason), time.Now().Add(writeWait))
+	c.ws.Close()
 }
 
 // trySend nunca bloquea: quien no alcanza a recibir pierde cuadros (el siguiente los reemplaza)

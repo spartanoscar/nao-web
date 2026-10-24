@@ -131,7 +131,9 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
       if (m.t === 'peers') {
         const was = phone;
         phone = Boolean(m.phone);
-        if (phone && !was) {
+        // Recién escaneado (con el diálogo abierto): "¡Teléfono conectado!" y la bienvenida. Si volvió solo tras recargar
+        // la página, en silencio
+        if (phone && !was && !modal.hidden) {
           setTimeout(() => {
             close();
             hooks.connected();
@@ -158,8 +160,12 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
       phone = false;
       stopView();
       hooks.tilt(0, 0);
-      // La sala ya no existe (el servidor se reinició o se abrió en otra pestaña): se crea otra con QR nuevo
+      // La sala ya no existe (el servidor se reinició): se pide otra (y su QR). Otra pestaña tomó la sala: esta se aparta
       if (e.reason === 'no room' || e.reason === 'not yours') room = null;
+      if (e.reason === 'replaced') {
+        displaced = true;
+        room = null;
+      }
       paint();
       if (!displaced) setTimeout(() => void open(), RETRY_MS);
     };
@@ -208,6 +214,9 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
     void open();
   });
   paint();
+  // Al entrar se toma la sala del usuario (el servidor la conserva 10 min): si el teléfono ya estaba conectado, vuelve
+  // solo y no hay que escanear otra vez
+  void open();
 }
 
 const clamp = (v: number) => (Number.isFinite(v) ? Math.min(Math.max(v, -1), 1) : 0);

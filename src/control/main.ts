@@ -98,21 +98,31 @@ function connect() {
       root.querySelectorAll('.c-robot').forEach((el) => (el.textContent = m.robot));
       setStatus('online', 'Conectado');
     } else if (m.t === 'peers') {
-      if (m.screen) setStatus('online', 'Conectado');
+      if (m.screen) {
+        setStatus('online', 'Conectado');
+        send({ t: 'view', on: !document.hidden, cameras: CAMERAS }); // la pantalla volvió: que siga mandando las cámaras
+      } else setStatus('connecting', 'Esperando al computador…');
     } else if (m.t === 'caption') {
       caption.textContent = m.text;
       caption.classList.toggle('c-final', Boolean(m.final));
     } else if (m.t === 'caption-error') {
       caption.textContent = m.error;
       caption.classList.add('c-error');
-    } else if (m.t === 'gone' || m.t === 'replaced') {
+    } else if (m.t === 'away') {
+      // El computador recargó la página o se fue un momento: se espera aquí (la sala dura 10 min sin él)
+      setStatus('connecting', 'Esperando al computador…');
+    } else if (m.t === 'closed' || m.t === 'replaced') {
       stopped = true;
-      setStatus('offline', m.t === 'gone' ? 'El computador se desconectó' : 'Otro teléfono tomó el control');
+      setStatus('offline', m.t === 'closed' ? 'El computador se desconectó' : 'Otro teléfono tomó el control');
     }
   };
   sock.onclose = (e) => {
     if (ws !== sock) return;
-    if (e.reason === 'no screen' || e.reason === 'no room') {
+    if (e.reason === 'replaced') {
+      stopped = true;
+      setStatus('offline', 'Otro teléfono tomó el control');
+    }
+    if (e.reason === 'no room') {
       stopped = true;
       setStatus('offline', 'La sala ya no existe');
       root.querySelectorAll('.c-screen p').forEach((p) => (p.textContent = 'Escanea el QR nuevo'));
