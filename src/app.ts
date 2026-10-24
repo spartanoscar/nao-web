@@ -31,10 +31,14 @@ import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
 import { SharedWorld } from './net/world';
 import { createTranscript } from './ui/transcript';
+import { startCrashLog } from './ui/crashLog';
 import { Brain } from './ai/brain';
 import { Vision } from './ai/vision';
 import { FaceWatcher } from './ai/faces';
 import { attachChat } from './ui/chat';
+
+// Si la pestaña se cierra sola (iPad: límite de memoria), la próxima vez se sabe en qué iba (ui/crashLog.ts)
+const crash = startCrashLog();
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
 const BOOT_POSTURE = postureJoints('Crouch');
@@ -111,6 +115,7 @@ const spawn = (id: SpawnId) => {
 const sound = new MotorSound();
 // Voz: Kokoro en un worker (el modelo se descarga la primera vez que el robot habla)
 const speech = new KokoroSpeech();
+speech.onReady = (engine) => crash.stage(`voz lista (${engine})`);
 const tts = session.service('ALTextToSpeech');
 tts.backend = speech;
 // Volumen general del robot (ALAudioDevice): lo controla el ícono del HUD
@@ -176,6 +181,7 @@ const physicsReady = Promise.all([import('./physics/physicsClient'), import('./s
     if (!(await loadPostureGraph())) throw new Error('falta el grafo de posturas de NAOqi (scripts/fetch-naoqi-postures.sh)');
     // Con lugar para los NAO de las otras cápsulas del mundo compartido (cuerpos sólidos que mueven sus dueños)
     physics = await PhysicsClient.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), ghosts: POD_COUNT });
+    crash.stage('física lista');
     // El NAO del usuario aparece en su cápsula (nao-api la reparte al entrar) o, mientras no llega, en el centro de la sala
     place(shared.myPod >= 0 ? `pod${shared.myPod}` : HOME_ROOM);
     world.invalidate(true);
@@ -323,6 +329,8 @@ Object.assign(window, {
 // ─── Entrada al mundo ───────────────────────────────────────────────────────────
 // Login + licencia + "Cargando universo…": el mundo se carga detrás y solo se muestra completo
 const user = await runBoot({ loadModel, physics: physicsReady, warmUp: () => world.renderNow() });
+crash.stage('en el mundo');
+crash.report();
 player.user = user;
 showMeshCredit();
 const hud = createHud(user, session.service('ALAudioDevice'));
@@ -416,7 +424,10 @@ attachPhoneLink(hud, session.service('ALVideoDevice'), {
   },
   usage: (spent) => hud.setSpent(spent),
   phoneFrame: (jpeg) => void faces.push(jpeg),
-  world: (presence) => shared.presence(presence),
+  world: (presence) => {
+    shared.presence(presence);
+    crash.stage(`mundo compartido: ${presence.players.length} persona(s), cápsula ${presence.pod + 1}`);
+  },
   captionError: (message) => {
     if (message === captionError) return; // un aviso por motivo, no uno por frase
     captionError = message;
@@ -466,6 +477,9 @@ faces.onUpdate = () => {
 };
 // La voz se descarga y se calienta en segundo plano (la primera frase salía con varios segundos de espera);
 // después del primer cuadro del mundo, para no competir con lo que se ve
-setTimeout(() => speech.preload(tts.getVoice()), 1500);
+setTimeout(() => {
+  crash.stage('voz: cargando');
+  speech.preload(tts.getVoice());
+}, 1500);
 attachKeyboard(session, power);
 Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces, power, shared });

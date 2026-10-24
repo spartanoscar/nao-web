@@ -1,6 +1,7 @@
 // Voz del robot en el navegador: Kokoro en un Web Worker (tts.worker.ts) + reproducción con WebAudio.
 // Las frases se generan una a una y se encadenan sin huecos: la primera suena sin esperar el resto.
 
+import { isAppleMobile } from '../ui/device';
 import type { SpeechBackend, SpeechRequest } from '../naoqi/ALTextToSpeech';
 import type { TtsRequest, TtsResponse } from './tts.worker';
 
@@ -17,6 +18,8 @@ export class KokoroSpeech implements SpeechBackend {
   private pending = new Map<number, { resolve: () => void; reject: (e: Error) => void; endAt: number; done: boolean }>();
   /** Motor de inferencia en uso ("webgpu fp32" / "wasm q8") */
   engine = '';
+  /** La voz quedó lista (motor y precisión: "webgpu fp32", "wasm q8") */
+  onReady?: (engine: string) => void;
 
   /** Descarga el modelo y lo deja listo sin hablar (se llama al entrar al mundo, en segundo plano) */
   preload(voice?: string): void {
@@ -63,7 +66,9 @@ export class KokoroSpeech implements SpeechBackend {
 
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
-    const w = new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module' });
+    // En iPad/iPhone la voz liviana (WASM q8, 92 MB) en vez de la de GPU (fp32, 326 MB): Safari en iOS cierra la pestaña
+    // al pasar su límite de memoria (2026-10-24: el iPad se cayó dos veces a los 20–40 s de entrar, mientras cargaba la voz)
+    const w = new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module', name: isAppleMobile() ? 'device=wasm dtype=q8' : '' });
     w.onmessage = (e: MessageEvent<TtsResponse>) => this.onMessage(e.data);
     this.worker = w;
     return w;
@@ -72,6 +77,7 @@ export class KokoroSpeech implements SpeechBackend {
   private onMessage(m: TtsResponse): void {
     if (m.type === 'ready') {
       this.engine = m.engine;
+      this.onReady?.(m.engine);
       return;
     }
     if (m.type === 'error') {

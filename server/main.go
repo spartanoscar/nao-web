@@ -80,6 +80,7 @@ func main() {
 	mux.HandleFunc("POST /api/rooms", relay.handleCreateRoom)
 	mux.HandleFunc("GET /api/ws", relay.handleWS)
 	mux.HandleFunc("POST /api/world/pass", relay.handleWorldPass)
+	mux.HandleFunc("POST /api/client-log", auth.handleClientLog)
 	mux.HandleFunc("GET /api/world", relay.handleWorldWS)
 
 	addr := envOr("NAO_ADDR", "127.0.0.1:3030")

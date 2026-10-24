@@ -8,6 +8,14 @@ export function isPhoneScreen(): boolean {
   return touch && Math.min(screen.width, screen.height) < PHONE_SHORT_SIDE;
 }
 
+/**
+ * iPad o iPhone (el iPad se presenta como Mac: se reconoce por la pantalla táctil). Safari en iOS cierra la pestaña si
+ * pasa de su límite de memoria, mucho más bajo que en un computador.
+ */
+export function isAppleMobile(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+}
+
 export function showPhoneOnly(): void {
   // Sin mundo: fuera también el panel y sus controles
   document.getElementById('app')?.remove();
