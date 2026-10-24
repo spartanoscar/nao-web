@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@mujoco/mujoco": "^3.16.0",
+    "@vladmandic/face-api": "^1.7.15",
     "kokoro-js": "^1.2.1",
     "phonemizer": "^1.2.1",
     "qrcode-generator": "^1.4.4",

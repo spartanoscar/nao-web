@@ -36,6 +36,7 @@ import { createVoicePanel } from './ui/voicePanel';
 import { createShellColorPicker, rememberedShellColor } from './ui/shellColor';
 import { Brain } from './ai/brain';
 import { Vision } from './ai/vision';
+import { FaceWatcher } from './ai/faces';
 import { attachChat } from './ui/chat';
 
 // Como un NAO recién encendido: en Crouch y con los motores apagados. motion.wakeUp() lo levanta.
@@ -415,8 +416,12 @@ const applyAppearance = (prev: { shellColor: string; eyeColor: string }, next: U
   if (next.shellColor !== prev.shellColor) void shell.paint?.(next.shellColor);
   if (next.eyeColor !== prev.eyeColor) paintEyes(next.eyeColor);
 };
+// Rostros en la cámara del teléfono (ai/faces.ts): detector diminuto siempre, reconocimiento solo con una cara clara
+const faces = new FaceWatcher();
+void faces.loadPeople();
 // Ajustes: lo que se guarda se ve al instante en el HUD y en los subtítulos (leen `user` en cada uso)
 attachSettings(hud.settingsButton, user, {
+  faces,
   onChange: (u) => {
     applyAppearance(user, u);
     Object.assign(user, u);
@@ -432,6 +437,7 @@ tts.onSay = (text) => transcript.show(`nao-${naoLine++}`, 'nao', user.robotName,
 let captionError = '';
 // Cerebro (Gemini por el servidor): lo que se le dice o escribe → lo que responde y hace
 const vision = new Vision(session.service('ALVideoDevice'), cameras.cameras);
+vision.phone = faces; // con la cámara del teléfono activa, su foto va a la derecha de la imagen del turno
 const brain = new Brain(session, state, vision, {
   robotName: () => user.robotName,
   thinking: (on) => (on ? transcript.show('thinking', 'nao', user.robotName, '…', false) : transcript.clear('thinking')),
@@ -462,16 +468,32 @@ attachPhoneLink(hud, session.service('ALVideoDevice'), {
     if (final && brain.addressed(text)) void brain.ask(text, 'voz');
   },
   usage: (spent) => hud.setSpent(spent),
+  phoneFrame: (jpeg) => void faces.push(jpeg),
   captionError: (message) => {
     if (message === captionError) return; // un aviso por motivo, no uno por frase
     captionError = message;
     transcript.notice(message);
   },
 });
+/**
+ * Saludo local (sin IA, sin costo): una persona registrada aparece en la cámara del teléfono y no se la ha visto en
+ * GREET_AGAIN_S → el NAO dice "¡Hola, Oscar!". Desconocidos no: no se saluda a quien no autorizó ser reconocido.
+ */
+const GREET_AGAIN_S = 600;
+const greeted = new Map<string, number>();
+faces.onUpdate = () => {
+  const now = performance.now() / 1000;
+  const names = faces.faces().flatMap((f) => (f.name ? [f.name] : []));
+  for (const name of names) {
+    const last = greeted.get(name);
+    greeted.set(name, now);
+    if (last === undefined || now - last > GREET_AGAIN_S) void tts.say(`¡Hola, ${name}!`).catch((e) => console.warn('Voz:', e));
+  }
+};
 // La voz se descarga y se calienta en segundo plano (la primera frase salía con varios segundos de espera);
 // después del primer cuadro del mundo, para no competir con lo que se ve
 setTimeout(() => speech.preload(tts.getVoice()), 1500);
 attachHiddenPanel();
 const keyStatus = document.querySelector<HTMLElement>('.keys-status')!;
 attachKeyboard(session, (text) => (keyStatus.textContent = text));
-Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision });
+Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces });

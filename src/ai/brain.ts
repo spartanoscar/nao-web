@@ -186,6 +186,10 @@ export class Brain {
       cabeza: { yaw: Math.round(yaw * DEG), pitch: Math.round(pitch * DEG) },
       quieto_seg: Math.round((performance.now() - this.stillSince) / 1000),
       como_te_ves: looks(this.hooks.appearance()),
+      // Rostros reconocidos en la cámara del teléfono (ai/faces.ts); solo si está activa
+      ...(this.vision.phone?.live
+        ? { camara_telefono: { personas: this.vision.phone.faces().map((f) => f.name ?? (f.pending ? 'reconociendo…' : 'persona sin registrar')) } }
+        : {}),
       ...(origin ? { origen: origin } : {}),
     };
   }

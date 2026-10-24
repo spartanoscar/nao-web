@@ -19,3 +19,4 @@ server/nao-api
 
 # Modelos de prueba (nunca se suben: pueden ser de otros proyectos)
 public/models/props/_*
+public/models/face/

@@ -1,7 +1,9 @@
 // Lo que ve el NAO, en el formato que se le manda a Gemini, y la geometría para ir hacia lo que vio.
 //
 //   - Vista: una sola imagen con las dos cámaras apiladas (frente arriba, boca abajo). Juntas cubren del suelo
-//     cerca de los pies hasta el frente casi sin hueco (frente −23°…+21°, boca 18°…62° hacia abajo).
+//     cerca de los pies hasta el frente casi sin hueco (frente −23°…+21°, boca 18°…62° hacia abajo). Con la cámara
+//     del teléfono activa, a la derecha va su foto rotulada, con cada cara marcada con su nombre (ai/faces.ts): tres
+//     vistas en una sola imagen (Gemini cobra igual por imagen con resolución baja).
 //   - Mosaico (scan): tres vistas con la cabeza a la izquierda, al centro y a la derecha, en una imagen; con la vuelta
 //     completa, una segunda fila con lo de detrás (gira el cuerpo 180°): 360° en una sola imagen.
 //   - Cada recuadro guarda la pose de su cámara en el momento de la foto: una caja que devuelve Gemini
@@ -14,6 +16,14 @@
 import * as THREE from 'three';
 import type { ALMotion } from '../naoqi/ALMotion';
 import type { ALVideoDevice } from '../naoqi/ALVideoDevice';
+import type { SeenFace } from './faces';
+
+/** Lo que ve la cámara del teléfono (ai/faces.ts FaceWatcher) */
+export interface PhoneView {
+  readonly live: boolean;
+  readonly frame: HTMLCanvasElement;
+  faces(): SeenFace[];
+}
 
 const K_QVGA = 1;
 const K_RGB = 11;
@@ -54,6 +64,8 @@ export class Vision {
   private canvas = document.createElement('canvas');
   /** La última imagen que vio Gemini: las cajas que devuelve se refieren a ella */
   last: Snapshot | null = null;
+  /** La cámara del teléfono, si está conectada (app.ts) */
+  phone: PhoneView | null = null;
 
   constructor(
     private readonly video: ALVideoDevice,
@@ -61,11 +73,43 @@ export class Vision {
     private readonly cameras: readonly THREE.PerspectiveCamera[],
   ) {}
 
-  /** Vista actual: frente arriba, boca abajo (320×480) */
+  /** Vista actual: frente arriba, boca abajo (320×480); con la cámara del teléfono activa, su foto a la derecha (640×480) */
   view(): Snapshot {
-    const ctx = this.prepare(W, H * 2);
+    const phone = this.phone?.live ? this.phone : null;
+    const ctx = this.prepare(phone ? W * 2 : W, H * 2);
     const tiles = [this.draw(ctx, 0, 0, 0), this.draw(ctx, 1, 0, H)];
+    if (phone) {
+      label(ctx, 'NAO · frente', 0, 0);
+      label(ctx, 'NAO · boca', 0, H);
+      this.drawPhone(ctx, phone, W, 0, W, H * 2);
+    }
     return this.finish(tiles);
+  }
+
+  /** La foto del teléfono ajustada al recuadro (sin deformar), rotulada, con cada cara y su nombre */
+  private drawPhone(ctx: CanvasRenderingContext2D, phone: PhoneView, x: number, y: number, w: number, h: number): void {
+    const { frame } = phone;
+    const k = Math.min(w / frame.width, h / frame.height);
+    const [fw, fh] = [frame.width * k, frame.height * k];
+    const [fx, fy] = [x + (w - fw) / 2, y + (h - fh) / 2];
+    ctx.fillStyle = '#16191f';
+    ctx.fillRect(x, y, w, h);
+    ctx.drawImage(frame, fx, fy, fw, fh);
+    ctx.lineWidth = 3;
+    ctx.font = 'bold 14px system-ui, sans-serif';
+    for (const f of phone.faces()) {
+      const color = f.name ? '#4ade80' : '#f5a524';
+      const [bx, by, bw, bh] = [fx + f.box.x * k, fy + f.box.y * k, f.box.width * k, f.box.height * k];
+      ctx.strokeStyle = color;
+      ctx.strokeRect(bx, by, bw, bh);
+      const text = f.name ?? (f.pending ? 'reconociendo…' : 'sin registrar');
+      const tw = ctx.measureText(text).width + 10;
+      ctx.fillStyle = color;
+      ctx.fillRect(bx, Math.max(by - 20, y), tw, 20);
+      ctx.fillStyle = '#10151c';
+      ctx.fillText(text, bx + 5, Math.max(by - 20, y) + 15);
+    }
+    label(ctx, 'CÁMARA DEL TELÉFONO', x, y);
   }
 
   /**
@@ -156,4 +200,13 @@ export class Vision {
     this.last = snap;
     return snap;
   }
+}
+
+/** Rótulo en la esquina de un recuadro */
+function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  ctx.font = 'bold 13px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(x + 6, y + 6, ctx.measureText(text).width + 12, 20);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, x + 12, y + 21);
 }
