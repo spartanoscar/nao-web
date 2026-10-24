@@ -2,6 +2,7 @@ import './ui/styles.css';
 import { type Object3D, Spherical, Vector3 } from 'three';
 import urdfXml from '../reference/urdf/naoV50.urdf?raw';
 import { postureJoints } from './naoqi/postures';
+import { MOTION_CYCLE } from './naoqi/engine';
 import { Session } from './naoqi/session';
 import { MotorSound } from './audio/motorSound';
 import { KokoroSpeech } from './audio/speech';
@@ -354,11 +355,49 @@ const trackRoom = () => {
 /** Avisos en cada paso de la simulación (bancos de prueba: miden igual a ×1 que a ×10) */
 const tickHooks = new Set<() => void>();
 
-world.onFrame((dt) => {
-  for (let i = 0; i < speed; i++) {
-    session.update(dt);
-    if (physicsOn && physics?.step(dt)) world.invalidate(true);
+/**
+ * Simulación: motor de NAOqi y física intercalados en pasos de un ciclo (20 ms, como el DCM), en tramos de como mucho
+ * SIM_CHUNK. Entre tramos se cede el turno (una tarea aparte con MessageChannel) para que avancen las promesas de NAOqi:
+ * moveTo decide cada 0.1 s de simulación. Antes, a ×10 con el mundo completo cada cuadro tardaba ~100 ms y simulaba 1 s
+ * de una vez: el motor calculaba una vez para 50 pasos de física y moveTo corregía una vez por segundo; la marcha se
+ * desviaba y se caía (medido 2026-10-24: marcha 7/7 → 4/7). Así la simulación rápida es la misma que a ×1.
+ */
+const SIM_CHUNK = 5 * MOTION_CYCLE;
+/** Simulación pendiente (s); si la computadora no alcanza, no se acumula más que esto (la velocidad real baja) */
+const MAX_SIM_DEBT = 1;
+let simDebt = 0;
+const simulate = (seconds: number) => {
+  const steps = Math.max(1, Math.ceil(seconds / MOTION_CYCLE - 1e-6));
+  const h = seconds / steps;
+  for (let i = 0; i < steps; i++) {
+    session.update(h);
+    if (physicsOn && physics?.step(h)) world.invalidate(true);
     for (const fn of tickHooks) fn();
+  }
+};
+const pump = new MessageChannel();
+let pumping = false;
+const runChunk = () => {
+  const h = Math.min(simDebt, SIM_CHUNK);
+  if (h <= 1e-9) return;
+  simDebt -= h;
+  simulate(h);
+};
+pump.port1.onmessage = () => {
+  pumping = false;
+  runChunk();
+  if (simDebt > 1e-9) {
+    pumping = true;
+    pump.port2.postMessage(0);
+  }
+};
+
+world.onFrame((dt) => {
+  simDebt = Math.min(simDebt + dt * speed, MAX_SIM_DEBT);
+  runChunk();
+  if (simDebt > 1e-9 && !pumping) {
+    pumping = true;
+    pump.port2.postMessage(0);
   }
   applyTilt(dt);
   if (physics) {
