@@ -55,20 +55,24 @@ export const ROOMS: Record<RoomId, Room> = {
 /**
  * Puntos de aparición además del de cada cuarto. Rampa: en la sala de pruebas, frente a donde empieza la rampa
  * (props.ts: sube de x = −0.6 a 0.8 en y = 1.1), alineado con la subida: la punta de los pies a ~30 cm y la escalera
- * (termina en x = −1.35) detrás, sin tocarla
+ * (termina en x = −1.35) detrás, sin tocarla. Escalera: de frente al primer escalón (props.ts: empieza en y = 0.65, centrada
+ * en x = −1.775, sube hacia +y), la punta de los pies a ~15 cm. `camera` = dónde queda la cámara del mundo en el marco del
+ * robot (m: adelante, arriba, a su derecha); sin ella, de frente y un poco al costado.
  */
-export const SPOTS = {
+export const SPOTS: Record<string, { label: string; x: number; y: number; yaw: number; camera?: [number, number, number] }> = {
   rampa: { label: 'RAMPA', x: -1.0, y: 1.1, yaw: 0 },
-} as const;
+  // Desde atrás y a su derecha, para ver la subida (de frente quedaría entre el robot y la escalera)
+  escalera: { label: 'ESCALERA', x: -1.775, y: 0.39, yaw: Math.PI / 2, camera: [-0.85, 0.35, 0.55] },
+};
 
-export type SpawnId = RoomId | keyof typeof SPOTS;
+export type SpawnId = RoomId | 'rampa' | 'escalera';
 
-export function spawnPoint(id: SpawnId): { x: number; y: number; yaw: number } {
-  return id in SPOTS ? SPOTS[id as keyof typeof SPOTS] : ROOMS[id as RoomId].spawn;
+export function spawnPoint(id: SpawnId): { x: number; y: number; yaw: number; camera?: [number, number, number] } {
+  return id in SPOTS ? SPOTS[id] : ROOMS[id as RoomId].spawn;
 }
 
 export function spawnLabel(id: SpawnId): string {
-  return id in SPOTS ? SPOTS[id as keyof typeof SPOTS].label : ROOMS[id as RoomId].label;
+  return id in SPOTS ? SPOTS[id].label : ROOMS[id as RoomId].label;
 }
 
 /** Donde aparece el NAO del usuario al entrar. Por ahora (Oscar, 2026-10-24) en el centro de la sala de pruebas, con la

@@ -3,8 +3,8 @@
 // NAO (57 cm) es un juguete entre ellos. Diseño propio.
 //
 // Sala de pruebas (centrada en el origen, donde corren los bancos: todo va contra las paredes, a más de 1.2 m del centro):
-// rampa suave con plataforma, escalones de 1, 2 y 4 cm con su rótulo y una escalera de casa (huella 28 cm, contrahuella
-// 17 cm: con la marcha estándar el NAO real no la sube; es el "reto de la escalera", docs/PLAN.md F13).
+// rampa suave con plataforma, escalones de 1, 2 y 4 cm con su rótulo y una escalera a la medida del NAO para enseñarle a
+// subir (4 escalones de 8 cm, huella de 25 cm; el "reto de la escalera", docs/PLAN.md F13).
 // Baño: azulejo menos áspero que la madera, dos tapetes (más agarre y un borde de 1.2 cm para tropezar), lavamanos de
 // pedestal, inodoro y un charco junto a la entrada (muy resbaloso: un peligro que la IA debería ver y evitar).
 
@@ -72,8 +72,10 @@ const add = (p: PropPart) => parts.push(p);
     });
   });
 
-  // Escalera de casa en la esquina noroeste: 4 escalones (17 cm de alto, 28 de huella) y un descanso contra la pared
-  const [sx0, sx1, rise, tread, landing] = [-2.2, -1.35, 0.17, 0.28, 0.3];
+  // Escalera en la esquina noroeste, sube hacia la pared norte (+y): 4 escalones y un descanso contra la pared. A la medida
+  // del NAO para enseñarle a subir (Oscar, 2026-10-24): contrahuella de 8 cm (la de casa real, 17 cm, le llegaba casi a la
+  // rodilla; 4 y 6 cm se veían demasiado bajas), y huella de 25 cm (el pie mide 16 cm: cabe entero con margen)
+  const [sx0, sx1, rise, tread, landing] = [-2.2, -1.35, 0.08, 0.25, 0.3];
   const top = 1.95;
   const y0 = top - landing - 4 * tread;
   for (let k = 0; k < 4; k++) {
@@ -82,10 +84,11 @@ const add = (p: PropPart) => parts.push(p);
       name: `stair_${k}`, room: 'pruebas', kind: 'box', size: [sx1 - sx0, tread, sh],
       pos: [(sx0 + sx1) / 2, y0 + (k + 0.5) * tread, sh / 2], look: 'riser', physics: true,
     });
-    // Huella de madera encima de cada escalón (solo se ve)
+    // Huella de madera de cada escalón (solo se ve): metida en el escalón, su cara de arriba 1 mm sobre la de la física
+    // (con escalones bajos, una tabla encima haría ver el pie hundido en la madera)
     add({
       name: `stair_tread_${k}`, room: 'pruebas', kind: 'box', size: [sx1 - sx0 + 0.02, tread + 0.02, 0.02],
-      pos: [(sx0 + sx1) / 2, y0 + (k + 0.5) * tread, sh + 0.01], look: 'wood', physics: false,
+      pos: [(sx0 + sx1) / 2, y0 + (k + 0.5) * tread, sh - 0.009], look: 'wood', physics: false,
     });
   }
   add({
@@ -94,7 +97,7 @@ const add = (p: PropPart) => parts.push(p);
   });
   add({
     name: 'stair_landing_top', room: 'pruebas', kind: 'box', size: [sx1 - sx0 + 0.02, landing + 0.01, 0.02],
-    pos: [(sx0 + sx1) / 2, top - landing / 2, 4 * rise + 0.01], look: 'wood', physics: false,
+    pos: [(sx0 + sx1) / 2, top - landing / 2, 4 * rise - 0.009], look: 'wood', physics: false,
   });
 }
 

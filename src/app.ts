@@ -82,10 +82,10 @@ const resetAtHome = () => {
 const spawn = (id: SpawnId) => {
   home = roomRoot(id);
   resetAtHome();
-  const { x, y, yaw } = spawnPoint(id);
+  const { x, y, yaw, camera } = spawnPoint(id);
   const [c, s] = [Math.cos(yaw), Math.sin(yaw)];
   const target = new Vector3(x, 0.28, -y); // three: Y arriba, z = −y del URDF
-  const [ox, oy, oz] = [1.0, 0.27, 0.75];
+  const [ox, oy, oz] = camera ?? [1.0, 0.27, 0.75];
   world.controls.target.copy(target);
   world.rig.position.set(target.x + ox * c + oz * s, target.y + oy, target.z - ox * s + oz * c);
   world.controls.update();
@@ -316,7 +316,7 @@ attachSettings(hud.settingsButton, user, {
   // La biblioteca terminó de guardar algo: el servidor ya lo cobró
   onSpent: () => void me().then((u) => u && hud.setSpent(u.spentTodayUsd)),
   // Aparecer en un cuarto del mundo (sim/rooms.ts): agachado y con los motores apagados, como recién encendido
-  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
+  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'escalera', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
   onSpawn: (id) => spawn(id as SpawnId),
 });
 const transcript = createTranscript();
