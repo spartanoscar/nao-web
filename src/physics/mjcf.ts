@@ -173,11 +173,14 @@ export function buildMjcf(
   );
 
   // Piezas fijas (el espejo): geoms del mundo, sin cuerpo propio
-  const fixed = ENV_FIXED.map(
-    (o) =>
-      `<geom name="fixed_${o.name}" type="box" pos="${v3(o.pos)}" quat="${v3(rpyToQuat([0, 0, o.yaw]))}" ` +
-      `size="${v3(o.size.map((s) => s / 2))}" contype="1" conaffinity="1"/>`,
-  );
+  const fixed = ENV_FIXED.map((o) => {
+    const size = o.kind === 'cylinder' ? [o.size[0] / 2, o.size[2] / 2] : o.size.map((s) => s / 2);
+    const friction = o.friction === undefined ? '' : ` friction="${f(o.friction)} 0.005 0.0001" priority="1"`;
+    return (
+      `<geom name="fixed_${o.name}" type="${o.kind ?? 'box'}" pos="${v3(o.pos)}" quat="${v3(rpyToQuat([0, o.pitch ?? 0, o.yaw]))}" ` +
+      `size="${v3(size)}" contype="1" conaffinity="1"${friction}/>`
+    );
+  });
 
   const actuators = joints
     .filter((j) => j.actuated)

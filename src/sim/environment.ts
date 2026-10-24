@@ -2,6 +2,7 @@
 // (las del URDF y MuJoCo; X adelante del robot), metros, kg.
 
 import type { Vec3 } from '../robot/urdf';
+import { PROPS } from './props';
 import { ROOMS, WALL_THICKNESS, wallPieces } from './rooms';
 
 export interface EnvObject {
@@ -22,10 +23,18 @@ const CARDBOARD = 0xb08a5a;
 /** Pieza fija del mundo: no se mueve (como atornillada a la pared). Mismas coordenadas que EnvObject. */
 export interface FixedObject {
   name: string;
-  /** Tamaño completo (x = grosor) */
+  /** Tamaño completo (x = grosor). Cilindro: [diámetro, diámetro, alto], con el eje vertical */
   size: Vec3;
   pos: Vec3;
   yaw: number;
+  /** Inclinación alrededor del eje Y propio (rad): rampas */
+  pitch?: number;
+  kind?: 'box' | 'cylinder';
+  /**
+   * Fricción propia (azulejo, tapete, charco). MuJoCo usa la mayor de las dos piezas que se tocan: con prioridad, la de
+   * esta pieza manda (si no, la suela del NAO, μ = 1, siempre ganaría)
+   */
+  friction?: number;
 }
 
 /**
@@ -45,6 +54,10 @@ export const MIRROR_FRAME = 0.04;
 export const ENV_FIXED: readonly FixedObject[] = [
   MIRROR,
   ...wallPieces().map((w, i): FixedObject => ({ name: `wall_${i}`, size: w.size, pos: w.center, yaw: 0 })),
+  // Objetos de los cuartos con física (sim/props.ts): rampa, escalones, escalera, lavamanos, inodoro, tapetes, piso del baño
+  ...PROPS.filter((p) => p.physics && p.kind !== 'ellipse').map((p): FixedObject => ({
+    name: p.name, size: p.size, pos: p.pos, yaw: p.yaw ?? 0, pitch: p.pitch, kind: p.kind === 'cylinder' ? 'cylinder' : 'box', friction: p.friction,
+  })),
 ];
 
 // Los cubos y cajas están en el laboratorio (rooms.ts), alrededor de donde aparece el NAO ahí, igual que estaban

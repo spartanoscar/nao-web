@@ -8,6 +8,7 @@ import { ENV_OBJECTS, MIRROR, MIRROR_FRAME } from './environment';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { floorTexture, rugTexture, skyTexture, wallpaper } from './decor';
+import { type Look, PROPS } from './props';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOMS, type Room, type RoomId, type Side, WALLS, WALL_HEIGHT, WALL_THICKNESS, roomAt, visibleFrom, wallPieces } from './rooms';
 
 export interface World {
@@ -87,6 +88,7 @@ export function createWorld(container: HTMLElement): World {
   scene.add(zUp);
   addFloor(scene, zUp);
   addRooms(zUp);
+  addProps(zUp);
   const objects = addObjects(zUp);
   addMirror(zUp);
 
@@ -390,6 +392,69 @@ function addRooms(zUp: THREE.Group) {
       inRooms(inside, [door.sign]);
       zUp.add(inside);
     }
+  }
+}
+
+/** Rótulo pegado en el piso (cinta blanca con texto negro) */
+function labelTexture(text: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 100;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f7f3ea';
+  g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = '#1b1d21';
+  g.font = '800 58px system-ui, -apple-system, "Segoe UI", sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, c.width / 2, c.height / 2 + 3);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Materiales de los objetos (props.ts): colores de juguete, cerámica brillante, cromo, tela y agua */
+function propMaterial(look: Look, color?: number, text?: string): THREE.Material {
+  switch (look) {
+    case 'wood': return new THREE.MeshStandardMaterial({ color: color ?? 0xb7804f, roughness: 0.55 });
+    case 'riser': return new THREE.MeshStandardMaterial({ color: color ?? 0xf3ede2, roughness: 0.8 });
+    case 'concrete': return new THREE.MeshStandardMaterial({ color: color ?? 0x9ca3ab, roughness: 0.95 });
+    case 'ramp': return new THREE.MeshStandardMaterial({ color: color ?? 0x5aa9e6, roughness: 0.6 });
+    case 'step': return new THREE.MeshStandardMaterial({ color: color ?? 0xf2a65a, roughness: 0.6 });
+    case 'ceramic': return new THREE.MeshStandardMaterial({ color: color ?? 0xffffff, roughness: 0.12 });
+    case 'chrome': return new THREE.MeshStandardMaterial({ color: color ?? 0xe4e8ee, metalness: 0.75, roughness: 0.3 });
+    case 'fabric': return new THREE.MeshStandardMaterial({ color: color ?? 0x6cc2b2, roughness: 1 });
+    // Sobre azulejo blanco el agua casi no se veía: un azul más marcado y más opaco, con brillo
+    case 'water': return new THREE.MeshStandardMaterial({ color: 0x4fa8e8, roughness: 0.02, transparent: true, opacity: 0.7, envMapIntensity: 2.5 });
+    case 'label': return new THREE.MeshStandardMaterial({ map: labelTexture(text ?? ''), roughness: 0.9 });
+  }
+}
+
+/** Objetos fijos de los cuartos (props.ts); los que tienen física son las mismas piezas que MuJoCo */
+function addProps(zUp: THREE.Group) {
+  for (const p of PROPS) {
+    if (p.physics === 'only') continue;
+    const [sx, sy, sz] = p.size;
+    let mesh: THREE.Mesh;
+    if (p.kind === 'cylinder') {
+      mesh = new THREE.Mesh(new THREE.CylinderGeometry(sx / 2, sx / 2, sz, 32), propMaterial(p.look, p.color));
+      mesh.geometry.rotateX(Math.PI / 2); // el cilindro de three es vertical en Y; aquí Z es arriba
+    } else if (p.kind === 'ellipse') {
+      mesh = new THREE.Mesh(new THREE.CircleGeometry(0.5, 48), propMaterial(p.look, p.color));
+      mesh.scale.set(sx, sy, 1);
+    } else {
+      const soft = p.look === 'ceramic' || p.look === 'fabric';
+      const geometry = soft ? new RoundedBoxGeometry(sx, sy, sz, 3, Math.min(sx, sy, sz) * 0.3) : new THREE.BoxGeometry(sx, sy, sz);
+      mesh = new THREE.Mesh(geometry, propMaterial(p.look, p.color, p.text));
+    }
+    mesh.name = p.name;
+    mesh.position.set(...p.pos);
+    mesh.rotation.set(0, p.pitch ?? 0, p.yaw ?? 0, 'ZYX'); // R = Rz(yaw)·Ry(pitch), como el rpy de la física
+    const flat = p.look === 'label' || p.look === 'water';
+    mesh.castShadow = !flat;
+    mesh.receiveShadow = true;
+    inRooms(mesh, [p.room]);
+    zUp.add(mesh);
   }
 }
 
