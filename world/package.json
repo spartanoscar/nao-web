@@ -1,0 +1,16 @@
+{
+  "name": "nao-world",
+  "private": true,
+  "description": "Sala del mundo compartido de NAO Web (Cloudflare Durable Object, docs/PLAN.md F16)",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250901.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.34.0"
+  }
+}

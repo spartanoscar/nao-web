@@ -13,6 +13,8 @@
 #   bash scripts/deploy.sh db-setup [--yes] crea la base y el usuario `nao` en Postgres (idempotente)
 #   bash scripts/deploy.sh api    [--yes]   compila server/ y reinicia nao-api (PM2, 127.0.0.1:3030)
 #   bash scripts/deploy.sh user <args>      nao-api user add|passwd|list en el servidor
+#   bash scripts/deploy.sh world  [--yes]   sala del mundo compartido en Cloudflare (world/, Durable Object) y
+#                                           NAO_WORLD_URL/NAO_WORLD_SECRET de nao-api (CLOUDFLARE_API_TOKEN o wrangler login)
 #
 # --yes (o NAO_DEPLOY_YES=1) salta la confirmación de producción.
 # Override de la ruta de Bukivo: export BUKIVO_HOME=/ruta/a/bukivo
@@ -159,6 +161,26 @@ cmd_api() {
   echo -e "${C_GREEN}✓ $API_NAME desplegado y sano ($API_ADDR)${C_NC}"
 }
 
+# Sala del mundo compartido (docs/PLAN.md F16): Worker + Durable Object en la cuenta de Cloudflare de Bukivo. El secreto
+# de los pases se crea en el servidor (si no existe) y pasa a Cloudflare por tubería, sin mostrarse; la URL del Worker
+# queda en $API_DIR/.env (NAO_WORLD_URL) y nao-api se reinicia. Sin esto, nao-api sirve la sala él mismo (plan B).
+cmd_world() {
+  _require
+  (cd "$NAO_ROOT/world" && npm install --no-audit --no-fund >/dev/null && npx tsc --noEmit) || die "world/ no compila"
+  _confirm_prod "desplegar la sala del mundo en Cloudflare y apuntar nao-api a ella" "$@" || return 1
+  local out url
+  out="$(cd "$NAO_ROOT/world" && npx wrangler deploy 2>&1)" || { echo "$out" >&2; die "wrangler deploy falló"; }
+  url="$(printf '%s' "$out" | grep -Eo 'https://[a-z0-9.-]+\.workers\.dev' | head -1)"
+  [ -n "$url" ] || { echo "$out" >&2; die "no encontré la URL del Worker"; }
+  _remote "set -e; cd $API_DIR; grep -q '^NAO_WORLD_SECRET=' .env || printf 'NAO_WORLD_SECRET=%s\n' \"\$(openssl rand -hex 32)\" >> .env; chmod 600 .env" \
+    || die "no pude crear el secreto en el servidor"
+  _remote "sed -n 's/^NAO_WORLD_SECRET=//p' $API_DIR/.env" | (cd "$NAO_ROOT/world" && npx wrangler secret put WORLD_SECRET >/dev/null) \
+    || die "no pude pasar el secreto a Cloudflare"
+  _remote "set -e; cd $API_DIR; sed -i '/^NAO_WORLD_URL=/d' .env; echo 'NAO_WORLD_URL=${url/https:/wss:}/world' >> .env; pm2 restart $API_NAME --update-env >/dev/null" \
+    || die "no pude apuntar nao-api a la sala"
+  echo -e "${C_GREEN}✓ sala del mundo en ${url/https:/wss:}/world${C_NC}"
+}
+
 cmd_user() {
   _require
   local args="" a
@@ -173,7 +195,7 @@ cmd_status() {
 }
 
 usage() {
-  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 sub="${1:-}"; shift || true
@@ -187,6 +209,7 @@ case "$sub" in
   db-setup) cmd_db_setup "$@" ;;
   api)    cmd_api "$@" ;;
   user)   cmd_user "$@" ;;
+  world)  cmd_world "$@" ;;
   ""|-h|--help|help) usage ;;
   *) die "comando desconocido: $sub (bash scripts/deploy.sh help)" ;;
 esac

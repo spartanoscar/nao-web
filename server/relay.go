@@ -55,6 +55,8 @@ type room struct {
 	owner      int64
 	ownerName  string
 	robotName  string
+	shell      string // color de su NAO (mundo compartido, world.go)
+	pod        int    // su cápsula en el mundo compartido (world.go), −1 = ninguna
 	screen     *conn
 	phone      *conn
 	screenGone time.Time
@@ -66,10 +68,12 @@ type relay struct {
 	rooms   map[string]*room
 	origins map[string]bool
 	up      websocket.Upgrader
+	world   *worldKeys // mundo compartido: pases (world.go)
+	hub     *worldHub  // plan B de la sala del mundo
 }
 
 func newRelay(a *auth) *relay {
-	r := &relay{auth: a, rooms: map[string]*room{}, origins: map[string]bool{}}
+	r := &relay{auth: a, rooms: map[string]*room{}, origins: map[string]bool{}, world: newWorldKeys(), hub: newWorldHub()}
 	for _, h := range strings.Split(envOr("NAO_ALLOWED_ORIGINS", "nao.bukivo.com,localhost,127.0.0.1"), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			r.origins[h] = true
@@ -98,7 +102,7 @@ func (r *relay) handleCreateRoom(w http.ResponseWriter, req *http.Request) {
 	defer r.mu.Unlock()
 	for c, rm := range r.rooms {
 		if rm.owner == u.ID {
-			rm.ownerName, rm.robotName = u.DisplayName, u.RobotName
+			rm.ownerName, rm.robotName, rm.shell = u.DisplayName, u.RobotName, u.ShellColor
 			writeJSON(w, http.StatusOK, map[string]string{"room": c})
 			return
 		}
@@ -113,7 +117,7 @@ func (r *relay) handleCreateRoom(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "servidor ocupado")
 		return
 	}
-	r.rooms[code] = &room{owner: u.ID, ownerName: u.DisplayName, robotName: u.RobotName, screenGone: time.Now()}
+	r.rooms[code] = &room{owner: u.ID, ownerName: u.DisplayName, robotName: u.RobotName, shell: u.ShellColor, pod: -1, screenGone: time.Now()}
 	writeJSON(w, http.StatusOK, map[string]string{"room": code})
 }
 
@@ -124,14 +128,14 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "sala o rol inválidos", http.StatusBadRequest)
 		return
 	}
-	var owner int64 = -1
+	var owner *user
 	if role == "screen" {
 		u, err := r.auth.current(req)
 		if err != nil {
 			http.Error(w, "inicia sesión", http.StatusUnauthorized)
 			return
 		}
-		owner = u.ID
+		owner = u
 	}
 
 	ws, err := r.up.Upgrade(w, req, nil)
@@ -151,7 +155,7 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 
 // join: la pantalla debe ser del dueño. El teléfono entra mientras la sala exista, aunque la pantalla se haya ido un
 // momento (recargó la página): la espera y sigue cuando vuelve. La sala se cierra tras 10 min sin pantalla.
-func (r *relay) join(code string, c *conn, owner int64) string {
+func (r *relay) join(code string, c *conn, owner *user) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rm := r.rooms[code]
@@ -159,7 +163,7 @@ func (r *relay) join(code string, c *conn, owner int64) string {
 		return "no room"
 	}
 	if c.role == "screen" {
-		if rm.owner != owner {
+		if owner == nil || rm.owner != owner.ID {
 			return "not yours"
 		}
 		if rm.screen != nil {
@@ -167,6 +171,10 @@ func (r *relay) join(code string, c *conn, owner int64) string {
 			closeWith(rm.screen, "replaced")
 		}
 		rm.screen = c
+		// Mundo compartido: su cápsula (la misma si vuelve a tiempo) y la apariencia del momento
+		rm.ownerName, rm.robotName, rm.shell = owner.DisplayName, owner.RobotName, owner.ShellColor
+		r.takePod(rm)
+		r.announceWorld()
 	} else {
 		if rm.phone != nil {
 			closeWith(rm.phone, "replaced")
@@ -192,6 +200,7 @@ func (r *relay) leave(code string, c *conn) {
 		if rm.phone != nil {
 			trySend(rm.phone, text(map[string]any{"t": "away"})) // el teléfono espera a que vuelva
 		}
+		r.announceWorld()
 	case rm.phone:
 		rm.phone = nil
 		if rm.trans != nil {
@@ -248,6 +257,9 @@ func (r *relay) janitor() {
 			if rm.screen == nil && time.Since(rm.screenGone) > orphanTTL {
 				r.closeRoom(code, rm, "closed")
 			}
+		}
+		if r.releasePods() {
+			r.announceWorld()
 		}
 		r.mu.Unlock()
 	}

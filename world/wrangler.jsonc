@@ -1,0 +1,12 @@
+// Sala del mundo compartido (docs/PLAN.md F16). Secreto: `wrangler secret put WORLD_SECRET` (el mismo NAO_WORLD_SECRET
+// de nao-api); en local, world/.dev.vars (fuera de git).
+{
+  "name": "nao-world",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "vars": { "ALLOWED_ORIGINS": "nao.bukivo.com,localhost,127.0.0.1" },
+  "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldRoom" }] },
+  // Plan gratis: Durable Objects con SQLite (no se guarda nada en él)
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldRoom"] }],
+  "observability": { "enabled": true }
+}

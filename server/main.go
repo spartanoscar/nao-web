@@ -2,6 +2,8 @@
 //
 //   - Login solo para usuarios registrados: contraseña bcrypt y sesión en cookie HttpOnly (auth.go).
 //   - Sala del teléfono por QR: relay WebSocket entre el escritorio y el móvil (relay.go, patrón de hv).
+//   - Mundo compartido: presencia, cápsulas y pases para la sala del mundo (world.go; la sala vive en Cloudflare,
+//     world/, o aquí como plan B).
 //   - Base de datos PostgreSQL (schema.sql): usuarios, sesiones, control de costos, conversaciones, rostros…
 //   - Biblioteca: archivos del jugador → texto → embeddings (library.go, extract.go, gemini.go).
 //   - Cerebro: conversación con Gemini y function calling hacia las habilidades del robot (brain.go, prompt.go).
@@ -14,7 +16,8 @@
 //	nao-api user passwd <usuario>
 //	nao-api user list
 //
-// Configuración por entorno (o NAO_ENV_FILE / ./.env): NAO_DB_URL, NAO_ADDR, NAO_ALLOWED_ORIGINS.
+// Configuración por entorno (o NAO_ENV_FILE / ./.env): NAO_DB_URL, NAO_ADDR, NAO_ALLOWED_ORIGINS, NAO_WORLD_URL y
+// NAO_WORLD_SECRET (sala del mundo en Cloudflare; sin URL, la de aquí).
 package main
 
 import (
@@ -76,6 +79,8 @@ func main() {
 	mux.HandleFunc("POST /api/brain", newBrain(auth).handle)
 	mux.HandleFunc("POST /api/rooms", relay.handleCreateRoom)
 	mux.HandleFunc("GET /api/ws", relay.handleWS)
+	mux.HandleFunc("POST /api/world/pass", relay.handleWorldPass)
+	mux.HandleFunc("GET /api/world", relay.handleWorldWS)
 
 	addr := envOr("NAO_ADDR", "127.0.0.1:3030")
 	srv := &http.Server{

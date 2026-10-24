@@ -20,3 +20,6 @@ server/nao-api
 # Modelos de prueba (nunca se suben: pueden ser de otros proyectos)
 public/models/props/_*
 public/models/face/
+world/node_modules/
+world/.dev.vars
+world/.wrangler/
