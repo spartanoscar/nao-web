@@ -271,6 +271,44 @@ tarea, manteniendo el equilibrio con física real, y que se ejecutan con la API 
 ### F15 — Diseño propio
 - Modelo de Meshy en pose A + script de despiece por planos en las articulaciones; selector "oficial / propio".
 
+### F18 — Repositorio público y documentación para estudiantes y profesores (fase adicional, al final)
+Pedido por Oscar (2026-10-24): el repo se publicará como **público** y la documentación vivirá en el mismo subdominio
+(nao.bukivo.com, p. ej. `/docs`). Regla que no cambia: **solo quien tiene una cuenta que nosotros creamos consume algo**
+(IA, transcripción, biblioteca, rostros, el mundo compartido); publicar el código no puede abrir nada de eso.
+- **Ya cumple (revisado 2026-10-24):** sin registro abierto (`deploy.sh user add`); toda ruta que gasta pide sesión
+  (cerebro, biblioteca, rostros, ajustes, salas, pase del mundo) o un pase firmado por nao-api (la sala del mundo en
+  Cloudflare y su plan B; origen ajeno 403, pase falso o alterado 401); el teléfono entra solo con el código de 16 bytes
+  de la sala de su dueño y lo que gasta se cobra al tope diario del dueño (US$2). Claves solo en `.local/` y en
+  `/root/nao/.env` (600), nunca en el bundle. Historial (157 commits): sin claves de Gemini, Cloudflare ni Postgres, sin
+  llaves privadas, sin `.env` ni JSON de claves; las únicas IP son los rangos públicos de Cloudflare de nginx.
+- **Antes de abrirlo:**
+  - Escaneo de secretos de todo el historial con una herramienta dedicada (gitleaks o trufflehog), no solo con grep; si
+    algo aparece, rotar la clave (no basta reescribir el historial: ya pudo copiarse).
+  - Qué revela la infraestructura: `scripts/deploy.sh` (rutas de `../bukivo`, la llave SSH por nombre, `/root/nao`, PM2,
+    puertos), `deploy/nginx/*.conf`, el nombre del Worker y su URL. No son secretos, pero describen el servidor de
+    Bukivo: decidir si se publican tal cual, se generalizan (variables de entorno, ejemplo `.env.example`) o se quedan en
+    un repo privado de despliegue.
+  - Abuso sin cuenta: el Worker de Cloudflare cuenta también las solicitudes rechazadas (plan gratis: 100 000/día; al
+    agotarse se detiene, no cobra). Verificar el plan de la cuenta de Bukivo; si es de pago, límite de tasa o regla WAF
+    para `/world`. Límite de intentos de login ya existe (8 en 15 min por IP o usuario).
+  - Licencias de lo que sí está en el repo: `reference/` (docs de NAOqi 2.8 de Aldebaran, URDF, `.motion` de Webots,
+    qiBullet Apache-2.0) — confirmar que se pueden redistribuir o dejar solo los enlaces y un script que los baje, como
+    ya se hace con las mallas y el grafo de posturas de Choregraphe (que no están en el repo). Elegir la licencia del
+    código propio (p. ej. MIT o Apache-2.0) y un `LICENSE`/`NOTICE` con las de terceros.
+  - Datos personales: ni fotos ni huellas de rostros ni conversaciones en el repo (están en la BD); `schema.sql` sí se
+    publica (solo estructura). Usuarios y contraseñas de prueba fuera del código.
+  - Un `SECURITY.md` con cómo reportar un problema, y que nada del CI/CD tenga permisos de escribir en producción.
+- **Documentación pública** (`/docs` en el mismo subdominio, para estudiantes y profesores):
+  - Qué es y cómo funciona: arquitectura por capas (física, NAOqi, IA, mundo), con diagramas; lo que es fiel al NAO real
+    y lo que es aproximado (las `APPROX` del código, en palabras simples).
+  - **Del emulador al NAO real:** la misma API de NAOqi 2.8 (`ALProxy`/`qi.Session`, mismos servicios, métodos y
+    unidades): cómo escribir y probar un script aquí (consola JS y Python con Pyodide, F4) y correrlo tal cual en un NAO
+    V6 (conexión, `naoqi` de Python 2.7 o `qi` de Python 3, Choregraphe); lo que no existe en el real (habilidades de la
+    IA, el mundo compartido) y lo que el real tiene y aquí no.
+  - La base de datos (estructura de `schema.sql` comentada), el servidor y sus rutas, y cómo levantar todo en local.
+  - Guías por tarea (moverse, posturas, cámaras, LEDs, voz, prueba del espejo, reto de la escalera) y referencia de la API
+    implementada (generada desde los comentarios con enlace a la doc oficial).
+
 ## Ideas adicionales para considerar
 
 1. **Ojos que comunican estado** (`ALLeds` ya implementado, como el NAO real): azul = escuchando, amarillo girando =
