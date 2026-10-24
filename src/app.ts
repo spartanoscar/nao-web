@@ -24,6 +24,7 @@ import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
 import { attachRobotMenus } from './ui/robotMenus';
 import { attachPower } from './ui/power';
+import { attachBodyPicker } from './ui/bodyPicker';
 import { attachSettings } from './ui/settings';
 import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
@@ -358,6 +359,8 @@ const power = attachPower(hud.player, session, {
   lightsOn: () => user.eyeColor && paintEyes(user.eyeColor),
   onOff: () => brain.cancel(),
 });
+// Mover una pieza a mano: Shift + clic la elige (amarilla) y las flechas la mueven; Esc la suelta (ui/bodyPicker.ts)
+attachBodyPicker(world, nao, session, power);
 // Posturas y animaciones: dos íconos del HUD con su lista (ui/robotMenus.ts)
 attachRobotMenus(hud, session, () => power.ready(), (message) => transcript.notice(message));
 attachChat(

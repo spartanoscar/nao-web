@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import type { RobotState, RootPose } from '../robot/state';
 import type { UrdfJoint, UrdfRobot, Vec3 } from '../robot/urdf';
 
+/** Pieza resaltada (la que se elige para moverla, ui/bodyPicker.ts) */
+const HIGHLIGHT = new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xff8a00, emissiveIntensity: 0.5, roughness: 0.4 });
+
 interface MovableJoint {
   joint: UrdfJoint;
   motion: THREE.Group;
@@ -22,6 +25,8 @@ export class NaoModel {
   private readonly movable: MovableJoint[] = [];
   private readonly soles: THREE.Object3D[] = [];
   private appliedRevision = -1;
+  /** Mallas pintadas de amarillo ahora */
+  private highlighted: THREE.Mesh[] = [];
 
   constructor(urdf: UrdfRobot) {
     this.root.name = 'NAO';
@@ -72,6 +77,41 @@ export class NaoModel {
   surfaces(link: string): THREE.Object3D[] {
     const shell = this.frames.get(link)?.getObjectByName(`mesh:${link}`);
     return shell ? [shell] : [];
+  }
+
+  /** Mallas de la carcasa del robot (para apuntarles con el cursor) */
+  pickables(): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    this.root.traverseVisible((o) => {
+      if (o instanceof THREE.Mesh && !o.userData.decal) out.push(o);
+    });
+    return out;
+  }
+
+  /**
+   * Articulación que mueve la pieza `object` (una malla del robot): la primera articulación móvil subiendo por el árbol.
+   * Los dedos (mimic de LHand/RHand) cuentan como la mano. null si es el torso o algo que no es del robot.
+   */
+  jointAt(object: THREE.Object3D): string | null {
+    for (let o: THREE.Object3D | null = object; o && o !== this.root; o = o.parent) {
+      const m = this.movable.find((j) => j.motion === o);
+      if (m) return m.joint.mimic?.joint ?? m.joint.name;
+    }
+    return null;
+  }
+
+  /** Pinta de amarillo lo que se mueve con una articulación (la pieza y lo que cuelga de ella; null = nada) */
+  highlight(joint: string | null): void {
+    for (const m of this.highlighted) m.material = m.userData.material;
+    this.highlighted = [];
+    if (!joint) return;
+    for (const { joint: j, motion } of this.movable) {
+      if (j.name !== joint && j.mimic?.joint !== joint) continue;
+      motion.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.userData.material && !o.userData.decal) this.highlighted.push(o);
+      });
+    }
+    for (const m of this.highlighted) m.material = HIGHLIGHT;
   }
 
   /** Frame de un link del URDF (p. ej. CameraTop_frame para la cámara virtual) */
