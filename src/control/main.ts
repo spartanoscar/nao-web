@@ -214,7 +214,25 @@ centerBtn.addEventListener('click', () => {
 });
 paintMotion();
 
-// ─── Micrófono y cámara (solo permisos y vista previa por ahora) ─────────────
+// ─── Micrófono y cámara ──────────────────────────────────────────────────────
+/**
+ * Lo que ve la cámara del teléfono va a la pantalla (binario [PHONE_FRAME] + JPEG, el relay lo reenvía: los bytes 1–3
+ * son la voz): ahí se buscan rostros (src/ai/faces.ts) y se suma a la imagen que ve el NAO. ≤ 320 px, 2 por segundo,
+ * solo con la página visible.
+ */
+const PHONE_FRAME = 4;
+const FRAME_MS = 500;
+const FRAME_SIDE = 320;
+const shot = document.createElement('canvas');
+const sendCameraFrame = () => {
+  if (!stream || document.hidden || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 256 << 10) return;
+  const { videoWidth: w, videoHeight: h } = preview;
+  if (!w || !h) return;
+  const k = FRAME_SIDE / Math.max(w, h);
+  [shot.width, shot.height] = [Math.round(w * k), Math.round(h * k)];
+  shot.getContext('2d')!.drawImage(preview, 0, 0, shot.width, shot.height);
+  shot.toBlob((jpeg) => jpeg && ws?.readyState === WebSocket.OPEN && ws.send(new Blob([Uint8Array.of(PHONE_FRAME), jpeg])), 'image/jpeg', 0.7);
+};
 let stream: MediaStream | null = null;
 let facing: 'environment' | 'user' = 'environment';
 const preview = $<HTMLVideoElement>('.c-media-box video');
@@ -272,6 +290,7 @@ mediaBtn.addEventListener('click', async () => {
     mediaBtn.disabled = true;
     mediaBtn.querySelector('span')!.textContent = 'Micrófono y cámara listos';
     send({ t: 'media', mic: true, cam: true });
+    setInterval(sendCameraFrame, FRAME_MS);
     // Voz → transcripción en el servidor: solo se manda lo que se habla
     voice = await startVoice(stream, (data) => ws?.readyState === WebSocket.OPEN && ws.send(data));
     const level = $('.c-level span');

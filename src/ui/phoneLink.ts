@@ -33,7 +33,12 @@ export interface PhoneHooks {
   usage(spentTodayUsd: number): void;
   /** La transcripción no pudo seguir (sin tokens, sin clave…) */
   captionError(message: string): void;
+  /** Una foto de la cámara del teléfono (JPEG ≤ 320 px, ~2 por segundo mientras está activa) */
+  phoneFrame?(jpeg: Blob): void;
 }
+
+/** Primer byte de los binarios del teléfono con lo que ve su cámara (1–3 son la voz, van al servidor) */
+const PHONE_FRAME = 4;
 
 /** Cuánto se ve "¡Teléfono conectado!" antes de cerrar el diálogo */
 const CONNECTED_MS = 2000;
@@ -110,6 +115,12 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
     sock.binaryType = 'arraybuffer';
     ws = sock;
     sock.onmessage = (e) => {
+      // Binario del teléfono: lo que ve su cámara ([4] + JPEG, src/control/main.ts)
+      if (e.data instanceof ArrayBuffer) {
+        const bytes = new Uint8Array(e.data);
+        if (bytes[0] === PHONE_FRAME && bytes.length > 1) hooks.phoneFrame?.(new Blob([bytes.subarray(1)], { type: 'image/jpeg' }));
+        return;
+      }
       if (typeof e.data !== 'string') return;
       let m: Record<string, unknown>;
       try {
