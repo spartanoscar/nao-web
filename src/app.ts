@@ -21,7 +21,8 @@ import { spawnObstacles } from './sim/environment';
 import { POD_COUNT } from './sim/pods';
 import type { RootPose } from './robot/state';
 import { attachCameraViews } from './ui/cameraViews';
-import { attachKeyboard } from './ui/keyboard';
+import { type KeyboardControl, attachKeyboard } from './ui/keyboard';
+import { attachControlsHint } from './ui/controlsHint';
 import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
@@ -451,7 +452,14 @@ const power = attachPower(hud.player, session, {
   onOff: () => brain.cancel(),
 });
 player.power = power;
-awarenessLoop.gate = { brainBusy: () => brain.busy, on: () => power.state === 'on' };
+// La conciencia básica mira por su cuenta solo si nadie mueve al NAO: ni la IA ni el teclado (hasta USER_QUIET_S después)
+const USER_QUIET_S = 10;
+/** El teclado se conecta al final (más abajo) */
+let keyboardControl: KeyboardControl = { lastUse: () => -Infinity, holding: () => false };
+awarenessLoop.gate = {
+  brainBusy: () => brain.busy || keyboardControl.holding() || performance.now() - keyboardControl.lastUse() < USER_QUIET_S * 1000,
+  on: () => power.state === 'on',
+};
 
 /**
  * Oír a los otros NAO (mundo compartido; Oscar 2026-10-24: "que el otro se entere", sin trampa). Solo lo dicho en el
@@ -580,5 +588,9 @@ setTimeout(() => {
   crash.stage('voz: cargando');
   speech.preload(tts.getVoice());
 }, 1500);
-attachKeyboard(session, power);
+// Teclado: flechas = cuerpo, WASD = cabeza; la guía abajo a la izquierda se va al usarlo y vuelve tras 10 s quieto
+const keyboard = attachKeyboard(session, power);
+keyboardControl = keyboard;
+const hint = attachControlsHint({ lastUse: keyboard.lastUse, holding: keyboard.holding, walking: () => session.service('ALMotion').moveIsActive() });
+keyboard.onUse = () => hint.hide();
 Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces, power, shared });
