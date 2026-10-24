@@ -6,6 +6,8 @@
 import { ApiError, type User, type UserPatch, logout, updateMe } from '../net/api';
 import { ICONS } from './icons';
 import { createLibrary } from './library';
+import { createFacesPanel } from './faces';
+import type { FaceWatcher } from '../ai/faces';
 
 const SAVE_DELAY = 3000;
 const RETRY_DELAY = 5000;
@@ -17,7 +19,7 @@ const ROLE: Record<User['role'], string> = { admin: 'Administrador', teacher: 'D
 export function attachSettings(
   button: HTMLButtonElement,
   user: User,
-  { onChange, onSpent }: { onChange(user: User): void; onSpent(): void },
+  { onChange, onSpent, faces }: { onChange(user: User): void; onSpent(): void; faces: FaceWatcher },
 ): void {
   const modal = document.createElement('div');
   modal.className = 'settings-modal';
@@ -29,6 +31,7 @@ export function attachSettings(
         <nav class="st-tabs" role="tablist">
           <button type="button" role="tab" data-tab="general" aria-selected="true">General</button>
           <button type="button" role="tab" data-tab="library" aria-selected="false">Biblioteca</button>
+          <button type="button" role="tab" data-tab="faces" aria-selected="false">Rostros</button>
         </nav>
         <span class="st-saved" aria-live="polite"></span>
         <button type="button" class="st-x" title="Cerrar" aria-label="Cerrar">${ICONS.close}</button>
@@ -64,6 +67,7 @@ export function attachSettings(
         </section>
       </div>
       <div class="st-library" data-panel="library" hidden></div>
+      <div class="st-faces" data-panel="faces" hidden></div>
       <footer class="st-foot"><button type="button" class="st-close">Cerrar</button></footer>
     </div>`;
   document.body.append(modal);
@@ -202,12 +206,16 @@ export function attachSettings(
   // ─── Pestañas ───────────────────────────────────────────────────────────────
   const library = createLibrary({ onSpent });
   $('.st-library').append(library.element);
+  const facesPanel = createFacesPanel(faces);
+  $('.st-faces').append(facesPanel.element);
   const tabs = [...modal.querySelectorAll<HTMLButtonElement>('[role=tab]')];
   const selectTab = (name: string) => {
     for (const t of tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
     for (const p of modal.querySelectorAll<HTMLElement>('[data-panel]')) p.hidden = p.dataset.panel !== name;
     modal.querySelector('.st-card')!.classList.toggle('wide', name === 'library');
     if (name === 'library') library.show();
+    if (name === 'faces') facesPanel.show();
+    else facesPanel.hide();
   };
   for (const t of tabs) t.addEventListener('click', () => selectTab(t.dataset.tab!));
 
@@ -215,6 +223,7 @@ export function attachSettings(
   const close = () => {
     if (modal.hidden) return;
     modal.hidden = true;
+    facesPanel.hide();
     void flush(); // lo pendiente se guarda al cerrar
     button.focus();
   };
