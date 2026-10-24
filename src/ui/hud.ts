@@ -9,6 +9,8 @@ import { ICONS } from './icons';
 const AUDIO_KEY = 'nao.audioOut';
 
 export interface Hud {
+  /** Tarjeta del jugador (arriba a la izquierda; ahí va el botón de encendido, ui/power.ts) */
+  player: HTMLElement;
   /** Botón del móvil (lo maneja ui/phoneLink.ts) */
   phoneButton: HTMLButtonElement;
   /** Botón de ajustes (lo maneja ui/settings.ts) */
@@ -145,5 +147,5 @@ export function createHud(user: User, audio: ALAudioDevice): Hud {
     setSpent(u.spentTodayUsd);
   };
   setUser(user);
-  return { phoneButton, settingsButton, setPhoneState, setSpent, setUser };
+  return { player, phoneButton, settingsButton, setPhoneState, setSpent, setUser };
 }

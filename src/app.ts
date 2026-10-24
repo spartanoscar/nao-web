@@ -23,6 +23,7 @@ import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
 import { attachRobotMenus } from './ui/robotMenus';
+import { attachPower } from './ui/power';
 import { attachSettings } from './ui/settings';
 import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
@@ -319,8 +320,6 @@ attachSettings(hud.settingsButton, user, {
   onSpawn: (id) => spawn(id as SpawnId),
 });
 const transcript = createTranscript();
-// Posturas y animaciones: dos íconos del HUD con su lista (ui/robotMenus.ts)
-attachRobotMenus(hud, session, (message) => transcript.notice(message));
 // Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla
 let naoLine = 0;
 tts.onSay = (text) => transcript.show(`nao-${naoLine++}`, 'nao', user.robotName, text, true);
@@ -343,20 +342,30 @@ const brain = new Brain(session, state, vision, {
     hud.setUser(u);
     return { shell: u.shellColor, eyes: u.eyeColor };
   },
+  // "Descansa": se apaga como con el botón (se acuesta boca arriba primero)
+  powerOff: () => power.turnOff(),
 });
+// Encendido (ui/power.ts): botón en la tarjeta del jugador. Apagado no recibe órdenes de ningún lado.
+const power = attachPower(hud.player, session, {
+  notice: (message) => transcript.notice(message),
+  lightsOn: () => user.eyeColor && paintEyes(user.eyeColor),
+  onOff: () => brain.cancel(),
+});
+// Posturas y animaciones: dos íconos del HUD con su lista (ui/robotMenus.ts)
+attachRobotMenus(hud, session, () => power.ready(), (message) => transcript.notice(message));
 attachChat(
   () => user.robotName,
   (text) => {
     transcript.show(`chat-${Date.now()}`, 'user', user.displayName, text, true);
-    void brain.ask(text, 'texto');
+    if (power.ready()) void brain.ask(text, 'texto');
   },
 );
 attachPhoneLink(hud, session.service('ALVideoDevice'), {
   tilt: (x, y) => Object.assign(tilt, { x, y, at: performance.now() / 1000 }),
-  connected: () => void tts.say('Bienvenido').catch((e) => console.warn('Voz:', e)),
+  connected: () => power.state === 'on' && void tts.say('Bienvenido').catch((e) => console.warn('Voz:', e)),
   caption: (id, text, final) => {
     transcript.show(`user-${id}`, 'user', user.displayName, text, final);
-    if (final && brain.addressed(text)) void brain.ask(text, 'voz');
+    if (final && brain.addressed(text) && power.ready()) void brain.ask(text, 'voz');
   },
   usage: (spent) => hud.setSpent(spent),
   phoneFrame: (jpeg) => void faces.push(jpeg),
@@ -397,6 +406,7 @@ const meetStrangers = (now: number) => {
   );
 };
 faces.onUpdate = () => {
+  if (power.state !== 'on') return; // apagado no ve ni saluda
   const now = performance.now() / 1000;
   meetStrangers(now);
   const names = faces.faces().flatMap((f) => (f.name ? [f.name] : []));
@@ -409,5 +419,5 @@ faces.onUpdate = () => {
 // La voz se descarga y se calienta en segundo plano (la primera frase salía con varios segundos de espera);
 // después del primer cuadro del mundo, para no competir con lo que se ve
 setTimeout(() => speech.preload(tts.getVoice()), 1500);
-attachKeyboard(session);
-Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces });
+attachKeyboard(session, power);
+Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces, power });

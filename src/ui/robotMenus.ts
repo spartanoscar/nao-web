@@ -49,7 +49,8 @@ interface Item {
   run(): Promise<void>;
 }
 
-export function attachRobotMenus(hud: Hud, session: Session, onError: (message: string) => void): void {
+/** `ready`: el NAO puede recibir órdenes (apagado no: ui/power.ts avisa) */
+export function attachRobotMenus(hud: Hud, session: Session, ready: () => boolean, onError: (message: string) => void): void {
   const motion = session.service('ALMotion');
   const posture = session.service('ALRobotPosture');
 
@@ -60,7 +61,6 @@ export function attachRobotMenus(hud: Hud, session: Session, onError: (message: 
       if (!(await posture.goToPosture(name, POSTURE_SPEED))) onError(`No llegó a "${label}": ${posture.lastFailure}`);
     },
   }));
-  const rest: Item = { label: 'Reposo', call: 'ALMotion.rest()', run: () => motion.rest() };
 
   const animationGroups = ANIMATIONS.map(({ title, items }) => ({
     title,
@@ -80,7 +80,7 @@ export function attachRobotMenus(hud: Hud, session: Session, onError: (message: 
   }));
 
   const menus = [
-    menu('Posturas', ICONS.posture, [{ title: 'Posturas', items: postureItems }, { title: '', items: [rest] }]),
+    menu('Posturas', ICONS.posture, [{ title: 'Posturas', items: postureItems }]),
     menu('Animaciones', ICONS.animation, animationGroups),
   ];
   hud.phoneButton.before(...menus.map((m) => m.root));
@@ -103,12 +103,10 @@ export function attachRobotMenus(hud: Hud, session: Session, onError: (message: 
     list.setAttribute('role', 'menu');
     list.hidden = true;
     for (const group of groups) {
-      if (group.title) {
-        const head = document.createElement('span');
-        head.className = 'hud-list-head';
-        head.textContent = group.title;
-        list.append(head);
-      } else list.append(document.createElement('hr'));
+      const head = document.createElement('span');
+      head.className = 'hud-list-head';
+      head.textContent = group.title;
+      list.append(head);
       for (const item of group.items) {
         const b = document.createElement('button');
         b.type = 'button';
@@ -118,6 +116,7 @@ export function attachRobotMenus(hud: Hud, session: Session, onError: (message: 
         b.title = item.call;
         b.addEventListener('click', () => {
           close();
+          if (!ready()) return;
           // Una orden nueva reemplaza a la anterior, como en NAOqi; el ícono pulsa mientras alguna está en curso
           busy++;
           button.classList.add('busy');

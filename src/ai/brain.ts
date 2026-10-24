@@ -41,6 +41,8 @@ export interface BrainHooks {
   /** Apariencia actual y cambiarla (guardada en la cuenta) */
   appearance(): Appearance;
   setAppearance(patch: Partial<Appearance>): Promise<Appearance>;
+  /** Apagarse (habilidad rest): se acuesta boca arriba y apaga motores y luces */
+  powerOff?(): Promise<boolean>;
   /** Para depurar: cada habilidad que ejecuta y su resultado */
   action?(name: string, args: Record<string, unknown>, response: Record<string, unknown>): void;
 }
@@ -79,6 +81,11 @@ export class Brain {
   /** Hay un turno en curso (pensando o haciendo algo): los eventos no lo interrumpen */
   get busy(): boolean {
     return this.active > 0;
+  }
+
+  /** Corta el turno en curso (el NAO se apagó): no ejecuta ni dice nada más de ese turno */
+  cancel(): void {
+    this.run++;
   }
 
   /** Lo que la persona dijo (voz) o escribió (texto), o un evento del mundo. Cancela el turno anterior si seguía. */
@@ -126,7 +133,7 @@ export class Brain {
         for (const call of reply.calls) {
           if (cancelled()) return;
           if (call.name === 'finish') continue;
-          const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled, appearance: (p) => this.hooks.setAppearance(p) }).catch(
+          const r = await runSkill(call.name, call.args ?? {}, { session: this.session, vision: this.vision, cancelled, appearance: (p) => this.hooks.setAppearance(p), powerOff: this.hooks.powerOff && (() => this.hooks.powerOff!()) }).catch(
             (e: unknown) => ({ response: { ok: false, error: e instanceof Error ? e.message : String(e) } as Record<string, unknown>, image: undefined }),
           );
           this.hooks.action?.(call.name, call.args ?? {}, r.response);

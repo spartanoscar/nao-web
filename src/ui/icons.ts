@@ -27,6 +27,7 @@ export const ICONS = {
   library: svg('<path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="m16 5 3.5-1 2.5 15.5-3.5 1z"/>'),
   center: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>'),
   chat: svg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>'),
+  power: svg('<path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>'),
   /** Posturas: una figura de pie */
   posture: svg('<circle cx="12" cy="4.5" r="2"/><path d="M12 7.5v7M7.5 10.5 12 9l4.5 1.5M9 21l3-6.5 3 6.5"/>'),
   /** Animaciones: una figura saludando */

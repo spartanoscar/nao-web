@@ -151,7 +151,7 @@ var brainTools = []any{schema{"functionDeclarations": []any{
 	tool("push", "Empuja lo que tienes justo enfrente caminando hacia adelante (antes usa approach): mide con el sonar cuánto falta para tocarlo y apaga la marcha segura mientras empuja.", object(schema{"meters": number("metros a empujar")}, "meters")),
 	tool("posture", "Va a una postura. Si estás en el suelo, primero te levantas.",
 		object(schema{"name": enum("postura", "Stand", "StandInit", "Sit", "SitRelax", "Crouch")}, "name")),
-	tool("rest", "Descansa: te agachas y apagas los motores.", nil),
+	tool("rest", "Te apagas para descansar: te acuestas boca arriba y apagas motores y luces. Apagado no oyes ni respondes hasta que tu dueño te encienda con su botón: úsalo solo si te piden descansar, dormir o apagarte, y despídete antes.", nil),
 	tool("wake_up", "Enciende los motores y te pones de pie.", nil),
 	tool("gesture", "Gesto con la cabeza.", object(schema{"name": enum("nod = sí, shake = no, look_around = mirar alrededor, doubt = duda", "nod", "shake", "look_around", "doubt")}, "name")),
 	tool("arms", "Pose rápida de los brazos: front = al frente a la altura del pecho (~0.40 m), high_front = al frente más arriba (~0.50 m), up = arriba, open = abiertos a los lados, down = abajo (vuelven a moverse al caminar). Devuelve dónde quedaron tus manos.",

@@ -29,6 +29,8 @@ export interface SkillContext {
   cancelled(): boolean;
   /** Cambia y guarda la apariencia (carcasa y ojos) del NAO del usuario */
   appearance?: (patch: Partial<Appearance>) => Promise<Appearance>;
+  /** Apagarse (ui/power.ts): se acuesta boca arriba, apaga motores y luces; false si no pudo acostarse */
+  powerOff?: () => Promise<boolean>;
 }
 
 type Args = Record<string, unknown>;
@@ -273,9 +275,14 @@ export async function runSkill(name: string, args: Args, ctx: SkillContext): Pro
       motion.setMoveArmsEnabled(true, true); // la postura también pone los brazos
       return { response: { ok, postura: posture.getPosture(), ...(ok ? {} : { error: posture.lastFailure }) } };
     }
-    case 'rest':
-      await motion.rest();
-      return { response: { ok: true, postura: posture.getPosture(), motores: 'apagados' } };
+    case 'rest': {
+      if (!ctx.powerOff) {
+        await motion.rest();
+        return { response: { ok: true, postura: posture.getPosture(), motores: 'apagados' } };
+      }
+      const ok = await ctx.powerOff();
+      return { response: ok ? { ok, apagado: true } : { ok, error: 'no pude acostarme; sigo encendido' } };
+    }
     case 'wake_up':
       await motion.wakeUp();
       return { response: { ok: posture.getPostureFamily() === 'Standing', postura: posture.getPosture() } };
