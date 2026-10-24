@@ -27,6 +27,21 @@ export const GRAPH_SPEED = 0.45;
 /** Tramo mínimo (s) */
 const MIN_STEP = 0.05;
 
+/**
+ * Duración (s) de los tramos para incorporarse desde boca arriba hasta quedar sentado (2000 → 1005, el comienzo de
+ * LyingBack → StandInit), buscada en el laboratorio (scripts/bench/naoqi28-times.js: CMA-ES sobre los tiempos con las
+ * posturas de NAOqi fijas; física fiel, μ 0.4). Con el modelo de arriba se incorporaba pero se iba atrás al soltar los
+ * brazos (solo salía en el filo de la velocidad): es un movimiento balístico (NAOqi marca esa cadena, 2002 → 2006, con
+ * enableAntiCollision 0) y el real lo hace en ~0.5 s (video). Del nodo 1005 en adelante (la ruta de Sit → Stand) sigue
+ * el modelo. Validado (2026-10-24) en 6 partidas (caídas de espaldas recta, en diagonal y de 40°, desde sentado,
+ * colocado flojo) × tiempos ×0.9–×1.1: 18 de 18. Ritmo fijo, sin escalar por `speed` (como las líneas de tiempo de las
+ * cajas originales): más lento no se incorpora. APPROX; sensible a la fricción (con μ 0.45 casi nunca sale).
+ */
+const TUNED_STEPS: Readonly<Record<string, number>> = {
+  '2000>2001': 0.445, '2001>2002': 0.289, '2002>2003': 0.839, '2003>2005': 0.166, '2005>20053': 0.352,
+  '20053>20054': 0.519, '20054>2006': 0.172, '2006>1005': 0.28,
+};
+
 interface GraphPosture {
   name: string;
   family: string;
@@ -207,17 +222,18 @@ export function playGraphRoute(motion: ALMotion, state: RobotState, route: reado
   const times: number[][] = used.map(() => []);
   let prev = used.map(([j]) => state.get(j));
   let t = 0;
-  for (const step of route) {
+  route.forEach((step, n) => {
     const pose = used.map(([, i]) => postures[step.id].angles[i]);
+    const tuned = n > 0 ? TUNED_STEPS[`${route[n - 1].id}>${step.id}`] : undefined;
     let need = 0;
     used.forEach(([j], k) => (need = Math.max(need, Math.abs(pose[k] - prev[k]) / JOINT_BY_NAME.get(j)!.maxVelocity)));
-    t += Math.max(need / (fraction * step.speed), MIN_STEP);
+    t += tuned ?? Math.max(need / (fraction * step.speed), MIN_STEP);
     pose.forEach((a, k) => {
       angles[k].push(a);
       times[k].push(t);
     });
     prev = pose;
-  }
+  });
   return motion.angleInterpolation(
     used.map(([j]) => j),
     angles,

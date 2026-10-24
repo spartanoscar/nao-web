@@ -22,11 +22,11 @@ async () => {
       for (const v of open) if (u === null || dist[v] < dist[u]) u = v;
       open.delete(u);
       if (u === b) break;
-      for (const [v, cost, , speed] of P[u].neighbours) {
+      for (const [v, cost, anti, speed] of P[u].neighbours) {
         const d = dist[u] + cost;
         if (P[v] && d < (dist[v] ?? Infinity)) {
           dist[v] = d;
-          prev[v] = [u, speed];
+          prev[v] = [u, speed, anti];
           open.add(String(v));
         }
       }
@@ -34,8 +34,8 @@ async () => {
     // speed de cada nodo = speedCoefficient del tramo que llega a él
     const nodes = [];
     for (let u = b; u !== a; ) {
-      const [from, speed] = prev[u];
-      nodes.unshift({ id: u, speed });
+      const [from, speed, anti] = prev[u];
+      nodes.unshift({ id: u, speed, anti });
       u = String(from);
     }
     nodes.unshift({ id: a, speed: 1 });
@@ -52,7 +52,11 @@ async () => {
       const [p0, p1] = [P[nodes[k - 1].id].angles, P[nodes[k].id].angles];
       let need = 0;
       for (const [j, i] of used) need = Math.max(need, Math.abs(p1[i] - p0[i]) / JOINT_BY_NAME.get(j).maxVelocity);
-      t += Math.max(need / (f * nodes[k].speed), 0.05);
+      // window.__ballistic = fracción de los tramos sin anticolisión (enableAntiCollision 0); si no, la misma f
+      // window.__ballisticNext: también el tramo que sale del último nodo de la cadena
+      const fast = nodes[k].anti === 0 || (window.__ballisticNext && nodes[k - 1].anti === 0);
+      const fk = fast && window.__ballistic ? window.__ballistic : f;
+      t += Math.max(need / (fk * nodes[k].speed), 0.05);
       used.forEach(([, i], n) => {
         angles[n].push(p1[i]);
         times[n].push(t);
@@ -86,6 +90,12 @@ async () => {
     const lab = await LabSim.create(urdf, bootRoot, postureJoints('Crouch'), { hulls: cfg.hulls ? only : undefined, selfCollision: !!cfg.self, shellFriction: cfg.plastic });
     // Diagnóstico (no es un arreglo): cfg.torque = { re: 'Head|Shoulder', k: 1.5 } multiplica el torque de esos motores
     if (cfg.torque) for (const s of lab.physics.joints) if (new RegExp(cfg.torque.re).test(s.name)) s.stallTorque *= cfg.torque.k;
+    // Diagnóstico: cfg.rotor = { '22NT Z13': g·cm², … } → armadura de cada articulación = inercia del rotor × reducción²
+    // (en vez del 0.005 kg·m² común del MJCF)
+    if (cfg.rotor) {
+      const m = lab.physics.model;
+      for (const s of lab.physics.joints) if (cfg.rotor[s.motor] !== undefined) m.dof_armature[s.dof] = cfg.rotor[s.motor] * 1e-7 * s.ratio ** 2;
+    }
     const motion = () => lab.session.service('ALMotion');
     const posture = () => lab.session.service('ALRobotPosture');
     const hold0 = () => {
@@ -148,7 +158,11 @@ async () => {
           const sen = motion().getAngles(p.names, true);
           let err = [0, ''];
           cmd.forEach((c, i) => Math.abs(c - sen[i]) > err[0] && (err = [Math.abs(c - sen[i]), p.names[i]]));
-          samples.push({ ...s, sat, err });
+          // window.__watch = ['LHipPitch', …]: comando y sensor de esas articulaciones en cada muestra
+          const watch = (window.__watch ?? []).map((j) => [j, cmd[p.names.indexOf(j)], sen[p.names.indexOf(j)]]);
+          // Altura (cm) del efector de cada mano sobre el suelo (getPosition FRAME_WORLD, sensores)
+          if (window.__watch) for (const arm of ['LArm', 'RArm']) watch.push([`${arm[0]}mano z`, null, motion().getPosition(arm, 1, true)[2] * 100]);
+          samples.push({ ...s, sat, err, watch });
         };
         await lab.drive(motion().angleInterpolation(p.names, p.angles, p.times, true), p.duration + 1, probe);
         await lab.hold(1.5);
@@ -169,6 +183,9 @@ async () => {
             const err = seg.reduce((a, x) => (x.err[0] > a[0] ? x.err : a), [0, '']);
             const [rx, ry] = P[n.id].inertial;
             lines.push(`    ${n.id.padStart(7)} ${P[n.id].family.padEnd(10)} archivo pitch ${deg(ry)} roll ${deg(rx)} · medido pitch ${deg(s.pitch)} roll ${deg(s.roll)} z ${s.z.toFixed(2)} · sat ${(sat[0] * 100).toFixed(0)}% ${sat[1]} · error ${deg(err[0])}° ${err[1]}`);
+            // window.__segment = '1005': el tramo que llega a ese nodo, muestra a muestra (cada 40 ms)
+            if (window.__segment === n.id)
+              seg.filter((_, i) => i % 2 === 0).forEach((x) => lines.push(`      t ${(x.t - t0s).toFixed(2)} pitch ${deg(x.pitch)} z ${x.z.toFixed(3)} · sat ${(x.sat[0] * 100).toFixed(0)}% ${x.sat[1]} · ${x.watch.map(([j, c, v]) => (c === null ? `${j} ${v.toFixed(1)}` : `${j} ${deg(c)}/${deg(v)}`)).join(' ')}`));
           });
         }
       }
