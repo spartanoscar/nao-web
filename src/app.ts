@@ -13,7 +13,7 @@ import { LedsView } from './sim/ledsView';
 import { NaoCameras } from './sim/naoCameras';
 import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
-import { HOME_ROOM, ROOMS, type RoomId, roomAt } from './sim/rooms';
+import { HOME_ROOM, ROOMS, type RoomId, type SpawnId, roomAt, spawnLabel, spawnPoint } from './sim/rooms';
 import type { RootPose } from './robot/state';
 import { createBehaviorPanel } from './ui/behaviorPanel';
 import { attachCameraViews } from './ui/cameraViews';
@@ -58,8 +58,8 @@ const bootRoot = nao.kinematicRootPose();
  */
 let home: RootPose = bootRoot;
 /** Pose de arranque en un cuarto: la de bootRoot (apoyado en el suelo) girada a su rumbo y llevada a su punto */
-const roomRoot = (id: RoomId): RootPose => {
-  const { x, y, yaw } = ROOMS[id].spawn;
+const roomRoot = (id: SpawnId): RootPose => {
+  const { x, y, yaw } = spawnPoint(id);
   const [bw, bx, by, bz] = bootRoot.quaternion;
   const [c, s] = [Math.cos(yaw / 2), Math.sin(yaw / 2)];
   return { position: [x, y, bootRoot.position[2]], quaternion: [c * bw - s * bz, c * bx - s * by, c * by + s * bx, c * bz + s * bw] };
@@ -86,10 +86,10 @@ const resetAtHome = () => {
  * Aparece en un cuarto, agachado y con los motores apagados (como recién encendido). La cámara del mundo va con él, con
  * el mismo encuadre que en el origen (de frente y un poco al costado), girado a su rumbo.
  */
-const spawn = (id: RoomId) => {
+const spawn = (id: SpawnId) => {
   home = roomRoot(id);
   resetAtHome();
-  const { x, y, yaw } = ROOMS[id].spawn;
+  const { x, y, yaw } = spawnPoint(id);
   const [c, s] = [Math.cos(yaw), Math.sin(yaw)];
   const target = new Vector3(x, 0.28, -y); // three: Y arriba, z = −y del URDF
   const [ox, oy, oz] = [1.0, 0.27, 0.75];
@@ -101,8 +101,8 @@ const spawn = (id: RoomId) => {
 };
 const behavior = createBehaviorPanel(panelHost, session, state, {
   onReset: resetAtHome,
-  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'pasillo'] as RoomId[]).map((id) => ({ id, label: ROOMS[id].label })),
-  onSpawn: (id) => spawn(id as RoomId),
+  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
+  onSpawn: (id) => spawn(id as SpawnId),
 });
 // Grabador de poses (enseñar movimientos a mano): la pose de partida sale directa, sin ponerse de pie antes
 const LYING_BACK = postureJoints('LyingBack');
@@ -267,7 +267,7 @@ const physicsReady = import('./physics/physics')
     physics = sim;
     session.engine.physical = true;
     session.engine.onManual = (name, value) => sim.placeJoint(name, value);
-    spawn(HOME_ROOM); // el NAO del usuario aparece en su casa (la física se arma en el origen)
+    spawn(HOME_ROOM); // el NAO del usuario aparece en su punto de inicio (la física se arma en el origen)
     setMode(FAITHFUL_PHYSICS ? 'física MuJoCo (fiel)' : 'física MuJoCo');
     world.invalidate(true);
     return true;

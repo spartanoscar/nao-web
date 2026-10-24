@@ -49,7 +49,8 @@ const add = (p: PropPart) => parts.push(p);
 // ─── Sala de pruebas ───────────────────────────────────────────────────────────
 {
   // Rampa: sube 8 cm en 1.4 m (3.3°) hacia +x, contra la pared norte, y una plataforma a esa altura
-  const [x0, x1, y, w, h, t] = [-1.0, 0.4, 1.6, 0.6, 0.08, 0.03];
+  // Empieza en x = −0.6: entre la escalera (termina en −1.35) y la rampa queda espacio para pararse frente a ella
+  const [x0, x1, y, w, h, t] = [-0.6, 0.8, 1.6, 0.6, 0.08, 0.03];
   const len = Math.hypot(x1 - x0, h);
   const pitch = -Math.atan2(h, x1 - x0);
   add({
