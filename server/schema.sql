@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS faces (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS faces_user ON faces (user_id);
+-- Constancia de la autorización (Ley 1581): las palabras con que la persona aceptó que el NAO la recordara
+ALTER TABLE faces ADD COLUMN IF NOT EXISTS consent_note TEXT;
 
 -- ─── Memoria del mundo (F10) ─────────────────────────────────────────────────
 -- Dónde quedó el robot y qué se movió, para volver a entrar desde otro equipo y encontrarlo igual

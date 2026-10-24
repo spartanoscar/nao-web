@@ -1,13 +1,15 @@
 package main
 
-// Rostros que reconoce el NAO de cada usuario (F11). Ley 1581 de 2012 (datos biométricos = sensibles): solo con
-// autorización expresa (consent_at obligatorio, la casilla del navegador), solo la huella numérica de 128 valores
-// (face-api, src/ai/faces.ts), nunca la foto, y se borra cuando se pida. La comparación se hace en el navegador: el
-// servidor guarda y devuelve las huellas del propio usuario, nunca las de otros.
+// Rostros que reconoce el NAO de cada usuario (F11; ALFaceDetection.learnFace/reLearnFace/forgetPerson, src/naoqi).
+// Ley 1581 de 2012 (datos biométricos = sensibles): el NAO pregunta conversando si puede recordar la cara y solo la
+// aprende si la persona dice que sí; esas palabras quedan como constancia (consent_note) con su fecha (consent_at).
+// Solo la huella numérica de 128 valores (face-api, src/ai/faces.ts), nunca la foto, y se borra cuando se pida. La
+// comparación se hace en el navegador: el servidor guarda y devuelve las huellas del propio usuario, nunca de otros.
 //
-//   GET    /api/faces               personas registradas con sus huellas
-//   POST   /api/faces               { name, consent: true, embeddings: [[128 números], …] } (1–5 muestras)
-//   DELETE /api/faces/{name}        borra a esa persona (todas sus muestras)
+//   GET    /api/faces          personas registradas con sus huellas
+//   POST   /api/faces          { name, consent: true, consentNote, embeddings: [[128 números], …], append }
+//                              learnFace: reemplaza sus muestras; append (reLearnFace): las suma, máx. 10 (rueda)
+//   DELETE /api/faces/{name}   forgetPerson: borra todas sus muestras
 
 import (
 	"encoding/json"
@@ -21,16 +23,17 @@ import (
 
 const (
 	faceDims         = 128
-	maxFaceSamples   = 5
+	maxFaceSamples   = 10 // "Up to 10 images can be stored for each person" (doc de reLearnFace)
 	maxFacePeople    = 20
 	maxFaceNameRunes = 40
 	maxFaceBody      = 64 << 10
 )
 
 type facePerson struct {
-	Name       string      `json:"name"`
-	ConsentAt  time.Time   `json:"consentAt"`
-	Embeddings [][]float64 `json:"embeddings"`
+	Name        string      `json:"name"`
+	ConsentAt   time.Time   `json:"consentAt"`
+	ConsentNote string      `json:"consentNote"`
+	Embeddings  [][]float64 `json:"embeddings"`
 }
 
 func (a *auth) handleListFaces(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +42,7 @@ func (a *auth) handleListFaces(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT person_name, consent_at, embedding::text FROM faces WHERE user_id = $1 ORDER BY id`, u.ID)
+	rows, err := a.db.Query(r.Context(), `SELECT person_name, consent_at, COALESCE(consent_note, ''), embedding::text FROM faces WHERE user_id = $1 ORDER BY id`, u.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "no se pudo leer")
 		return
@@ -48,9 +51,9 @@ func (a *auth) handleListFaces(w http.ResponseWriter, r *http.Request) {
 	people := []*facePerson{}
 	byName := map[string]*facePerson{}
 	for rows.Next() {
-		var name, vec string
+		var name, note, vec string
 		var consent time.Time
-		if err := rows.Scan(&name, &consent, &vec); err != nil {
+		if err := rows.Scan(&name, &consent, &note, &vec); err != nil {
 			writeError(w, http.StatusInternalServerError, "no se pudo leer")
 			return
 		}
@@ -60,7 +63,7 @@ func (a *auth) handleListFaces(w http.ResponseWriter, r *http.Request) {
 		}
 		p := byName[name]
 		if p == nil {
-			p = &facePerson{Name: name, ConsentAt: consent}
+			p = &facePerson{Name: name, ConsentAt: consent, ConsentNote: note}
 			byName[name] = p
 			people = append(people, p)
 		}
@@ -76,24 +79,27 @@ func (a *auth) handleAddFace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name       string      `json:"name"`
-		Consent    bool        `json:"consent"`
-		Embeddings [][]float64 `json:"embeddings"`
+		Name        string      `json:"name"`
+		Consent     bool        `json:"consent"`
+		ConsentNote string      `json:"consentNote"`
+		Embeddings  [][]float64 `json:"embeddings"`
+		Append      bool        `json:"append"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxFaceBody)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "petición inválida")
 		return
 	}
 	name := strings.TrimSpace(body.Name)
+	note := strings.TrimSpace(body.ConsentNote)
 	switch {
-	case !body.Consent:
-		writeError(w, http.StatusBadRequest, "hace falta la autorización de la persona")
+	case !body.Consent || note == "" || utf8.RuneCountInString(note) > 300:
+		writeError(w, http.StatusBadRequest, "hace falta la autorización de la persona (sus palabras)")
 		return
 	case name == "" || utf8.RuneCountInString(name) > maxFaceNameRunes:
 		writeError(w, http.StatusBadRequest, "el nombre debe tener entre 1 y 40 caracteres")
 		return
 	case len(body.Embeddings) == 0 || len(body.Embeddings) > maxFaceSamples:
-		writeError(w, http.StatusBadRequest, "entre 1 y 5 muestras")
+		writeError(w, http.StatusBadRequest, "entre 1 y 10 muestras")
 		return
 	}
 	for _, e := range body.Embeddings {
@@ -112,22 +118,35 @@ func (a *auth) handleAddFace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ya hay 20 personas registradas: borra alguna")
 		return
 	}
-	// Registrar de nuevo a alguien reemplaza sus muestras anteriores
+	if body.Append && mine == 0 {
+		writeError(w, http.StatusBadRequest, "no conozco a esa persona: primero hay que aprender su cara")
+		return
+	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "no se pudo guardar")
 		return
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	if _, err := tx.Exec(ctx, `DELETE FROM faces WHERE user_id = $1 AND person_name = $2`, u.ID, name); err != nil {
-		writeError(w, http.StatusInternalServerError, "no se pudo guardar")
-		return
-	}
-	for _, e := range body.Embeddings {
-		if _, err := tx.Exec(ctx, `INSERT INTO faces (user_id, person_name, embedding, consent_at) VALUES ($1, $2, $3::vector, now())`, u.ID, name, formatVector(e)); err != nil {
+	// learnFace: aprender de nuevo a alguien reemplaza sus muestras; reLearnFace (append) las suma
+	if !body.Append {
+		if _, err := tx.Exec(ctx, `DELETE FROM faces WHERE user_id = $1 AND person_name = $2`, u.ID, name); err != nil {
 			writeError(w, http.StatusInternalServerError, "no se pudo guardar")
 			return
 		}
+	}
+	for _, e := range body.Embeddings {
+		if _, err := tx.Exec(ctx, `INSERT INTO faces (user_id, person_name, embedding, consent_at, consent_note) VALUES ($1, $2, $3::vector, now(), $4)`,
+			u.ID, name, formatVector(e), note); err != nil {
+			writeError(w, http.StatusInternalServerError, "no se pudo guardar")
+			return
+		}
+	}
+	// Máximo 10 muestras por persona: las más viejas salen (rueda, como reLearnFace)
+	if _, err := tx.Exec(ctx, `DELETE FROM faces WHERE id IN (
+		SELECT id FROM faces WHERE user_id = $1 AND person_name = $2 ORDER BY id DESC OFFSET $3)`, u.ID, name, maxFaceSamples); err != nil {
+		writeError(w, http.StatusInternalServerError, "no se pudo guardar")
+		return
 	}
 	if err := tx.Commit(ctx); err != nil {
 		writeError(w, http.StatusInternalServerError, "no se pudo guardar")
