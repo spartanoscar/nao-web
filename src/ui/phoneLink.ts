@@ -8,10 +8,12 @@
 //   teléfono → servidor (binario, no llega a la pantalla): voz para la transcripción (control/voice.ts)
 //   servidor → ambos: {t:'peers', screen, phone} · {t:'replaced'} · {t:'gone'} · {t:'caption', id, text, final} ·
 //   {t:'usage', spentTodayUsd} · {t:'caption-error', error}
+//   servidor → pantalla: {t:'world', pod, players} (mundo compartido, server/world.go: la sala también es la presencia)
 
 import qrcode from 'qrcode-generator';
 import type { ALVideoDevice } from '../naoqi/ALVideoDevice';
 import { createRoom, wsUrl } from '../net/api';
+import type { Presence } from '../net/world';
 import type { Hud } from './hud';
 import { ICONS } from './icons';
 
@@ -35,6 +37,8 @@ export interface PhoneHooks {
   captionError(message: string): void;
   /** Una foto de la cámara del teléfono (JPEG ≤ 320 px, ~2 por segundo mientras está activa) */
   phoneFrame?(jpeg: Blob): void;
+  /** Mundo compartido (server/world.go): la cápsula del jugador y quién está en el mundo */
+  world?(presence: Presence): void;
 }
 
 /** Primer byte de los binarios del teléfono con lo que ve su cámara (1–3 son la voz, van al servidor) */
@@ -144,6 +148,7 @@ export function attachPhoneLink(hud: Hud, video: ALVideoDevice, hooks: PhoneHook
       } else if (m.t === 'caption') hooks.caption(Number(m.id), String(m.text ?? ''), Boolean(m.final));
       else if (m.t === 'usage') hooks.usage(Number(m.spentTodayUsd));
       else if (m.t === 'caption-error') hooks.captionError(String(m.error ?? ''));
+      else if (m.t === 'world') hooks.world?.({ pod: Number(m.pod), players: Array.isArray(m.players) ? (m.players as Presence['players']) : [] });
       else if (m.t === 'replaced') {
         displaced = true;
         room = null;

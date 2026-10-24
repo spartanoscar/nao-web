@@ -92,3 +92,11 @@ export function wsUrl(room: string, role: 'screen' | 'phone'): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}/api/ws?room=${encodeURIComponent(room)}&role=${role}`;
 }
+
+/** Mundo compartido (server/world.go): pase firmado para la sala del mundo; `url` vacía = la de nao-api (plan B) */
+export const worldPass = () => call<{ pass: string; url: string; pod: number }>('POST', '/api/world/pass');
+
+export function worldUrl(url: string, pass: string): string {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${url || `${proto}://${location.host}/api/world`}?pass=${encodeURIComponent(pass)}`;
+}

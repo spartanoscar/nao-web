@@ -39,9 +39,18 @@ export function rpyToQuat([r, p, y]: Vec3): [number, number, number, number] {
   return [cr * cp * cy + sr * sp * sy, sr * cp * cy - cr * sp * sy, cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy];
 }
 
-// Las piezas del robot chocan entre sí (salvo los pares de `exclude`), con el suelo y con los objetos.
-// group 1 = el robot, 2 = el suelo, 0 = objetos y piezas fijas (lo único que ven los sonares, physics.ts SONAR_GROUPS)
-const ROBOT_CONTACT = 'contype="1" conaffinity="1" group="1"';
+// Las piezas del robot chocan entre sí (salvo los pares de `exclude`), con el suelo, con los objetos y con los otros NAO
+// del mundo compartido (conaffinity bit 2). group 1 = el robot, 2 = el suelo, 0 = objetos, piezas fijas y otros NAO (lo
+// único que ven los sonares, physics.ts SONAR_GROUPS)
+const ROBOT_CONTACT = 'contype="1" conaffinity="3" group="1"';
+/**
+ * Otros NAO (mundo compartido, docs/PLAN.md F16): cuerpos mocap que mueve su dueño desde su propia física. Solo chocan
+ * con el robot (contype 2 contra su conaffinity 3; con el suelo, los objetos y entre ellos no): lo frenan y lo tumban,
+ * pero él no los empuja (cada uno simula el suyo). Los sonares los ven, como al robot real.
+ */
+const GHOST_CONTACT = 'contype="2" conaffinity="0" group="0"';
+/** Donde esperan los cuerpos de los otros NAO sin dueño (bajo el suelo; no chocan con nada) */
+export const GHOST_PARK_Z = -5;
 
 /**
  * Los codos no tienen malla oficial propia (la carcasa del brazo va en el bíceps y el antebrazo): una esfera en la
@@ -83,6 +92,8 @@ export interface CollisionOptions {
    * suela no cambian.
    */
   shellFriction?: number;
+  /** Lugares para otros NAO del mundo compartido (cuerpos mocap `ghost<k>_<link>`), 0 = ninguno */
+  ghosts?: number;
 }
 
 /**
@@ -110,8 +121,8 @@ function excludes(bodies: ReadonlyMap<string, string>, extra: readonly (readonly
 export function buildMjcf(
   urdf: UrdfRobot,
   root: { position: Vec3; quaternion: [number, number, number, number] },
-  { hulls, exclude = [], shellFriction = SHELL_FRICTION }: CollisionOptions,
-): { xml: string; joints: PhysicalJoint[]; bodies: Map<string, string> } {
+  { hulls, exclude = [], shellFriction = SHELL_FRICTION, ghosts = 0 }: CollisionOptions,
+): { xml: string; joints: PhysicalJoint[]; bodies: Map<string, string>; ghostLinks: string[] } {
   const links = new Map(urdf.links.map((l) => [l.name, l]));
   const byParent = new Map<string, UrdfJoint[]>();
   for (const j of urdf.joints) byParent.set(j.parent, [...(byParent.get(j.parent) ?? []), j]);
@@ -121,9 +132,9 @@ export function buildMjcf(
   // Colisión: la envolvente de la malla oficial (la forma del NAO real)
   const assets: string[] = [];
   const shellContact = `${ROBOT_CONTACT} friction="${f(shellFriction)} 0.005 0.0001" priority="1"`;
-  const collision = (link: string, pad: string): string[] => {
+  const collision = (link: string, pad: string, ghost = false): string[] => {
     const hull = hulls.get(link);
-    const contact = FLAT_SOLE.has(link) ? ROBOT_CONTACT : shellContact;
+    const contact = ghost ? GHOST_CONTACT : FLAT_SOLE.has(link) ? ROBOT_CONTACT : shellContact;
     if (!hull) return link.endsWith('Elbow') ? [`${pad}<geom type="sphere" size="${f(ELBOW_RADIUS)}" ${contact}/>`] : [];
     if (FLAT_SOLE.has(link)) {
       // La suela es plana (medido: 34 vértices de la envolvente a < 1 mm del fondo, en toda la huella), pero MuJoCo
@@ -140,7 +151,7 @@ export function buildMjcf(
       const half = lo.map((v, k) => (hi[k] - v) / 2);
       return [`${pad}<geom type="box" pos="${v3(center)}" size="${v3(half)}" ${contact}/>`];
     }
-    assets.push(`<mesh name="hull_${link}" vertex="${Array.from(hull, f).join(' ')}"/>`);
+    if (!ghost) assets.push(`<mesh name="hull_${link}" vertex="${Array.from(hull, f).join(' ')}"/>`);
     return [`${pad}<geom type="mesh" mesh="hull_${link}" ${contact}/>`];
   };
   /** Cuerpo → su cuerpo padre (para las exclusiones por cercanía en el árbol) */
@@ -172,6 +183,12 @@ export function buildMjcf(
     ...(byParent.get('torso') ?? []).filter(isPhysical).map((c) => body(c, 1)),
     '</body>',
   ].join('\n');
+
+  // Otros NAO: un cuerpo mocap por pieza con la misma forma (el frame de cada cuerpo es el de su link del URDF)
+  const ghostLinks = ['torso', ...bodies.keys()].filter((l) => collision(l, '', true).length);
+  const ghostBodies = Array.from({ length: ghosts }, (_, k) =>
+    ghostLinks.map((l) => `<body name="ghost${k}_${l}" mocap="true" pos="0 0 ${GHOST_PARK_Z}">${collision(l, '', true).join('')}</body>`).join('\n'),
+  );
 
   const objects = ENV_OBJECTS.map(
     (o) =>
@@ -214,6 +231,7 @@ export function buildMjcf(
     <geom name="floor" type="plane" size="0 0 0.05" contype="1" conaffinity="1" group="2"/>
 ${robot}
 ${objects.join('\n')}
+${ghostBodies.join('\n')}
 ${fixed.map((g) => `    ${g}`).join('\n')}
   </worldbody>
   <equality>
@@ -227,5 +245,5 @@ ${excludes(bodies, exclude).map(([a, b]) => `    <exclude body1="${a}" body2="${
 ${actuators.join('\n')}
   </actuator>
 </mujoco>`;
-  return { xml, joints, bodies };
+  return { xml, joints, bodies, ghostLinks };
 }

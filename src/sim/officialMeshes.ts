@@ -68,6 +68,31 @@ export async function loadOfficialMeshes(
   return result;
 }
 
+/**
+ * Copia de las mallas para otro NAO (mundo compartido, sim/remoteNao.ts): comparte la geometría y lleva materiales
+ * propios, para que su color de carcasa no cambie el del NAO del jugador. Copiar antes de pintar (setShellColor).
+ */
+export function cloneOfficialMeshes(meshes: ReadonlyMap<string, THREE.Object3D>): Map<string, THREE.Object3D> {
+  const out = new Map<string, THREE.Object3D>();
+  for (const [link, holder] of meshes) {
+    // clone() copia userData con JSON: sin el material guardado ahí (no se serializa)
+    const stash = new Map<THREE.Object3D, unknown>();
+    holder.traverse((o) => {
+      stash.set(o, o.userData.material);
+      delete o.userData.material;
+    });
+    const copy = holder.clone(true);
+    for (const [o, m] of stash) if (m) o.userData.material = m;
+    copy.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+      o.userData = { ...o.userData, material: o.material };
+    });
+    out.set(link, copy);
+  }
+  return out;
+}
+
 /** Los dedos no tienen cuerpo en la física (siguen a LHand/RHand): su forma va con la muñeca */
 /** Dedos (sin masa en el URDF, siguen a LHand/RHand): van con la muñeca */
 const isFingerLink = (link: string) => /Finger\d\d_link$|Thumb\d_link$/.test(link);

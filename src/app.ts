@@ -16,6 +16,7 @@ import { NaoModel } from './sim/naoModel';
 import { createWorld } from './sim/world';
 import { HOME_ROOM, ROOMS, SPOTS, type RoomId, type SpawnId, roomAt, spawnLabel, spawnPoint } from './sim/rooms';
 import { spawnObstacles } from './sim/environment';
+import { POD_COUNT } from './sim/pods';
 import type { RootPose } from './robot/state';
 import { attachCameraViews } from './ui/cameraViews';
 import { attachKeyboard } from './ui/keyboard';
@@ -23,11 +24,12 @@ import { showMeshCredit } from './ui/meshLicense';
 import { runBoot } from './ui/boot';
 import { createHud } from './ui/hud';
 import { attachRobotMenus } from './ui/robotMenus';
-import { attachPower } from './ui/power';
+import { type Power, attachPower } from './ui/power';
 import { attachBodyPicker } from './ui/bodyPicker';
 import { attachSettings } from './ui/settings';
 import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
+import { SharedWorld } from './net/world';
 import { createTranscript } from './ui/transcript';
 import { Brain } from './ai/brain';
 import { Vision } from './ai/vision';
@@ -55,17 +57,19 @@ const bootRoot = nao.groundedRootPose();
 let home: RootPose = bootRoot;
 // Ningún punto de aparición puede caer dentro o al lado de una pieza sólida (sim/environment.ts spawnObstacles): la
 // física sacaría al robot empujándolo y cualquier prueba desde ahí sería inválida
-for (const id of [...Object.keys(ROOMS), ...Object.keys(SPOTS)] as SpawnId[]) {
+// Las cápsulas (sim/pods.ts) con 20 cm: agachado el NAO mide ~30 cm de ancho y los pilares quedan a 20 cm del centro
+const SPAWN_IDS = [...Object.keys(ROOMS), ...Object.keys(SPOTS), ...Array.from({ length: POD_COUNT }, (_, i) => `pod${i}`)] as SpawnId[];
+for (const id of SPAWN_IDS) {
   const { x, y } = spawnPoint(id);
-  const hits = spawnObstacles(x, y);
+  const hits = spawnObstacles(x, y, id.startsWith('pod') ? 0.2 : undefined);
   if (hits.length) console.error(`Punto de aparición "${id}" invadido por: ${hits.map((h) => `${h.name} a ${h.distance} m`).join(', ')}`);
 }
 /** Pose de arranque en un cuarto: la de bootRoot (apoyado en el suelo) girada a su rumbo y llevada a su punto */
 const roomRoot = (id: SpawnId): RootPose => {
-  const { x, y, yaw } = spawnPoint(id);
+  const { x, y, z = 0, yaw } = spawnPoint(id);
   const [bw, bx, by, bz] = bootRoot.quaternion;
   const [c, s] = [Math.cos(yaw / 2), Math.sin(yaw / 2)];
-  return { position: [x, y, bootRoot.position[2]], quaternion: [c * bw - s * bz, c * bx - s * by, c * by + s * bx, c * bz + s * bw] };
+  return { position: [x, y, bootRoot.position[2] + z], quaternion: [c * bw - s * bz, c * bx - s * by, c * by + s * bx, c * bz + s * bw] };
 };
 
 let physics: PhysicsSim | null = null;
@@ -80,18 +84,27 @@ const resetAtHome = () => {
  * Aparece en un cuarto, agachado y con los motores apagados (como recién encendido). La cámara del mundo va con él, con
  * el mismo encuadre que en el origen (de frente y un poco al costado), girado a su rumbo.
  */
-const spawn = (id: SpawnId) => {
+const place = (id: SpawnId) => {
   home = roomRoot(id);
   resetAtHome();
   const { x, y, yaw, camera } = spawnPoint(id);
   const [c, s] = [Math.cos(yaw), Math.sin(yaw)];
-  const target = new Vector3(x, 0.28, -y); // three: Y arriba, z = −y del URDF
+  const target = new Vector3(x, 0.28 + (spawnPoint(id).z ?? 0), -y); // three: Y arriba, z = −y del URDF
   const [ox, oy, oz] = camera ?? [1.0, 0.27, 0.75];
   world.controls.target.copy(target);
   world.rig.position.set(target.x + ox * c + oz * s, target.y + oy, target.z - ox * s + oz * c);
   world.controls.update();
   world.focus(x, y, true);
   world.invalidate(true);
+};
+/**
+ * Su cápsula llega de nao-api después de entrar: solo lo lleva allá si nadie lo puso en otro lado antes (Ajustes,
+ * `nao.spawn` de los bancos). Si no, un banco que empezó en la sala de pruebas terminaba en la cápsula a mitad de camino.
+ */
+let autoPlaced = true;
+const spawn = (id: SpawnId) => {
+  autoPlaced = false;
+  place(id);
 };
 
 // Sonido de los motores (sintetizado desde la física). El audio solo puede arrancar tras un gesto.
@@ -129,14 +142,20 @@ const paintEyes = (hex: string) => {
   else leds.reset('FaceLeds');
 };
 
+/** Mallas sin pintar para los NAO de otras personas (mundo compartido, net/world.ts) */
+let remoteMeshes: ReadonlyMap<string, Object3D> | null = null;
+let paintRemote: ((meshes: Iterable<Object3D>, hex: string) => Promise<void>) | null = null;
+
 let officialLoaded: (meshes: ReadonlyMap<string, Object3D>) => void = () => {};
 const officialReady = new Promise<ReadonlyMap<string, Object3D>>((resolve) => (officialLoaded = resolve));
 
 // Mallas oficiales del NAO: se descargan solo con la licencia aceptada (pantalla de entrada, ui/boot.ts)
 const loadModel = async (onProgress: (loaded: number, total: number) => void) => {
-  const { loadOfficialMeshes, setShellColor } = await import('./sim/officialMeshes');
+  const { loadOfficialMeshes, setShellColor, cloneOfficialMeshes } = await import('./sim/officialMeshes');
   const meshes = await loadOfficialMeshes(urdf, onProgress);
   nao.setOfficialMeshes(meshes);
+  remoteMeshes = cloneOfficialMeshes(meshes); // antes de pintar las del jugador
+  paintRemote = (roots, hex) => setShellColor(roots, hex ? parseInt(hex.slice(1), 16) : null);
   shell.paint = async (hex) => {
     await setShellColor(meshes.values(), hex ? parseInt(hex.slice(1), 16) : null);
     world.invalidate();
@@ -155,11 +174,35 @@ const loadModel = async (onProgress: (loaded: number, total: number) => void) =>
 const physicsReady = Promise.all([import('./physics/physics'), import('./sim/officialMeshes'), import('./naoqi/naoqiPostureGraph'), officialReady]).then(
   async ([{ PhysicsSim }, { collisionHulls }, { loadPostureGraph }, meshes]) => {
     if (!(await loadPostureGraph())) throw new Error('falta el grafo de posturas de NAOqi (scripts/fetch-naoqi-postures.sh)');
-    physics = await PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes) });
-    spawn(HOME_ROOM); // el NAO del usuario aparece en su punto de inicio (la física se arma en el origen)
+    // Con lugar para los NAO de las otras cápsulas del mundo compartido (cuerpos sólidos que mueven sus dueños)
+    physics = await PhysicsSim.create(urdf, state, session.engine, bootRoot, world.objects, { hulls: collisionHulls(meshes), ghosts: POD_COUNT });
+    // El NAO del usuario aparece en su cápsula (nao-api la reparte al entrar) o, mientras no llega, en el centro de la sala
+    place(shared.myPod >= 0 ? `pod${shared.myPod}` : HOME_ROOM);
     world.invalidate(true);
   },
 );
+
+// Mundo compartido (docs/PLAN.md F16): las cápsulas y los NAO de las demás personas (net/world.ts). El jugador y su
+// encendido llegan después de la pantalla de entrada
+const player: { user: User | null; power: Power | null } = { user: null, power: null };
+const shared = new SharedWorld({
+  urdf,
+  scene: world.scene,
+  pods: world.pods,
+  state,
+  leds: session.leds,
+  invalidate: (shadows) => world.invalidate(shadows),
+  physics: () => physics,
+  meshes: () => (remoteMeshes ? cloneMeshes(remoteMeshes) : null),
+  paintShell: (roots, hex) => paintRemote?.(roots, hex) ?? Promise.resolve(),
+  on: () => player.power?.state === 'on',
+  me: () => ({ robot: player.user?.robotName ?? '', shell: player.user?.shellColor ?? '' }),
+  // Al entrar (o si nao-api la cambió): a su cápsula, agachado y con los motores apagados
+  onPod: (pod) => physics && autoPlaced && place(`pod${pod}`),
+  parked: { root: (pod) => roomRoot(`pod${pod}`), angles: BOOT_POSTURE },
+});
+let cloneMeshes: (m: ReadonlyMap<string, Object3D>) => Map<string, Object3D> = () => new Map();
+void import('./sim/officialMeshes').then((m) => (cloneMeshes = m.cloneOfficialMeshes));
 
 // Inclinación del teléfono (ui/phoneLink.ts): gira la cámara alrededor del robot, como un joystick
 const TILT_DEADZONE = 0.08;
@@ -253,6 +296,7 @@ world.onFrame((dt) => {
     pump.port2.postMessage(0);
   }
   applyTilt(dt);
+  shared.update(dt);
   if (physics) {
     const hearing = world.camera.position.distanceTo(world.controls.target);
     sound.update(physics.telemetry(), hearing);
@@ -294,6 +338,7 @@ Object.assign(window, {
 // ─── Entrada al mundo ───────────────────────────────────────────────────────────
 // Login + licencia + "Cargando universo…": el mundo se carga detrás y solo se muestra completo
 const user = await runBoot({ loadModel, physics: physicsReady, warmUp: () => world.renderNow() });
+player.user = user;
 showMeshCredit();
 const hud = createHud(user, session.service('ALAudioDevice'));
 // La apariencia guardada en la cuenta
@@ -313,12 +358,16 @@ attachSettings(hud.settingsButton, user, {
     applyAppearance(user, u);
     Object.assign(user, u);
     hud.setUser(u);
+    shared.appearanceChanged();
   },
   // La biblioteca terminó de guardar algo: el servidor ya lo cobró
   onSpent: () => void me().then((u) => u && hud.setSpent(u.spentTodayUsd)),
   // Aparecer en un cuarto del mundo (sim/rooms.ts): agachado y con los motores apagados, como recién encendido
-  rooms: (['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'escalera', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
-  onSpawn: (id) => spawn(id as SpawnId),
+  rooms: [
+    { id: 'capsula', label: 'TU CÁPSULA' },
+    ...(['casa', 'laboratorio', 'espejo', 'bano', 'pruebas', 'rampa', 'escalera', 'pasillo'] as SpawnId[]).map((id) => ({ id, label: spawnLabel(id) })),
+  ],
+  onSpawn: (id) => spawn(id === 'capsula' ? (shared.myPod >= 0 ? `pod${shared.myPod}` : HOME_ROOM) : (id as SpawnId)),
 });
 const transcript = createTranscript();
 // Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla
@@ -341,6 +390,7 @@ const brain = new Brain(session, state, vision, {
     applyAppearance(user, u);
     Object.assign(user, u);
     hud.setUser(u);
+    shared.appearanceChanged();
     return { shell: u.shellColor, eyes: u.eyeColor };
   },
   // "Te vas a llamar Lucky": se guarda en la cuenta y se ve al instante en la tarjeta (y la voz responde a ese nombre)
@@ -348,6 +398,7 @@ const brain = new Brain(session, state, vision, {
     const u = await updateMe({ robotName: name });
     Object.assign(user, u);
     hud.setUser(u);
+    shared.appearanceChanged();
     return u.robotName;
   },
   // "Descansa": se apaga como con el botón (se acuesta boca arriba primero)
@@ -359,6 +410,7 @@ const power = attachPower(hud.player, session, {
   lightsOn: () => user.eyeColor && paintEyes(user.eyeColor),
   onOff: () => brain.cancel(),
 });
+player.power = power;
 // Mover una pieza a mano: Shift + clic la elige (amarilla) y las flechas la mueven; Esc la suelta (ui/bodyPicker.ts)
 attachBodyPicker(world, nao, session, power);
 // Posturas y animaciones: dos íconos del HUD con su lista (ui/robotMenus.ts)
@@ -379,6 +431,7 @@ attachPhoneLink(hud, session.service('ALVideoDevice'), {
   },
   usage: (spent) => hud.setSpent(spent),
   phoneFrame: (jpeg) => void faces.push(jpeg),
+  world: (presence) => shared.presence(presence),
   captionError: (message) => {
     if (message === captionError) return; // un aviso por motivo, no uno por frase
     captionError = message;
@@ -430,4 +483,4 @@ faces.onUpdate = () => {
 // después del primer cuadro del mundo, para no competir con lo que se ve
 setTimeout(() => speech.preload(tts.getVoice()), 1500);
 attachKeyboard(session, power);
-Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces, power });
+Object.assign((window as unknown as { nao: object }).nao, { user, transcript, brain, vision, faces, power, shared });

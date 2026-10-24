@@ -198,7 +198,10 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   `lookAt(objeto)`, `say(texto)`, `goToPosture(...)`.
 
 ### F16 — Mundo compartido (varios NAO en la misma sala)
-Decidido con Oscar (2026-10-22), aún sin construir:
+Decidido con Oscar (2026-10-22). ✅ Fase 1 (2026-10-24, ver CLAUDE.md "Mundo compartido"): verse y chocar, 8 cápsulas de
+salida estilo Halo en la sala de pruebas (la primera libre por persona, hasta 6; dos con un NAO quieto), presencia y pases en nao-api, sala en un Durable
+Object (probado con `wrangler dev`; falta desplegarlo) y plan B en nao-api. Faltan: objetos compartidos, voz entre
+personas y sincronizar por cuarto.
 - **Modelo "cada uno simula su NAO"** (como Meccha Chameleon con Epic Online Services: el proveedor solo conecta,
   la simulación corre en los equipos): cada navegador corre la física de su robot y comparte su estado (posición del
   torso, 25 articulaciones, LEDs ≈ 30 números) a 12–15 Hz; los NAO de los demás se dibujan con ese estado, suavizado,

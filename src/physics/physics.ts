@@ -16,7 +16,7 @@ import type { RobotState, RootPose } from '../robot/state';
 import type { UrdfRobot } from '../robot/urdf';
 import { ENV_OBJECTS } from '../sim/environment';
 import postureData from '../../reference/qibullet/nao_postures.json';
-import { type CollisionOptions, PHYSICS_TIMESTEP, buildMjcf } from './mjcf';
+import { type CollisionOptions, GHOST_PARK_Z, PHYSICS_TIMESTEP, buildMjcf } from './mjcf';
 
 /**
  * Pares de piezas que se tocan en las 8 posturas oficiales (qiBullet) con el robot en el aire: el NAO real las hace, así
@@ -25,7 +25,7 @@ import { type CollisionOptions, PHYSICS_TIMESTEP, buildMjcf } from './mjcf';
  */
 function selfCollisionExcludes(mj: MainModule, urdf: UrdfRobot, collision: CollisionOptions): [string, string][] {
   const air = { position: [0, 0, 1] as [number, number, number], quaternion: [1, 0, 0, 0] as [number, number, number, number] };
-  const { xml } = buildMjcf(urdf, air, { ...collision, exclude: [] });
+  const { xml } = buildMjcf(urdf, air, { ...collision, exclude: [], ghosts: 0 });
   const model = mj.MjModel.from_xml_string(xml);
   const data = new mj.MjData(model);
   const name = (body: number) => {
@@ -168,6 +168,9 @@ export class PhysicsSim {
   private readonly rayHit = new Int32Array(1);
   private readonly watched: Watched[] = [];
   private readonly impacts: Impact[] = [];
+  /** Otros NAO del mundo compartido: links con forma (en este orden) y el índice mocap de cada uno, por lugar */
+  ghostLinks: readonly string[] = [];
+  private ghosts: number[][] = [];
 
   private constructor(
     private readonly mj: MainModule,
@@ -198,7 +201,7 @@ export class PhysicsSim {
   ): Promise<PhysicsSim> {
     const mj = await loadMujoco({ locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path) });
     if (!collision.exclude) collision = { ...collision, exclude: selfCollisionExcludes(mj, urdf, collision) };
-    const { xml, joints } = buildMjcf(urdf, root, collision);
+    const { xml, joints, ghostLinks } = buildMjcf(urdf, root, collision);
     const model = mj.MjModel.from_xml_string(xml);
     const data = new mj.MjData(model);
 
@@ -238,6 +241,15 @@ export class PhysicsSim {
     });
 
     const sim = new PhysicsSim(mj, model, data, slots, objects, state, engine);
+    sim.ghostLinks = ghostLinks;
+    sim.ghosts = Array.from({ length: collision.ghosts ?? 0 }, (_, k) =>
+      ghostLinks.map((l) => {
+        const b = model.body(`ghost${k}_${l}`);
+        const mocap = model.body_mocapid[b.id];
+        b.delete();
+        return mocap;
+      }),
+    );
     const torso = model.body('torso');
     sim.torsoBody = torso.id;
     torso.delete();
@@ -355,11 +367,49 @@ export class PhysicsSim {
     }
   }
 
+  /** Lugares para otros NAO (CollisionOptions.ghosts) */
+  get ghostCount(): number {
+    return this.ghosts.length;
+  }
+
+  /**
+   * Pone el NAO de otra persona (cuerpos mocap): `pose(link)` = posición y cuaternión [w, x, y, z] de cada link de
+   * `ghostLinks` en el mundo (Z arriba); null = lo guarda bajo el suelo. Si queda cerca del robot en reposo, lo despierta
+   * (la física bloqueada no vería el choque).
+   */
+  setGhost(k: number, pose: ((link: string) => { position: ArrayLike<number>; quaternion: ArrayLike<number> }) | null): void {
+    const ids = this.ghosts[k];
+    if (!ids) return;
+    const pos = this.data.mocap_pos;
+    const quat = this.data.mocap_quat;
+    let near = false;
+    const b = this.torsoBody;
+    ids.forEach((id, i) => {
+      if (!pose) {
+        pos.set([0, 0, GHOST_PARK_Z - k], 3 * id);
+        quat.set([1, 0, 0, 0], 4 * id);
+        return;
+      }
+      const p = pose(this.ghostLinks[i]);
+      pos.set(p.position, 3 * id);
+      quat.set(p.quaternion, 4 * id);
+      if (i === 0 && b >= 0) near = Math.hypot(p.position[0] - this.data.xpos[3 * b], p.position[1] - this.data.xpos[3 * b + 1]) < 1;
+    });
+    if (near && this.locked) {
+      this.locked = false;
+      this.stillFor = 0;
+    }
+  }
+
   /** Vuelve a la pose dada (torso + ángulos) en reposo; los objetos vuelven a su sitio */
   reset(root: RootPose, angles: Readonly<Record<string, number>>): void {
     this.locked = false;
     this.stillFor = 0;
+    // Los otros NAO (mocap) siguen donde están: los mueve su dueño, no este reinicio
+    const mocap = [Float64Array.from(this.data.mocap_pos), Float64Array.from(this.data.mocap_quat)];
     this.mj.mj_resetData(this.model, this.data);
+    this.data.mocap_pos.set(mocap[0]);
+    this.data.mocap_quat.set(mocap[1]);
     const q = this.data.qpos;
     [q[0], q[1], q[2]] = root.position;
     [q[3], q[4], q[5], q[6]] = root.quaternion;

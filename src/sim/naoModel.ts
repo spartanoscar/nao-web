@@ -114,6 +114,18 @@ export class NaoModel {
     for (const m of this.highlighted) m.material = HIGHLIGHT;
   }
 
+  /**
+   * Pose de un link en el mundo, Z arriba (la de la física): posición y cuaternión [w, x, y, z]. El NAO de otra persona
+   * (sim/remoteNao.ts) pone así sus piezas en la física local. Antes, `root.updateMatrixWorld(true)`.
+   */
+  linkPose(link: string): { position: number[]; quaternion: number[] } {
+    const m = new THREE.Matrix4().copy(this.base.matrixWorld).invert().multiply(this.frames.get(link)!.matrixWorld);
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    m.decompose(p, q, new THREE.Vector3());
+    return { position: [p.x, p.y, p.z], quaternion: [q.w, q.x, q.y, q.z] };
+  }
+
   /** Frame de un link del URDF (p. ej. CameraTop_frame para la cámara virtual) */
   frame(link: string): THREE.Object3D | undefined {
     return this.frames.get(link);
