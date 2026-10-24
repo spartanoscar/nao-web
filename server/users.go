@@ -55,7 +55,11 @@ func userCommand(ctx context.Context, db *pgxpool.Pool, args []string) {
 		if len(args) < 2 {
 			log.Fatal("uso: user passwd <usuario>")
 		}
-		password := newPassword()
+		// NAO_PASSWORD: contraseña elegida (por entorno, como en add); si no, una al azar
+		password := os.Getenv("NAO_PASSWORD")
+		if password == "" {
+			password = newPassword()
+		}
 		tag, err := db.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE username = $2`, mustHash(password), strings.ToLower(args[1]))
 		if err != nil || tag.RowsAffected() == 0 {
 			log.Fatalf("no se pudo cambiar la contraseña de %s: %v", args[1], err)
