@@ -7,12 +7,14 @@
 //   - Estado propio a SEND_HZ, solo si cambió: binario de 140 bytes (ver pack). Los demás se dibujan suavizados
 //     (sim/remoteNao.ts) y en la física local son cuerpos sólidos con los que choca el NAO del jugador.
 //   - Apariencia ({t:'hi'}) al entrar, al cambiar y cuando entra alguien nuevo (con el estado completo).
+//   - Lo que dice cada NAO ({t:'say', text, voice}): los demás lo oyen salir de él (app.ts decide quién alcanza a oír).
 
 import { JOINTS } from '../robot/naoV6';
 import type { LedState } from '../robot/leds';
 import { expandLed } from '../robot/leds';
 import type { RobotState, RootPose } from '../robot/state';
 import type { UrdfRobot } from '../robot/urdf';
+import type { SpeechRequest } from '../naoqi/ALTextToSpeech';
 import type { PhysicsClient } from '../physics/physicsClient';
 import type { Pods } from '../sim/pods';
 import { PARKED, POD_COUNT } from '../sim/pods';
@@ -96,6 +98,19 @@ function eyeColor(leds: LedState): number {
   return (byte('Red') << 16) | (byte('Green') << 8) | byte('Blue');
 }
 
+/** Parámetros de la voz con que habló un NAO (ALTextToSpeech): el que escucha la reproduce igual */
+export type SayVoice = Omit<SpeechRequest, 'text' | 'volume'>;
+
+/** Lo que dijo el NAO de otra persona y desde dónde (cabeza, mundo Z arriba) */
+export interface HeardSay {
+  pod: number;
+  text: string;
+  voice: SayVoice;
+  robot: string;
+  owner: string;
+  position: [number, number, number];
+}
+
 export interface SharedWorldOptions {
   urdf: UrdfRobot;
   scene: THREE.Scene;
@@ -112,6 +127,8 @@ export interface SharedWorldOptions {
   me(): { robot: string; shell: string };
   /** Llegó la cápsula del jugador (al entrar, o si cambió): ahí aparece su NAO */
   onPod(pod: number): void;
+  /** El NAO de otra persona dijo algo (con dónde está) */
+  onSay?(say: HeardSay): void;
   /** NAO quietos de las cápsulas sin dueño (pods.ts PARKED): pose del torso en esa cápsula y ángulos */
   parked: { root(pod: number): RootPose; angles: Readonly<Record<string, number>> };
 }
@@ -164,6 +181,11 @@ export class SharedWorld {
     this.paintPods();
     if (first || moved) this.o.onPod(this.pod);
     this.syncConnection();
+  }
+
+  /** Lo que dice el NAO del jugador: viaja a los demás (solo con la sala abierta; a solas no hay quién oiga) */
+  say(text: string, voice: SayVoice): void {
+    this.send(JSON.stringify({ t: 'say', text: text.slice(0, 500), voice }));
   }
 
   /** El jugador cambió el nombre o el color de su NAO: los demás lo ven al instante */
@@ -304,7 +326,13 @@ export class SharedWorld {
       this.sendHi();
       this.forceSend = true;
     } else if (m.t === 'leave') this.hide(pod);
-    else if (m.t === 'hi') {
+    else if (m.t === 'say') {
+      const peer = this.peers.get(pod);
+      const root = peer?.nao?.rootPosition;
+      if (!peer || !root || typeof m.text !== 'string' || !m.text.trim()) return;
+      const { robot, owner } = this.look(peer);
+      this.o.onSay?.({ pod, text: m.text.slice(0, 500), voice: (m.voice ?? {}) as SayVoice, robot, owner, position: [root[0], root[1], root[2] + 0.17] });
+    } else if (m.t === 'hi') {
       const peer = this.peers.get(pod);
       if (!peer) return;
       peer.hi = { robot: typeof m.robot === 'string' ? m.robot.slice(0, 40) : undefined, shell: typeof m.shell === 'string' ? m.shell : undefined };

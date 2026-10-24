@@ -145,6 +145,11 @@ export class RemoteNao {
     if (on) for (const ch of FACE) this.leds.set(ch, rgb[(['Red', 'Green', 'Blue'] as const).find((c) => ch.includes(c)) ?? 'Blue']);
   }
 
+  /** Posición del torso que se muestra (Z arriba), o null antes del primer estado */
+  get rootPosition(): readonly number[] | null {
+    return this.shown ? this.state.root?.position ?? null : null;
+  }
+
   /** Pose de cada link (Z arriba) para la física local */
   linkPose(link: string) {
     return this.model.linkPose(link);

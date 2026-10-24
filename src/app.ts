@@ -31,7 +31,7 @@ import { attachBodyPicker } from './ui/bodyPicker';
 import { attachSettings } from './ui/settings';
 import { type User, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
-import { SharedWorld } from './net/world';
+import { type HeardSay, SharedWorld } from './net/world';
 import { createTranscript } from './ui/transcript';
 import { startCrashLog } from './ui/crashLog';
 import { Brain } from './ai/brain';
@@ -196,6 +196,8 @@ const physicsReady = Promise.all([import('./physics/physicsClient'), import('./s
 // Mundo compartido (docs/PLAN.md F16): las cápsulas y los NAO de las demás personas (net/world.ts). El jugador y su
 // encendido llegan después de la pantalla de entrada
 const player: { user: User | null; power: Power | null } = { user: null, power: null };
+/** Lo que dice el NAO de otra persona (lo atiende el oído, más abajo, cuando existen el cerebro y el encendido) */
+const hearing: { onSay?: (say: HeardSay) => void } = {};
 const shared = new SharedWorld({
   urdf,
   scene: world.scene,
@@ -210,6 +212,7 @@ const shared = new SharedWorld({
   me: () => ({ robot: player.user?.robotName ?? '', shell: player.user?.shellColor ?? '' }),
   // Al entrar (o si nao-api la cambió): a su cápsula, agachado y con los motores apagados
   onPod: (pod) => physics && autoPlaced && place(`pod${pod}`),
+  onSay: (say) => hearing.onSay?.(say),
   parked: { root: (pod) => roomRoot(`pod${pod}`), angles: BOOT_POSTURE },
 });
 let cloneMeshes: (m: ReadonlyMap<string, Object3D>) => Map<string, Object3D> = () => new Map();
@@ -288,10 +291,46 @@ const nextCycle = () => {
   });
 };
 
+/**
+ * Conciencia básica (naoqi/ALBasicAwareness.ts): ALMovementDetection compara imágenes de la cámara de la frente (160×120,
+ * 5 por segundo, APPROX: la doc no da la frecuencia) solo mientras la conciencia básica las necesita. "Only works if the
+ * camera is not moving": si el torso o la cabeza se movieron desde la imagen anterior, se reinicia sin eventos. Durante un
+ * turno de la IA se pausa, como lo haría cualquier aplicación del NAO real que toma fotos (doc: "when taking a picture,
+ * manually pausing is more interesting"). `awareness.gate` lo completa la app cuando existen el cerebro y el encendido.
+ */
+const MOVEMENT_PERIOD = 0.2;
+const awarenessLoop = { clock: 0, pose: '', paused: false, gate: { brainBusy: () => false, on: () => false } };
+const senseMovement = () => {
+  const awareness = session.service('ALBasicAwareness');
+  const movement = session.service('ALMovementDetection');
+  const busy = awarenessLoop.gate.brainBusy();
+  if (busy !== awarenessLoop.paused) {
+    awarenessLoop.paused = busy;
+    if (busy) awareness.pauseAwareness();
+    else awareness.resumeAwareness();
+  }
+  const root = state.root;
+  if (!physics || !root || !awarenessLoop.gate.on() || !awareness.wantsMovement()) {
+    movement.resetDetection();
+    awarenessLoop.pose = '';
+    return;
+  }
+  // ¿Se movió la cámara? (torso a 2 mm, ángulos a 0.003 rad: de pie, la física tiembla mucho menos)
+  const pose = [...root.position.map((v) => Math.round(v / 0.002)), ...root.quaternion.map((v) => Math.round(v / 0.0015)), Math.round(state.get('HeadYaw') / 0.003), Math.round(state.get('HeadPitch') / 0.003)].join(',');
+  const moved = pose !== awarenessLoop.pose;
+  awarenessLoop.pose = pose;
+  movement.process(cameras.capture(world.renderer, world.scene, 0, 160, 120), 160, 120, moved, session.engine.time);
+};
+
 world.onFrame((dt) => {
   simDebt = Math.min(simDebt + dt * speed, MAX_SIM_DEBT);
   nextCycle();
   applyTilt(dt);
+  awarenessLoop.clock += dt;
+  if (awarenessLoop.clock >= MOVEMENT_PERIOD) {
+    awarenessLoop.clock = 0;
+    senseMovement();
+  }
   shared.update(dt);
   if (physics) {
     const hearing = world.camera.position.distanceTo(world.controls.target);
@@ -370,7 +409,10 @@ attachSettings(hud.settingsButton, user, {
 const transcript = createTranscript();
 // Lo que dice el NAO aparece en sus subtítulos (ámbar); lo que se le habla al teléfono, en los de quien habla
 let naoLine = 0;
-tts.onSay = (text) => transcript.show(`nao-${naoLine++}`, 'nao', user.robotName, text, true);
+tts.onSay = (text, { text: _t, volume: _v, ...voice }) => {
+  transcript.show(`nao-${naoLine++}`, 'nao', user.robotName, text, true);
+  shared.say(text, voice); // en el mundo compartido, los que estén cerca lo oyen
+};
 let captionError = '';
 // Cerebro (Gemini por el servidor): lo que se le dice o escribe → lo que responde y hace
 const vision = new Vision(session.service('ALVideoDevice'), cameras.cameras);
@@ -409,6 +451,56 @@ const power = attachPower(hud.player, session, {
   onOff: () => brain.cancel(),
 });
 player.power = power;
+awarenessLoop.gate = { brainBusy: () => brain.busy, on: () => power.state === 'on' };
+
+/**
+ * Oír a los otros NAO (mundo compartido; Oscar 2026-10-24: "que el otro se entere", sin trampa). Solo lo dicho en el
+ * mismo cuarto (las paredes cortan el sonido, APPROX).
+ *   - La persona lo oye por la pantalla saliendo del otro NAO, más bajo cuanto más lejos (hasta AUDIBLE_RANGE), con su
+ *     subtítulo.
+ *   - El NAO lo oye con sus micrófonos hasta HEAR_RANGE (APPROX), encendido: ALSoundLocalization da la dirección (la
+ *     conciencia básica gira la cabeza hacia allá) y al cerebro le llega lo que daría su hardware: las palabras
+ *     (APPROX: reconocimiento perfecto, sin ruido) y de dónde vino, nunca quién habló. Gemini decide con la imagen.
+ *   - Freno: después de NAO_TALK_LIMIT respuestas seguidas a otros NAO sin que hable una persona (chat o teléfono), ya no
+ *     se le pasa al cerebro (dos NAO hablándose para siempre gastarían los tokens de sus dueños).
+ */
+const HEAR_RANGE = 3;
+const AUDIBLE_RANGE = 6;
+const NAO_TALK_LIMIT = 4;
+/** Lo que tarda en girar la cabeza hacia la voz antes de pensar (así la foto ya muestra quién habló) */
+const TURN_TO_SOUND_MS = 1200;
+let naoTalkStreak = 0;
+let remoteLine = 0;
+const DEG = 180 / Math.PI;
+hearing.onSay = (say) => {
+  const me = state.root?.position;
+  if (!me || roomAt(me[0], me[1]) !== roomAt(say.position[0], say.position[1])) return;
+  const d = Math.hypot(say.position[0] - me[0], say.position[1] - me[1]);
+  if (d > AUDIBLE_RANGE) return;
+  transcript.show(`remote-${say.pod}-${remoteLine++}`, 'nao', say.robot, say.text, true);
+  const v = say.voice;
+  void speech
+    .speak({
+      text: say.text, voice: v.voice ?? tts.getVoice(), lang: v.lang ?? 'es', speed: v.speed ?? 1, pitchShift: v.pitchShift ?? 0,
+      doubleVoice: v.doubleVoice ?? 0, doubleVoiceLevel: v.doubleVoiceLevel ?? 0, doubleVoiceTimeShift: v.doubleVoiceTimeShift ?? 0,
+      volume: Math.min(1, 1.2 / (d + 0.2)),
+    })
+    .catch((e) => console.warn('Voz de otro NAO:', e));
+  if (d > HEAR_RANGE || power.state !== 'on') return;
+  const headYaw = state.get('HeadYaw');
+  const sound = session.service('ALSoundLocalization').hear(say.position, 1, session.engine.time);
+  if (!sound || brain.busy || naoTalkStreak >= NAO_TALK_LIMIT) return;
+  naoTalkStreak++;
+  // Dirección respecto al cuerpo (la cabeza puede estar girada)
+  const az = Math.round((headYaw + sound.azimuth) * DEG);
+  const from = Math.abs(az) > 120 ? 'de detrás de ti' : az > 15 ? `de tu izquierda (${az}°)` : az < -15 ? `de tu derecha (${-az}°)` : 'de enfrente';
+  const text =
+    `[oído] Tus micrófonos captaron una voz que dijo: «${say.text}». Vino ${from}, a nivel de tu cabeza ` +
+    `(confianza ${sound.confidence.toFixed(1)}). Tu cabeza ya giró hacia allá. No sabes quién habló: mira la imagen y decide si te hablaban a ti.`;
+  setTimeout(() => {
+    if (power.state === 'on' && !brain.busy) void brain.ask(text, 'evento');
+  }, TURN_TO_SOUND_MS);
+};
 // Mover una pieza a mano: Shift + clic la elige (amarilla) y las flechas la mueven; Esc la suelta (ui/bodyPicker.ts)
 attachBodyPicker(world, nao, session, power);
 // Posturas y animaciones: dos íconos del HUD con su lista (ui/robotMenus.ts)
@@ -417,6 +509,7 @@ attachChat(
   () => user.robotName,
   (text) => {
     transcript.show(`chat-${Date.now()}`, 'user', user.displayName, text, true);
+    naoTalkStreak = 0; // habló una persona: los NAO pueden volver a responderse
     if (power.ready()) void brain.ask(text, 'texto');
   },
 );
@@ -425,6 +518,7 @@ attachPhoneLink(hud, session.service('ALVideoDevice'), {
   connected: () => power.state === 'on' && void tts.say('Bienvenido').catch((e) => console.warn('Voz:', e)),
   caption: (id, text, final) => {
     transcript.show(`user-${id}`, 'user', user.displayName, text, final);
+    if (final) naoTalkStreak = 0;
     if (final && brain.addressed(text) && power.ready()) void brain.ask(text, 'voz');
   },
   usage: (spent) => hud.setSpent(spent),

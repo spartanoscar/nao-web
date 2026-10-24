@@ -72,15 +72,17 @@ export class ALTextToSpeech {
   backend: SpeechBackend | null = null;
 
   /** Blocking. Dice el texto (opcionalmente en otro idioma) y se resuelve al terminar de hablar. */
-  /** Avisa qué va a decir el robot (subtítulos del NAO en pantalla; en NAOqi sería ALMemory "ALTextToSpeech/CurrentSentence") */
-  onSay: ((text: string) => void) | null = null;
+  /**
+   * Avisa qué va a decir el robot y con qué voz (subtítulos del NAO en pantalla, y en el mundo compartido el sonido que
+   * oyen los demás; en NAOqi sería ALMemory "ALTextToSpeech/CurrentSentence")
+   */
+  onSay: ((text: string, request: SpeechRequest) => void) | null = null;
 
   async say(text: string, language?: string): Promise<void> {
     if (!this.backend) throw new NaoqiError(SERVICE, 'say', 'no hay salida de audio');
-    this.onSay?.(String(text));
     const lang = language ? this.languageInfo('say', language) : VOICES[this.language];
     const voice = language && language !== this.language ? lang.voices[0] : this.voice;
-    await this.backend.speak({
+    const request: SpeechRequest = {
       text: String(text),
       voice,
       lang: lang.lang,
@@ -90,7 +92,9 @@ export class ALTextToSpeech {
       doubleVoice: this.params.doubleVoice,
       doubleVoiceLevel: this.params.doubleVoiceLevel,
       doubleVoiceTimeShift: this.params.doubleVoiceTimeShift,
-    });
+    };
+    this.onSay?.(request.text, request);
+    await this.backend.speak(request);
   }
 
   stopAll(): void {

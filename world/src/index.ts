@@ -8,9 +8,10 @@
 //
 // Protocolo (el mismo del plan B en server/world.go):
 //   cliente → sala: binario = estado del NAO (byte 0 = 1, byte 1 = cápsula: la sala pone la del pase)
-//                   texto {t:'hi', robot, shell, eyes} (apariencia; al entrar y al cambiar) · "ping"
+//                   texto {t:'hi', robot, shell, eyes} (apariencia; al entrar y al cambiar) · {t:'say', text, voice}
+//                   (lo que dice el NAO) · "ping"
 //   sala → cliente: el binario de los demás · {t:'peers', pods} al entrar · {t:'join', pod} · {t:'leave', pod} ·
-//                   {t:'hi', pod, …} · "pong"
+//                   {t:'hi', pod, …} · {t:'say', pod, text, voice} · "pong"
 
 import { DurableObject } from 'cloudflare:workers';
 
@@ -113,6 +114,11 @@ export class WorldRoom extends DurableObject<Env> {
     try {
       m = JSON.parse(message);
     } catch {
+      return;
+    }
+    // Lo que dice un NAO: se reenvía (no se guarda)
+    if (m.t === 'say' && typeof m.text === 'string') {
+      this.broadcast(pod, JSON.stringify({ t: 'say', pod, text: m.text.slice(0, 500), voice: m.voice }));
       return;
     }
     if (m.t !== 'hi') return;

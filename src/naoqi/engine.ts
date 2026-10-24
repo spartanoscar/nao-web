@@ -217,6 +217,16 @@ export class MotionEngine {
     this.state.setStiffness(name, value);
   }
 
+  /**
+   * Qué comanda ahora un joint: una curva (angleInterpolation, posturas, animaciones), un seguimiento (setAngles) hacia
+   * `target`, o nada. ALBasicAwareness lo usa para pausarse cuando otra actividad usa los motores de la cabeza.
+   */
+  activity(name: string): { kind: 'curve' } | { kind: 'follow'; target: number } | null {
+    const tr = this.tracks.get(name);
+    if (!tr) return null;
+    return tr.kind === 'follow' ? { kind: 'follow', target: tr.target } : { kind: 'curve' };
+  }
+
   /** ¿Hay trayectorias activas? */
   get busy(): boolean {
     return this.tracks.size > 0;

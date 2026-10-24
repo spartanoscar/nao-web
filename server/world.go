@@ -13,9 +13,9 @@ package main
 //
 // Protocolo de la sala del mundo (igual en world/src/index.ts):
 //   cliente → sala: binario = estado del NAO (byte 0 = 1, byte 1 = cápsula, que la sala sobreescribe con la del pase)
-//                   texto {t:'hi', robot, shell, eyes} (apariencia; al entrar y al cambiar)
+//                   texto {t:'hi', robot, shell, eyes} (apariencia; al entrar y al cambiar) · {t:'say', text, voice}
 //   sala → cliente: el binario de los demás tal cual · {t:'peers', pods:[…]} al entrar · {t:'join', pod} ·
-//                   {t:'leave', pod} · {t:'hi', pod, …}
+//                   {t:'leave', pod} · {t:'hi', pod, …} · {t:'say', pod, text, voice}
 
 import (
 	"crypto/hmac"
@@ -283,7 +283,18 @@ func (r *relay) handleWorldWS(w http.ResponseWriter, req *http.Request) {
 				break
 			}
 			var m map[string]any
-			if json.Unmarshal(data, &m) == nil && m["t"] == "hi" {
+			if json.Unmarshal(data, &m) != nil {
+				break
+			}
+			switch m["t"] {
+			case "say": // lo que dice un NAO: se reenvía, no se guarda
+				if said, ok := m["text"].(string); ok {
+					if len([]rune(said)) > 500 {
+						said = string([]rune(said)[:500])
+					}
+					h.broadcast(p.Pod, text(map[string]any{"t": "say", "pod": p.Pod, "text": said, "voice": m["voice"]}))
+				}
+			case "hi":
 				m["pod"] = p.Pod
 				hi := text(m)
 				h.hi[p.Pod] = hi.data

@@ -4,6 +4,9 @@
 import { LedState } from '../robot/leds';
 import type { RobotState } from '../robot/state';
 import { ALAudioDevice } from './ALAudioDevice';
+import { ALBasicAwareness } from './ALBasicAwareness';
+import { ALMovementDetection } from './ALMovementDetection';
+import { ALSoundLocalization } from './ALSoundLocalization';
 import { ALFaceDetection } from './ALFaceDetection';
 import { ALLeds } from './ALLeds';
 import { ALMemory } from './ALMemory';
@@ -19,6 +22,7 @@ export class Session {
   /** Intensidad de los 89 canales de LED (la lee la escena) */
   readonly leds = new LedState();
   private readonly ledService: ALLeds;
+  private readonly awareness: ALBasicAwareness;
   private readonly services: Record<string, object>;
 
   constructor(state: RobotState) {
@@ -30,11 +34,18 @@ export class Session {
     const sonar = new ALSonar();
     const memory = new ALMemory(state, sonar);
     motion.onMoveFailed = (value) => memory.insertData('ALMotion/MoveFailed', value);
+    const movement = new ALMovementDetection();
+    const sound = new ALSoundLocalization(state);
+    this.awareness = new ALBasicAwareness(motion, this.engine, state, movement, sound);
+    movement.onMovement(() => memory.insertData('MovementDetection/MovementInfo', movement.movementInfo));
+    sound.onSoundLocated(() => memory.insertData('ALSoundLocalization/SoundLocated', sound.last));
+    this.awareness.onStimulus((s) => memory.insertData('ALBasicAwareness/StimulusDetected', s));
     this.services = {
       ALMotion: motion, ALRobotPosture: posture, ALLeds: this.ledService, ALTextToSpeech: new ALTextToSpeech(),
       ALVideoDevice: new ALVideoDevice(),
       ALAudioDevice: new ALAudioDevice(),
       ALMemory: memory, ALSonar: sonar, ALFaceDetection: new ALFaceDetection(),
+      ALMovementDetection: movement, ALSoundLocalization: sound, ALBasicAwareness: this.awareness,
     };
   }
 
@@ -47,6 +58,9 @@ export class Session {
   service(name: 'ALMemory'): ALMemory;
   service(name: 'ALSonar'): ALSonar;
   service(name: 'ALFaceDetection'): ALFaceDetection;
+  service(name: 'ALMovementDetection'): ALMovementDetection;
+  service(name: 'ALSoundLocalization'): ALSoundLocalization;
+  service(name: 'ALBasicAwareness'): ALBasicAwareness;
   service(name: string): object;
   service(name: string): object {
     const s = this.services[name];
@@ -62,5 +76,6 @@ export class Session {
   update(dt: number): void {
     this.engine.update(dt);
     this.ledService.update(dt);
+    this.awareness.update();
   }
 }
