@@ -10,6 +10,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { floorTexture, rugTexture, skyTexture, wallpaper } from './decor';
 import { type Look, PROPS } from './props';
 import { loadPropModels } from './propModels';
+import { type Pods, addPods } from './pods';
 import { ChaseCamera } from './chaseCamera';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOMS, type Room, type RoomId, type Side, WALLS, WALL_HEIGHT, WALL_THICKNESS, roomAt, visibleFrom, wallPieces } from './rooms';
 
@@ -44,6 +45,8 @@ export interface World {
    * y la sombra se centra en él. Las cámaras del NAO y el espejo ven todo lo que hay (capas de three.js).
    */
   setRoom(id: RoomId | null): void;
+  /** Cápsulas de salida del mundo compartido (pods.ts): color y nombres de cada dueño */
+  pods: Pods;
 }
 
 const BG = 0x0e1116;
@@ -101,6 +104,7 @@ export function createWorld(container: HTMLElement): World {
   const placeholders = addProps(zUp);
   const objects = addObjects(zUp);
   addMirror(zUp);
+  const pods = addPods(zUp, (o) => inRooms(o, ['pruebas']), () => invalidate());
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = container;
@@ -181,7 +185,7 @@ export function createWorld(container: HTMLElement): World {
   void loadPropModels(zUp, placeholders, (obj, room) => inRooms(obj, [room]), () => invalidate(true));
 
   return {
-    renderer, scene, camera, rig, controls, focus, zUp, objects, invalidate, renderNow, setRoom,
+    renderer, scene, camera, rig, controls, focus, zUp, objects, invalidate, renderNow, setRoom, pods,
     onFrame: (cb) => void callbacks.push(cb),
     onAfterRender: (cb) => void afterRender.push(cb),
   };
@@ -449,6 +453,8 @@ function propMaterial(look: Look, color?: number, text?: string): THREE.Material
     case 'paint': return new THREE.MeshStandardMaterial({ color: color ?? 0xf7d774, roughness: 0.5 });
     case 'leaf': return new THREE.MeshStandardMaterial({ color: color ?? 0x4f9d5d, roughness: 0.8, flatShading: true });
     case 'board': return new THREE.MeshStandardMaterial({ color: color ?? 0xfafcff, roughness: 0.25 });
+    // Metal oscuro de las cápsulas (pods.ts)
+    case 'metal': return new THREE.MeshStandardMaterial({ color: color ?? 0x3b424c, metalness: 0.6, roughness: 0.42 });
   }
 }
 

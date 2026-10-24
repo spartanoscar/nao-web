@@ -3,16 +3,17 @@
 // NAO (57 cm) es un juguete entre ellos. Diseño propio.
 //
 // Sala de pruebas (centrada en el origen, donde corren los bancos: todo va contra las paredes, a más de 1.2 m del centro):
-// rampa suave con plataforma, escalones de 1, 2 y 4 cm con su rótulo y una escalera a la medida del NAO para enseñarle a
-// subir (4 escalones de 8 cm, huella de 25 cm; el "reto de la escalera", docs/PLAN.md F13).
+// rampa suave con plataforma, una escalera a la medida del NAO para enseñarle a subir (4 escalones de 8 cm, huella de
+// 25 cm; el "reto de la escalera", docs/PLAN.md F13) y las 8 cápsulas de salida del mundo compartido (sim/pods.ts).
 // Baño: azulejo menos áspero que la madera, dos tapetes (más agarre y un borde de 1.2 cm para tropezar), lavamanos de
 // pedestal, inodoro y un charco junto a la entrada (muy resbaloso: un peligro que la IA debería ver y evitar).
 
+import { podParts } from './pods';
 import type { RoomId } from './rooms';
 
 type Vec3 = [number, number, number];
 
-export type Look = 'wood' | 'riser' | 'concrete' | 'ramp' | 'step' | 'ceramic' | 'chrome' | 'fabric' | 'water' | 'label' | 'paint' | 'leaf' | 'board';
+export type Look = 'wood' | 'riser' | 'concrete' | 'ramp' | 'step' | 'ceramic' | 'chrome' | 'fabric' | 'water' | 'label' | 'paint' | 'leaf' | 'board' | 'metal';
 
 export interface PropPart {
   name: string;
@@ -60,17 +61,11 @@ const add = (p: PropPart) => parts.push(p);
     // Centro de la tabla: la cara de arriba pasa por (x0, 0) y (x1, h)
     pos: [(x0 + x1) / 2 - Math.sin(pitch) * (t / 2), y, h / 2 - Math.cos(pitch) * (t / 2)],
   });
-  add({ name: 'ramp_top', room: 'pruebas', kind: 'box', size: [0.6, w, h], pos: [x1 + 0.3, y, h / 2], look: 'ramp', physics: true });
+  // Plataforma de 35 cm (pie de 16 cm): deja 45 cm libres hasta las rampitas de las cápsulas (x = 1.6)
+  add({ name: 'ramp_top', room: 'pruebas', kind: 'box', size: [0.35, w, h], pos: [x1 + 0.175, y, h / 2], look: 'ramp', physics: true });
 
-  // Escalones sueltos de 1, 2 y 4 cm contra la pared este, cada uno con su rótulo en el piso
-  [0.01, 0.02, 0.04].forEach((sh, i) => {
-    const sy = -1.3 + i * 0.8;
-    add({ name: `step_${i}`, room: 'pruebas', kind: 'box', size: [0.55, 0.5, sh], pos: [1.9, sy, sh / 2], look: 'step', physics: true });
-    add({
-      name: `step_label_${i}`, room: 'pruebas', kind: 'box', size: [0.3, 0.12, 0.001], pos: [1.9, sy - 0.33, 0.004],
-      look: 'label', text: `${Math.round(sh * 100)} cm`, physics: false,
-    });
-  });
+  // Cápsulas de salida del mundo compartido contra la pared este (sim/pods.ts), donde estaban los escalones de 1, 2 y 4 cm
+  for (const p of podParts()) add(p);
 
   // Escalera en la esquina noroeste, sube hacia la pared norte (+y): 4 escalones y un descanso contra la pared. A la medida
   // del NAO para enseñarle a subir (Oscar, 2026-10-24): contrahuella de 8 cm (la de casa real, 17 cm, le llegaba casi a la

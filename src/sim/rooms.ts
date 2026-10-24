@@ -20,6 +20,8 @@
 // desviaba 23° en ~1 m y el sonar veía la pared junto al marco, así que la marcha segura lo frenaba adentro; con 1.2 m
 // los marcos quedan a 0.6 m del centro y no entran en la zona de seguridad (0.5 m) aunque llegue algo torcido.
 
+import { podSpot } from './pods';
+
 export type RoomId = 'pruebas' | 'laboratorio' | 'bano' | 'pasillo' | 'espejo' | 'casa';
 
 /** Papel de colgar (sim/decor.ts): pintura de base + patrón propio por cuarto */
@@ -44,7 +46,7 @@ export interface Room {
 }
 
 export const ROOMS: Record<RoomId, Room> = {
-  pruebas: { id: 'pruebas', label: 'SALA DE PRUEBAS', x: [-2.25, 2.25], y: [-2, 2], floor: 0x20262f, spawn: { x: 0, y: 0, yaw: 0 }, layer: 1, style: { wall: 'hazard', paint: 0xe3e6ea, floorStyle: 'concrete', lamp: 0xf4f7ff, window: 'east' } },
+  pruebas: { id: 'pruebas', label: 'SALA DE PRUEBAS', x: [-2.25, 2.25], y: [-2, 2], floor: 0x20262f, spawn: { x: 0, y: 0, yaw: 0 }, layer: 1, style: { wall: 'hazard', paint: 0xe3e6ea, floorStyle: 'concrete', lamp: 0xf4f7ff, window: 'north' } },
   laboratorio: { id: 'laboratorio', label: 'LABORATORIO', x: [-5.25, -2.25], y: [-2, 1], floor: 0x232a33, spawn: { x: -3.75, y: -0.5, yaw: 0 }, layer: 2, style: { wall: 'band', paint: 0xdde6ee, floorStyle: 'vinyl', lamp: 0xf1f5ff, window: 'north' } },
   bano: { id: 'bano', label: 'BAÑO', x: [-8.25, -5.25], y: [-2, 1], floor: 0x2b3a44, spawn: { x: -6.75, y: -0.5, yaw: -Math.PI / 2 }, layer: 3, style: { wall: 'tiles', paint: 0xa6e4d4, floorStyle: 'tile', lamp: 0xfff1dc, window: 'north' } },
   pasillo: { id: 'pasillo', label: 'PASILLO', x: [-8.25, 2.25], y: [-3.2, -2], floor: 0x1d2229, spawn: { x: -3, y: -2.6, yaw: Math.PI }, layer: 4, style: { wall: 'wainscot', paint: 0xf0e2c2, floorStyle: 'darkwood', lamp: 0xffdcae, window: 'west', rug: 'runner' } },
@@ -65,18 +67,25 @@ export const SPOTS: Record<string, { label: string; x: number; y: number; yaw: n
   escalera: { label: 'ESCALERA', x: -1.775, y: 0.39, yaw: Math.PI / 2, camera: [-0.85, 0.35, 0.55] },
 };
 
-export type SpawnId = RoomId | 'rampa' | 'escalera';
+/** `pod3` = la cápsula 4 de salida del mundo compartido (pods.ts) */
+export type SpawnId = RoomId | 'rampa' | 'escalera' | `pod${number}`;
 
-export function spawnPoint(id: SpawnId): { x: number; y: number; yaw: number; camera?: [number, number, number] } {
-  return id in SPOTS ? SPOTS[id] : ROOMS[id as RoomId].spawn;
+type SpawnPoint = { label: string; x: number; y: number; yaw: number; z?: number; camera?: [number, number, number] };
+
+/** Punto de aparición; `z` = alto del piso ahí (la plataforma de una cápsula) */
+export function spawnPoint(id: SpawnId): SpawnPoint {
+  if (id.startsWith('pod')) return podSpot(Number(id.slice(3)));
+  return id in SPOTS ? SPOTS[id] : { label: ROOMS[id as RoomId].label, ...ROOMS[id as RoomId].spawn };
 }
 
 export function spawnLabel(id: SpawnId): string {
-  return id in SPOTS ? SPOTS[id].label : ROOMS[id as RoomId].label;
+  return spawnPoint(id).label;
 }
 
-/** Donde aparece el NAO del usuario al entrar. Por ahora (Oscar, 2026-10-24) en el centro de la sala de pruebas, con la
- * rampa, los escalones y la escalera alrededor; lo normal será 'casa' */
+/**
+ * Donde aparece el NAO mientras no se sabe su cápsula (nao-api la reparte al entrar, app.ts): el centro de la sala de
+ * pruebas, donde arranca la física
+ */
 export const HOME_ROOM: SpawnId = 'pruebas';
 
 /** Alto de las paredes y del techo, y de las puertas (casa real) */
