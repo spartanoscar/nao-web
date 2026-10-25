@@ -11,7 +11,7 @@ todo lo que implementamos en el simulador se deriva o se valida contra esto.
 | `qibullet/robot_posture.py`, `nao_virtual.py` | Valores articulares de las 8 posturas predefinidas (Stand, StandInit, StandZero, Crouch, Sit, SitRelax, LyingBelly, LyingBack). `nao_postures.json` es derivado (`scripts/extract-postures.py`) | [softbankrobotics-research/qibullet](https://github.com/softbankrobotics-research/qibullet) (simulador oficial de SoftBank) | Apache-2.0 (`qibullet/LICENSE-qibullet.txt`) |
 | `naoth/*.mef` | Motion nets de NaoTH probados en NAO V6 reales: levantarse de espaldas (y variante brazos atrás), boca abajo y de lado; caída protegida adelante/atrás. Formato: 24 joints (cabecera), keyframes en grados, transiciones en ms; su reproductor interpola lineal con rigidez 0.75 (`KeyFrameMotionParameters.cfg`). Sin modificar | [BerlinUnited/NaoTH](https://github.com/BerlinUnited/NaoTH) `NaoTHSoccer/Config/platform/Nao6/motionnet` @ `4a388b41` (2026-10-12) | Apache-2.0 (`naoth/LICENSE-naoth.txt`, `NOTICE-naoth.txt`: © 2017 Humboldt-Universität zu Berlin) |
 | `naoqi-2.8-api/*.md` | Documentación oficial de la API NAOqi 2.8 (la que corre en NAO6), convertida a Markdown: ALMotion, ALRobotPosture, ALTextToSpeech, ALMemory, ALLeds, ALVideoDevice, ALAudioDevice, ALSpeechRecognition, ALFaceDetection, ALSonar, ALBasicAwareness, ALMovementDetection, ALSoundLocalization (estas tres
-bajadas el 2026-10-24), colisiones externas, joints/masas/links/**motores** NAO V6, stiffness, fall manager | http://doc.aldebaran.com/2-8/ | © SoftBank/Aldebaran — solo referencia |
+bajadas el 2026-10-24), colisiones externas, joints/masas/links/**motores** NAO V6, stiffness, fall manager | http://doc.aldebaran.com/2-8/ — **no está en git**: `bash scripts/fetch-naoqi-docs.sh` la baja y la convierte | © SoftBank/Aldebaran — solo referencia |
 
 ## Lo que NO existe en abierto
 
@@ -22,11 +22,13 @@ bajadas el 2026-10-24), colisiones externas, joints/masas/links/**motores** NAO 
   métodos, parámetros, unidades y semántica), usando el URDF para la cinemática.
   Un script Python real (`session.service("ALMotion").angleInterpolation(...)`) debe correr igual.
 
-## Mallas 3D oficiales (opcional)
+## Lo que se descarga aparte (no está en git)
 
-[ros-naoqi/nao_meshes2](https://github.com/ros-naoqi/nao_meshes2) tiene las mallas reales, pero con licencia
-**CC BY-NC-ND 4.0** (no comercial, sin modificaciones). Por eso no se incluyen: usamos geometría básica y luego
-piezas propias hechas en Meshy, alineadas a los frames del URDF.
+- **Mallas 3D oficiales** ([ros-naoqi/nao_meshes2](https://github.com/ros-naoqi/nao_meshes2), **CC BY-NC-ND 4.0**: no
+  comercial, sin modificaciones): `bash scripts/fetch-nao-meshes.sh` → `public/models/nao_meshes/`, sin modificar; la
+  app pide aceptar la licencia antes de cargarlas.
+- **Grafo de posturas de NAOqi 2.8** (Choregraphe 2.8.7.4): `bash scripts/fetch-naoqi-postures.sh` → `public/motions/naoqi28/`.
+- **Documentación de NAOqi 2.8**: `bash scripts/fetch-naoqi-docs.sh` → `naoqi-2.8-api/`.
 
 ## Joints NAO V6 (25 DOF)
 

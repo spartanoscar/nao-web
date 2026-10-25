@@ -3,6 +3,7 @@ dist/
 .DS_Store
 .env
 .env.*
+!.env.example
 *.local
 # Claves locales (p. ej. .local/gemini.json): nunca al repo; las del servidor viven en /root/nao/.env
 .local/
@@ -10,6 +11,9 @@ local/
 
 # Mallas oficiales del NAO (CC BY-NC-ND 4.0): se descargan con scripts/fetch-nao-meshes.sh
 public/models/nao_meshes/
+
+# Documentación de NAOqi 2.8 (© SoftBank Robotics): se descarga con scripts/fetch-naoqi-docs.sh
+reference/naoqi-2.8-api/
 
 # Grafo de posturas de NAOqi 2.8 (Choregraphe 2.8.7.4): se descarga con scripts/fetch-naoqi-postures.sh
 public/motions/naoqi28/
