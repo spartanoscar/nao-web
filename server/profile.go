@@ -31,6 +31,10 @@ func (a *auth) handlePatchMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
 		return
 	}
+	if u.demo() {
+		writeError(w, http.StatusForbidden, demoReadOnly)
+		return
+	}
 	var body struct {
 		DisplayName *string `json:"displayName"`
 		RobotName   *string `json:"robotName"`

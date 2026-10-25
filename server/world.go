@@ -172,7 +172,7 @@ func (r *relay) handleWorldPass(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	pod := -1
 	for _, rm := range r.rooms {
-		if rm.owner == u.ID && rm.screen != nil {
+		if rm.owner == u.ID && rm.visit == u.visit() && rm.screen != nil {
 			pod = rm.pod
 		}
 	}

@@ -53,6 +53,7 @@ type conn struct {
 type room struct {
 	trans      *transcriber // voz del teléfono → subtítulos (transcribe.go), se crea al primer audio
 	owner      int64
+	visit      string // user.visit(): en la demo, la sesión dueña de la sala
 	ownerName  string
 	robotName  string
 	shell      string // color de su NAO (mundo compartido, world.go)
@@ -101,7 +102,7 @@ func (r *relay) handleCreateRoom(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for c, rm := range r.rooms {
-		if rm.owner == u.ID {
+		if rm.owner == u.ID && rm.visit == u.visit() {
 			rm.ownerName, rm.robotName, rm.shell = u.DisplayName, u.RobotName, u.ShellColor
 			writeJSON(w, http.StatusOK, map[string]string{"room": c})
 			return
@@ -117,7 +118,7 @@ func (r *relay) handleCreateRoom(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "servidor ocupado")
 		return
 	}
-	r.rooms[code] = &room{owner: u.ID, ownerName: u.DisplayName, robotName: u.RobotName, shell: u.ShellColor, pod: -1, screenGone: time.Now()}
+	r.rooms[code] = &room{owner: u.ID, visit: u.visit(), ownerName: u.DisplayName, robotName: u.RobotName, shell: u.ShellColor, pod: -1, screenGone: time.Now()}
 	writeJSON(w, http.StatusOK, map[string]string{"room": code})
 }
 
@@ -163,7 +164,7 @@ func (r *relay) join(code string, c *conn, owner *user) string {
 		return "no room"
 	}
 	if c.role == "screen" {
-		if owner == nil || rm.owner != owner.ID {
+		if owner == nil || rm.owner != owner.ID || rm.visit != owner.visit() {
 			return "not yours"
 		}
 		if rm.screen != nil {

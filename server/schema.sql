@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   username        CITEXT NOT NULL UNIQUE,
   display_name    TEXT NOT NULL,
   password_hash   TEXT NOT NULL,                -- bcrypt
-  role            TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('admin', 'teacher', 'student')),
+  role            TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('admin', 'teacher', 'student', 'demo')),
   robot_name      TEXT,                         -- el nombre que le puso a su NAO (null = "NAO")
   daily_limit_usd NUMERIC(10, 4) NOT NULL DEFAULT 2, -- tope diario de consumo de IA
   disabled        BOOLEAN NOT NULL DEFAULT false,
@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Ajustes del jugador (modal de ajustes): instrucciones propias para su NAO (se suman al prompt base cuando llegue
 -- la IA) y foto de perfil (JPEG cuadrado que el navegador ya recorta y reduce)
+-- Cuenta demo (rol 'demo', auth.go): compartida, se entra sin contraseña y no guarda cambios
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'teacher', 'student', 'demo'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar BYTEA;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_updated_at TIMESTAMPTZ;
@@ -77,6 +80,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   title      TEXT
 );
 CREATE INDEX IF NOT EXISTS conversations_user ON conversations (user_id, started_at DESC);
+-- Demo: la sesión del visitante (cada visita de la cuenta compartida tiene su conversación); null = la del usuario
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS session_hash BYTEA;
 
 CREATE TABLE IF NOT EXISTS messages (
   id              BIGSERIAL PRIMARY KEY,

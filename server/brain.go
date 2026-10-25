@@ -64,6 +64,7 @@ type brainTurn struct {
 	mu           sync.Mutex // un paso a la vez
 	id           string
 	userID       int64
+	visit        string // user.visit(): en la demo cada sesión tiene sus turnos
 	conversation int64
 	system       string
 	history      []any // contenidos de la BD (texto)
@@ -177,7 +178,7 @@ func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
 			parts = append(parts, map[string]any{"text": "[lo que ves ahora]"}, inlineJPEG(image))
 		}
 	} else {
-		if t = b.get(req.Turn, u.ID); t == nil {
+		if t = b.get(req.Turn, u); t == nil {
 			writeError(w, http.StatusGone, "el turno ya terminó")
 			return
 		}
@@ -240,14 +241,19 @@ func (b *brain) handle(w http.ResponseWriter, r *http.Request) {
 // start: turno nuevo (cancela el anterior del mismo usuario) con la conversación vigente y su historial
 func (b *brain) start(ctx context.Context, u *user, text string, selfCheck bool) (*brainTurn, error) {
 	db := b.auth.db
+	// En la demo, una conversación por sesión: un visitante no hereda lo que habló otro
+	var visit []byte
+	if u.demo() {
+		visit = u.session
+	}
 	var conv int64
 	err := db.QueryRow(ctx, `
 		SELECT c.id FROM conversations c
-		WHERE c.user_id = $1 AND c.ended_at IS NULL
+		WHERE c.user_id = $1 AND c.session_hash IS NOT DISTINCT FROM $3 AND c.ended_at IS NULL
 		  AND COALESCE((SELECT max(created_at) FROM messages WHERE conversation_id = c.id), c.started_at) > now() - $2::interval
-		ORDER BY c.started_at DESC LIMIT 1`, u.ID, fmt.Sprintf("%d seconds", int(conversationGap.Seconds()))).Scan(&conv)
+		ORDER BY c.started_at DESC LIMIT 1`, u.ID, fmt.Sprintf("%d seconds", int(conversationGap.Seconds())), visit).Scan(&conv)
 	if err != nil {
-		if err := db.QueryRow(ctx, `INSERT INTO conversations (user_id) VALUES ($1) RETURNING id`, u.ID).Scan(&conv); err != nil {
+		if err := db.QueryRow(ctx, `INSERT INTO conversations (user_id, session_hash) VALUES ($1, $2) RETURNING id`, u.ID, visit).Scan(&conv); err != nil {
 			return nil, err
 		}
 	}
@@ -279,13 +285,13 @@ func (b *brain) start(ctx context.Context, u *user, text string, selfCheck bool)
 	buf := make([]byte, 12)
 	_, _ = rand.Read(buf)
 	t := &brainTurn{
-		id: base64.RawURLEncoding.EncodeToString(buf), userID: u.ID, conversation: conv,
+		id: base64.RawURLEncoding.EncodeToString(buf), userID: u.ID, visit: u.visit(), conversation: conv,
 		system: systemPrompt(u, selfCheck), history: history, updated: time.Now(),
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for id, old := range b.turns {
-		if old.userID == u.ID || time.Since(old.updated) > turnTTL {
+		if (old.userID == u.ID && old.visit == u.visit()) || time.Since(old.updated) > turnTTL {
 			delete(b.turns, id)
 		}
 	}
@@ -293,11 +299,11 @@ func (b *brain) start(ctx context.Context, u *user, text string, selfCheck bool)
 	return t, nil
 }
 
-func (b *brain) get(id string, userID int64) *brainTurn {
+func (b *brain) get(id string, u *user) *brainTurn {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	t := b.turns[id]
-	if t == nil || t.userID != userID || time.Since(t.updated) > turnTTL {
+	if t == nil || t.userID != u.ID || t.visit != u.visit() || time.Since(t.updated) > turnTTL {
 		return nil
 	}
 	t.updated = time.Now()

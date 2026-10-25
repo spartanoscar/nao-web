@@ -86,6 +86,10 @@ func (a *auth) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
 		return
 	}
+	if u.demo() {
+		writeError(w, http.StatusForbidden, demoReadOnly)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxFileBytes+maxThumbBytes+(64<<10))
 	if err := r.ParseMultipartForm(1 << 20); err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "el archivo supera los 4 MB")
@@ -205,6 +209,10 @@ func (a *auth) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	u, err := a.current(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
+		return
+	}
+	if u.demo() {
+		writeError(w, http.StatusForbidden, demoReadOnly)
 		return
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

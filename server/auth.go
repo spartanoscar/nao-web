@@ -8,12 +8,17 @@ package main
 //     en la base solo su SHA-256. Dura 30 días.
 //   - Fuerza bruta: 8 intentos fallidos en 15 min por IP o por usuario bloquean 15 min (en memoria, como el
 //     lockout de releasenotes en Rondax). La IP real llega en X-Real-IP desde nginx.
+//   - Demo: POST /api/auth/demo entra sin contraseña a la cuenta compartida de rol 'demo' (`user add demo … -role demo
+//     -limit 0.025`: su tope es el de todos los visitantes juntos). Cada visita es una sesión de 1 día con su propia
+//     sala, cápsula y conversación (`user.visit`) y no guarda nada de lo suyo (`demoReadOnly`). 20 visitas por IP
+//     cada 15 min.
 
 import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -38,6 +43,9 @@ const (
 	bcryptCost     = 12
 	maxLoginBody   = 4 << 10
 	maxUsernameLen = 64
+	demoSessionTTL = 24 * time.Hour
+	maxDemoVisits  = 20 // por IP cada failWindow
+	demoReadOnly   = "en la demo no se guardan cambios"
 )
 
 type user struct {
@@ -54,12 +62,25 @@ type user struct {
 	// Apariencia de su NAO: "#rrggbb" o "" (la original)
 	ShellColor string `json:"shellColor"`
 	EyeColor   string `json:"eyeColor"`
+	session    []byte // SHA-256 del token de la sesión con la que llegó
+}
+
+// demo: la cuenta compartida de la demo
+func (u *user) demo() bool { return u.Role == "demo" }
+
+// visit: de quién son la sala, la cápsula y los turnos: "" = del usuario; en la demo, de cada sesión (varias personas
+// a la vez no se quitan la sala ni la conversación)
+func (u *user) visit() string {
+	if u.demo() {
+		return hex.EncodeToString(u.session)
+	}
+	return ""
 }
 
 type auth struct {
 	db       *pgxpool.Pool
 	mu       sync.Mutex
-	failures map[string][]time.Time // "ip:…" o "user:…" → intentos fallidos recientes
+	failures map[string][]time.Time // "ip:…" o "user:…" → intentos fallidos recientes; "demo:<ip>" → visitas a la demo
 	dummy    []byte
 }
 
@@ -108,17 +129,42 @@ func (a *auth) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.clear("user:" + username)
+	a.startSession(w, r, id, sessionTTL)
+}
 
+// POST /api/auth/demo: entra a la cuenta demo sin contraseña (ver arriba)
+func (a *auth) handleDemo(w http.ResponseWriter, r *http.Request) {
+	if !a.demoAllowed(clientIP(r)) {
+		writeError(w, http.StatusTooManyRequests, "demasiadas visitas seguidas; espera unos minutos")
+		return
+	}
+	var id int64
+	err := a.db.QueryRow(r.Context(), `SELECT id FROM users WHERE role = 'demo' AND NOT disabled ORDER BY id LIMIT 1`).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "la demo no está disponible")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error de base de datos")
+		return
+	}
+	// Cada visita deja una sesión: aquí se barren las vencidas de todos
+	_, _ = a.db.Exec(r.Context(), `DELETE FROM sessions WHERE expires_at < now()`)
+	a.startSession(w, r, id, demoSessionTTL)
+}
+
+// startSession: crea la sesión, pone la cookie y responde con el usuario
+func (a *auth) startSession(w http.ResponseWriter, r *http.Request, id int64, ttl time.Duration) {
 	token := make([]byte, 32)
 	if _, err := rand.Read(token); err != nil {
 		writeError(w, http.StatusInternalServerError, "no se pudo crear la sesión")
 		return
 	}
 	sum := sha256.Sum256(token)
-	expires := time.Now().Add(sessionTTL)
+	expires := time.Now().Add(ttl)
 	if _, err := a.db.Exec(r.Context(),
 		`INSERT INTO sessions (token_hash, user_id, expires_at, ip, user_agent) VALUES ($1, $2, $3, $4, $5)`,
-		sum[:], id, expires, ip, truncate(r.UserAgent(), 300)); err != nil {
+		sum[:], id, expires, clientIP(r), truncate(r.UserAgent(), 300)); err != nil {
 		writeError(w, http.StatusInternalServerError, "no se pudo crear la sesión")
 		return
 	}
@@ -137,6 +183,7 @@ func (a *auth) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error de base de datos")
 		return
 	}
+	u.session = sum[:]
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -174,7 +221,12 @@ func (a *auth) current(r *http.Request) (*user, error) {
 	if time.Since(lastSeen) > touchEvery {
 		_, _ = a.db.Exec(r.Context(), `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, hash)
 	}
-	return a.loadUser(r.Context(), id)
+	u, err := a.loadUser(r.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+	u.session = hash
+	return u, nil
 }
 
 func (a *auth) loadUser(ctx context.Context, id int64) (*user, error) {
@@ -223,6 +275,19 @@ func (a *auth) fail(keys ...string) {
 	for _, k := range keys {
 		a.failures[k] = append(a.prune(k), time.Now())
 	}
+}
+
+// demoAllowed: cuenta la visita de esa IP a la demo; false si ya van maxDemoVisits en la ventana
+func (a *auth) demoAllowed(ip string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	key := "demo:" + ip
+	recent := a.prune(key)
+	if len(recent) >= maxDemoVisits {
+		return false
+	}
+	a.failures[key] = append(recent, time.Now())
+	return true
 }
 
 func (a *auth) clear(key string) {

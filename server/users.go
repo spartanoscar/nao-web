@@ -27,7 +27,7 @@ func userCommand(ctx context.Context, db *pgxpool.Pool, args []string) {
 	switch args[0] {
 	case "add":
 		fs := flag.NewFlagSet("user add", flag.ExitOnError)
-		role := fs.String("role", "student", "admin | teacher | student")
+		role := fs.String("role", "student", "admin | teacher | student | demo")
 		limit := fs.Float64("limit", 2, "tope diario de consumo de IA (USD)")
 		robot := fs.String("robot", "", "nombre del robot (vacío = NAO)")
 		if len(args) < 3 {
@@ -50,7 +50,7 @@ func userCommand(ctx context.Context, db *pgxpool.Pool, args []string) {
 			VALUES ($1, $2, $3, $4, $5, $6)`, username, args[2], hash, *role, *limit, robotName); err != nil {
 			log.Fatalf("no se pudo crear %s: %v", username, err)
 		}
-		fmt.Printf("usuario %s creado · rol %s · tope US$%.2f/día\ncontraseña: %s\n", username, *role, *limit, password)
+		fmt.Printf("usuario %s creado · rol %s · tope US$%.3f/día\ncontraseña: %s\n", username, *role, *limit, password)
 	case "passwd":
 		if len(args) < 2 {
 			log.Fatal("uso: user passwd <usuario>")
@@ -81,7 +81,7 @@ func userCommand(ctx context.Context, db *pgxpool.Pool, args []string) {
 			if err := rows.Scan(&username, &name, &role, &limit, &disabled, &last); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Fprintf(os.Stdout, "%-12s %-20s %-8s US$%.2f/día  deshabilitado=%v  último ingreso=%v\n", username, name, role, limit, disabled, last)
+			fmt.Fprintf(os.Stdout, "%-12s %-20s %-8s US$%.3f/día  deshabilitado=%v  último ingreso=%v\n", username, name, role, limit, disabled, last)
 		}
 	default:
 		log.Fatalf("subcomando desconocido: user %s", args[0])

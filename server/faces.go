@@ -78,6 +78,10 @@ func (a *auth) handleAddFace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
 		return
 	}
+	if u.demo() {
+		writeError(w, http.StatusForbidden, demoReadOnly)
+		return
+	}
 	var body struct {
 		Name        string      `json:"name"`
 		Consent     bool        `json:"consent"`
@@ -159,6 +163,10 @@ func (a *auth) handleDeleteFace(w http.ResponseWriter, r *http.Request) {
 	u, err := a.current(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "inicia sesión")
+		return
+	}
+	if u.demo() {
+		writeError(w, http.StatusForbidden, demoReadOnly)
 		return
 	}
 	name := strings.TrimSpace(r.PathValue("name"))

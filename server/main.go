@@ -12,7 +12,7 @@
 //
 //	nao-api                      servidor (NAO_ADDR, por defecto 127.0.0.1:3030)
 //	nao-api migrate              aplica schema.sql
-//	nao-api user add <usuario> <nombre> [-role admin|teacher|student] [-limit 2] [-robot NOMBRE]
+//	nao-api user add <usuario> <nombre> [-role admin|teacher|student|demo] [-limit 2] [-robot NOMBRE]
 //	nao-api user passwd <usuario>
 //	nao-api user list
 //
@@ -64,6 +64,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) })
 	mux.HandleFunc("POST /api/auth/login", auth.handleLogin)
+	mux.HandleFunc("POST /api/auth/demo", auth.handleDemo)
 	mux.HandleFunc("POST /api/auth/logout", auth.handleLogout)
 	mux.HandleFunc("GET /api/me", auth.handleMe)
 	mux.HandleFunc("PATCH /api/me", auth.handlePatchMe)
