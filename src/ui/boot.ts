@@ -2,7 +2,7 @@
 // modelo oficial y barra "Cargando universo…". Mientras la persona escribe, el mundo ya se carga detrás (mallas,
 // física, primer cuadro). Nunca se entra sin el modelo oficial (si falla, se puede reintentar) ni sin la física.
 
-import { ApiError, type User, login, me } from '../net/api';
+import { ApiError, type User, login, loginDemo, me } from '../net/api';
 import { MESHES_LICENSE_URL, acceptLicense, licenseAccepted } from './meshLicense';
 
 export interface BootHooks {
@@ -16,6 +16,8 @@ export interface BootHooks {
 
 /** Pesos de cada parte en la barra de progreso */
 const WEIGHT = { physics: 0.3, model: 0.6, world: 0.1 };
+
+const LICENSE_REQUIRED = 'Para entrar tienes que aceptar la licencia del modelo oficial del NAO.';
 
 export function runBoot(hooks: BootHooks): Promise<User> {
   return new Promise((resolve) => {
@@ -43,6 +45,7 @@ export function runBoot(hooks: BootHooks): Promise<User> {
           </label>
           <p class="boot-error" role="alert"></p>
           <button type="submit" class="boot-play">Entrar</button>
+          <button type="button" class="boot-demo boot-cred" title="Sin cuenta: el mundo completo y un poco de IA al día">Probar demo</button>
         </form>
         <div class="boot-loading">
           <div class="boot-bar"><span></span></div>
@@ -59,6 +62,7 @@ export function runBoot(hooks: BootHooks): Promise<User> {
     const license = form.elements.namedItem('license') as HTMLInputElement;
     const error = root.querySelector<HTMLElement>('.boot-error')!;
     const play = root.querySelector<HTMLButtonElement>('.boot-play')!;
+    const demo = root.querySelector<HTMLButtonElement>('.boot-demo')!;
     const welcome = root.querySelector<HTMLElement>('.boot-welcome')!;
     const bar = root.querySelector<HTMLElement>('.boot-bar span')!;
     const status = root.querySelector<HTMLElement>('.boot-status')!;
@@ -159,7 +163,7 @@ export function runBoot(hooks: BootHooks): Promise<User> {
       e.preventDefault();
       error.textContent = '';
       if (!license.checked) {
-        error.textContent = 'Para entrar tienes que aceptar la licencia del modelo oficial del NAO.';
+        error.textContent = LICENSE_REQUIRED;
         return;
       }
       if (model === 'failed') {
@@ -180,6 +184,24 @@ export function runBoot(hooks: BootHooks): Promise<User> {
         error.textContent = err instanceof ApiError ? err.message : 'No hay conexión con el servidor.';
       } finally {
         play.disabled = false;
+      }
+      render();
+    });
+
+    // Sin cuenta: la cuenta demo compartida (server/auth.go handleDemo)
+    demo.addEventListener('click', async () => {
+      error.textContent = '';
+      if (!license.checked) {
+        error.textContent = LICENSE_REQUIRED;
+        return;
+      }
+      demo.disabled = play.disabled = true;
+      try {
+        user = await loginDemo();
+      } catch (err) {
+        error.textContent = err instanceof ApiError ? err.message : 'No hay conexión con el servidor.';
+      } finally {
+        demo.disabled = play.disabled = false;
       }
       render();
     });

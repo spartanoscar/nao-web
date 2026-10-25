@@ -3,7 +3,8 @@
 export interface User {
   username: string;
   displayName: string;
-  role: 'admin' | 'teacher' | 'student';
+  /** demo = la cuenta compartida de "Probar demo" (no guarda cambios) */
+  role: 'admin' | 'teacher' | 'student' | 'demo';
   robotName: string;
   dailyLimitUsd: number;
   spentTodayUsd: number;
@@ -55,6 +56,7 @@ export async function me(): Promise<User | null> {
 }
 
 export const login = (username: string, password: string) => call<User>('POST', '/api/auth/login', { username, password });
+export const loginDemo = () => call<User>('POST', '/api/auth/demo');
 export const logout = () => call<{ ok: boolean }>('POST', '/api/auth/logout');
 export const updateMe = (patch: UserPatch) => call<User>('PATCH', '/api/me', patch);
 /** Archivo de la biblioteca. status: pending/processing = guardando, ready = guardado, error = no se pudo */

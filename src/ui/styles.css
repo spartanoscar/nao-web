@@ -87,6 +87,14 @@ body:not(.in-world) #camera-views { visibility: hidden; }
 .boot-play:hover { filter: brightness(1.08); }
 .boot-play:active { transform: translateY(1px) scale(.99); }
 .boot-play:disabled { filter: grayscale(.5) brightness(.8); cursor: wait; }
+.boot-demo {
+  font: 700 13px system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+  border: 1px solid rgba(255, 255, 255, .18); border-radius: 14px; padding: 11px; cursor: pointer; background: rgba(255, 255, 255, .05);
+  transition: background .12s ease;
+}
+.boot-demo:hover { background: rgba(255, 255, 255, .1); }
+.boot-demo[hidden] { display: none; }
+.boot-demo:disabled { cursor: wait; opacity: .6; }
 .boot-loading { margin-top: 18px; }
 .boot-bar { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, .08); overflow: hidden; }
 .boot-bar span {
@@ -300,6 +308,8 @@ body.chatting #transcript { bottom: 84px; }
 }
 .st-avatar-img img { width: 100%; height: 100%; object-fit: cover; }
 .st-avatar-edit { position: absolute; right: 4px; bottom: 4px; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); }
+.st-avatar:disabled { cursor: default; }
+.st-avatar:disabled .st-avatar-edit { display: none; }
 .st-avatar:hover .st-avatar-img { filter: brightness(1.08); }
 .st-link { border: 0; background: none; color: var(--muted); font: 600 12.5px system-ui, sans-serif; cursor: pointer; text-decoration: underline; }
 .st-link[hidden] { display: none; }

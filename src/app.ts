@@ -30,7 +30,7 @@ import { attachRobotMenus } from './ui/robotMenus';
 import { type Power, attachPower } from './ui/power';
 import { attachBodyPicker } from './ui/bodyPicker';
 import { attachSettings } from './ui/settings';
-import { type User, me, updateMe } from './net/api';
+import { type User, type UserPatch, me, updateMe } from './net/api';
 import { attachPhoneLink } from './ui/phoneLink';
 import { type HeardSay, SharedWorld } from './net/world';
 import { createTranscript } from './ui/transcript';
@@ -419,6 +419,11 @@ let captionError = '';
 const vision = new Vision(session.service('ALVideoDevice'), cameras.cameras);
 vision.phone = faces; // con la cámara del teléfono activa, su foto va a la derecha de la imagen del turno
 session.service('ALFaceDetection').store = faces; // learnFace/forgetPerson con lo que ve el teléfono
+// La demo es una cuenta compartida: el nombre y los colores que le pidan al NAO valen solo en esta visita
+const saveMe = (patch: UserPatch): Promise<User> =>
+  user.role === 'demo'
+    ? Promise.resolve({ ...user, ...patch, robotName: patch.robotName === undefined ? user.robotName : patch.robotName || 'NAO' })
+    : updateMe(patch);
 const brain = new Brain(session, state, vision, {
   robotName: () => user.robotName,
   thinking: (on) => (on ? transcript.show('thinking', 'nao', user.robotName, '…', false) : transcript.clear('thinking')),
@@ -427,7 +432,7 @@ const brain = new Brain(session, state, vision, {
   action: (name, args, response) => console.info('NAO ▶', name, args, '→', response),
   appearance: () => ({ shell: user.shellColor, eyes: user.eyeColor }),
   setAppearance: async (patch) => {
-    const u = await updateMe({ ...(patch.shell !== undefined ? { shellColor: patch.shell } : {}), ...(patch.eyes !== undefined ? { eyeColor: patch.eyes } : {}) });
+    const u = await saveMe({ ...(patch.shell !== undefined ? { shellColor: patch.shell } : {}), ...(patch.eyes !== undefined ? { eyeColor: patch.eyes } : {}) });
     applyAppearance(user, u);
     Object.assign(user, u);
     hud.setUser(u);
@@ -436,7 +441,7 @@ const brain = new Brain(session, state, vision, {
   },
   // "Te vas a llamar Lucky": se guarda en la cuenta y se ve al instante en la tarjeta (y la voz responde a ese nombre)
   setRobotName: async (name) => {
-    const u = await updateMe({ robotName: name });
+    const u = await saveMe({ robotName: name });
     Object.assign(user, u);
     hud.setUser(u);
     shared.appearanceChanged();

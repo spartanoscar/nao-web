@@ -16,7 +16,7 @@ const AVATAR_SIZE = 256;
 const FACTORY = { shellColor: '#0826e0', eyeColor: '#d1d1ff' } as const;
 /** Variantes de color de fábrica del NAO V4 ("" = el azul original). APPROX: Aldebaran no publica los códigos. */
 const SHELL_PRESETS: [string, string][] = [['', 'Azul'], ['#cc1f2a', 'Rojo'], ['#f0701a', 'Naranja'], ['#262628', 'Negro']];
-const ROLE: Record<User['role'], string> = { admin: 'Administrador', teacher: 'Docente', student: 'Estudiante' };
+const ROLE: Record<User['role'], string> = { admin: 'Administrador', teacher: 'Docente', student: 'Estudiante', demo: 'Demo' };
 
 export function attachSettings(
   button: HTMLButtonElement,
@@ -66,6 +66,7 @@ export function attachSettings(
         </section>
         <section class="st-nao">
           <h3>Tu NAO</h3>
+          <p class="st-help st-demo" hidden><span>Demo: los cambios no se guardan. Los colores se ven solo en esta visita.</span></p>
           <label class="st-field">Nombre del NAO<input name="robotName" maxlength="24" placeholder="NAO" /></label>
           <div class="st-colors">
             <div class="st-color" data-field="shellColor"><span>Carcasa</span>
@@ -102,6 +103,12 @@ export function attachSettings(
   const avatarImg = $('.st-avatar-img');
   const file = $<HTMLInputElement>('.st-file');
   const remove = $<HTMLButtonElement>('.st-remove');
+  const demo = user.role === 'demo';
+  if (demo) {
+    $('.st-demo').hidden = false;
+    for (const el of [nameInput, robotInput, promptInput, $<HTMLButtonElement>('.st-avatar')]) el.disabled = true;
+    for (const tab of modal.querySelectorAll<HTMLElement>('[data-tab=library], [data-tab=faces]')) tab.hidden = true;
+  }
 
   // ─── Guardado automático ────────────────────────────────────────────────────
   let pending: UserPatch = {};
@@ -139,6 +146,7 @@ export function attachSettings(
   };
 
   const queue = (patch: UserPatch) => {
+    if (demo) return; // cuenta compartida: el servidor no guarda nada (los colores quedan como vista previa)
     pending = { ...pending, ...patch };
     clearTimeout(timer);
     timer = window.setTimeout(() => void flush(), SAVE_DELAY);
