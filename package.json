@@ -2,6 +2,7 @@
   "name": "nao-web",
   "private": true,
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "Gemelo digital web del robot NAO V6 con API NAOqi 2.8 e IA (Gemini)",
   "type": "module",
   "scripts": {

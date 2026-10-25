@@ -1,0 +1,24 @@
+NAO Web — gemelo digital del robot NAO V6
+Copyright 2026 Oscar Javier Castellanos Buelvas
+Proyecto de grado, Fundación Universitaria Los Libertadores (Bogotá, Colombia).
+
+El código propio se distribuye bajo la Licencia Apache 2.0 (ver LICENSE).
+
+Este proyecto usa material de terceros con sus propias licencias:
+
+- Modelo URDF del NAO (reference/urdf/): ros-naoqi/nao_robot, BSD-3-Clause (reference/urdf/LICENSE-nao_robot.txt).
+- Animaciones .motion (reference/motions/): Cyberbotics Webots, Apache-2.0 (reference/motions/LICENSE-webots.txt).
+- Posturas de qiBullet (reference/qibullet/): SoftBank Robotics Research, Apache-2.0 (reference/qibullet/LICENSE-qibullet.txt).
+- Motion nets de NaoTH (reference/naoth/): © 2017 Humboldt-Universität zu Berlin, Apache-2.0 (reference/naoth/).
+- Física: MuJoCo (@mujoco/mujoco), Google DeepMind, Apache-2.0.
+- Voz: Kokoro-82M y kokoro-js, Apache-2.0. Rostros: @vladmandic/face-api, MIT. Render: three.js, MIT.
+
+No se incluyen en este repositorio (se descargan con los scripts de scripts/):
+
+- Mallas 3D oficiales del NAO: © Aldebaran / SoftBank Robotics, CC BY-NC-ND 4.0 (uso no comercial, sin
+  modificaciones). scripts/fetch-nao-meshes.sh; la aplicación pide aceptar la licencia antes de cargarlas.
+- Grafo de posturas de NAOqi 2.8 (Choregraphe 2.8.7.4, aldebaran/nao6-binaries). scripts/fetch-naoqi-postures.sh.
+- Documentación de NAOqi 2.8 (doc.aldebaran.com/2-8), © SoftBank Robotics. scripts/fetch-naoqi-docs.sh.
+
+NAO, NAOqi y Choregraphe son marcas de Aldebaran / SoftBank Robotics. Este proyecto es académico, gratuito y no
+está afiliado a ellas: reimplementa la API pública documentada de NAOqi 2.8.
