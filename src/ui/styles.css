@@ -32,7 +32,7 @@ body:not(.in-world) #camera-views { visibility: hidden; }
 @media (max-width: 720px) { #camera-views { left: 12px; top: 74px; width: 112px; } }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   Interfaz estilo juego (CLAUDE.md "UI estilo juego"): paneles de vidrio, textos cortos, íconos, colores por rol
+   Interfaz estilo juego: paneles de vidrio, textos cortos, íconos, colores por rol
    ════════════════════════════════════════════════════════════════════════════ */
 :root {
   --glass: rgba(14, 19, 28, 0.72);

@@ -43,7 +43,7 @@ const (
 	frameEnd   = 3
 )
 
-// APPROX: precio de Juntox (claude/CLAUDE.asambleas.md) y de los listados de precios de 2026-10: ~US$3.5/1M tokens
+// APPROX: precio medido en un proyecto anterior (Juntox) y de los listados de precios de 2026-10: ~US$3.5/1M tokens
 // de audio de entrada + US$21/1M de texto de salida ≈ US$0.009 por minuto hablado. NAO_TRANSCRIBE_USD_PER_MIN lo
 // cambia; ai_usage_log guarda además los tokens que reporte Gemini para comparar.
 const defaultUSDPerMinute = 0.009

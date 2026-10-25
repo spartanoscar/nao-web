@@ -70,7 +70,7 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - `ALVideoDevice` (subscribeCamera / getImageRemote) devuelve esas imágenes: la IA y los scripts ven lo mismo.
 - Render a demanda (solo cuando alguien pide un frame), para no repetir el problema de la GPU.
 - **Hecho (2026-10-22):** las dos cámaras (frames ópticos del URDF, 56.3°×43.7°), vista de depuración y
-  `ALVideoDevice` completo salvo `putImage`/`getExpectedImageParameters`. Ver CLAUDE.md "Cámaras del NAO".
+  `ALVideoDevice` completo salvo `putImage`/`getExpectedImageParameters`. Ver `src/sim/naoCameras.ts` y `src/naoqi/ALVideoDevice.ts`.
   Pendiente: llevar las imágenes a Gemini (F8) y la cámara del teléfono (F7).
 
 ### F7 — Teléfono por QR
@@ -95,14 +95,14 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   `doubleVoiceTimeShift` (0–0.5 s), `speed` (50–400). Se implementan de verdad en WebAudio sobre la voz base
   (Kokoro o la del sistema) con `setParameter`/`getParameter`, y se ajustan de oído comparando con videos del NAO.
 - **Hecho (2026-10-22):** `ALTextToSpeech` + Kokoro en español (G2P propio, voces ef_dora/em_alex/em_santa),
-  WebGPU fp32 con respaldo WASM q8, pitchShift/doubleVoice implementados, primer sonido en ~0.5–0.8 s. Ver CLAUDE.md
-  "Voz". Pendiente: `ALAnimatedSpeech`, ajustar los parámetros de oído contra videos del NAO, `speed` dentro de
+  WebGPU fp32 con respaldo WASM q8, pitchShift/doubleVoice implementados, primer sonido en ~0.5–0.8 s. Ver
+  `src/naoqi/ALTextToSpeech.ts`. Pendiente: `ALAnimatedSpeech`, ajustar los parámetros de oído contra videos del NAO, `speed` dentro de
   `\rspd=…\` y demás etiquetas de texto de la doc.
 - **Hecho (2026-10-22): cerebro por turnos** (no Gemini Live, para conservar la voz del NAO y pagar solo al hablarle):
   subtítulo final o chat → `POST /api/brain` → `gemini-3.8-flash` con function calling → dice y encadena habilidades de
   alto nivel hechas con NAOqi (walk/turn/go_to = `moveTo`, approach por la caja de Gemini proyectada al suelo, push,
   posturas, gestos, animaciones, LEDs, look, scan), revisando cada resultado. Últimos 20 mensajes, foto combinada de las
-  dos cámaras en cada turno, estado compacto. Ver CLAUDE.md "Cerebro del NAO". Siguen: vida autónoma local (con
+  dos cámaras en cada turno, estado compacto. Ver `server/brain.go` y `src/ai/`. Siguen: vida autónoma local (con
   `quieto_seg`: aburrirse, sentarse, bostezar), memoria espacial de objetos (`places`), rostros, biblioteca.
 - Palabra de activación: **hecho** por nombre ("NAO" o el nombre que le puso su dueño) + 20 s de conversación abierta.
 - Interrumpir al robot hablándole (barge-in).
@@ -127,7 +127,7 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
 - Al entrar desde otro equipo: el robot aparece donde quedó, sabe tu nombre y te saluda.
 - **Hecho (2026-10-22):** BD `nao` (PostgreSQL 12 + pgvector) con usuarios, sesiones, control de costos,
   conversaciones, rostros, memoria del mundo y RAG (estructura); login con contraseña bcrypt y cookie de sesión;
-  usuarios Oscar y Nelson con tope de US$2/día. Ver CLAUDE.md "Servidor, base de datos y login".
+  usuarios registrados con tope de US$2/día. Ver `server/`.
 
 ### F11 — Reconocer a las personas (opcional, con consentimiento)
 - Fotos de rostro desde la cámara del teléfono → embeddings con el mismo stack de Rondax
@@ -198,7 +198,7 @@ Cada fase se cierra con commits por área, prueba medida y deploy, como hasta ah
   `lookAt(objeto)`, `say(texto)`, `goToPosture(...)`.
 
 ### F16 — Mundo compartido (varios NAO en la misma sala)
-Decidido con Oscar (2026-10-22). ✅ Fase 1 (2026-10-24, ver CLAUDE.md "Mundo compartido"): verse y chocar, 8 cápsulas de
+Decidido con Oscar (2026-10-22). ✅ Fase 1 (2026-10-24, ver `src/net/world.ts` y `world/`): verse y chocar, 8 cápsulas de
 salida estilo Halo en la sala de pruebas (la primera libre por persona, hasta 6; dos con un NAO quieto), presencia y pases en nao-api, sala en un Durable
 Object (en producción en nao-world.nao-world.workers.dev) y plan B en nao-api. Faltan: objetos compartidos, voz entre
 personas y sincronizar por cuarto.
@@ -326,8 +326,6 @@ Pedido por Oscar (2026-10-24): el repo se publicará como **público** y la docu
 8. **Accesibilidad:** subtítulos siempre (ya vienen de la transcripción) y control completo por teclado.
 
 ## Referencias
-- Patrón QR + WebSocket: `../hv` (`src/remote.js`, `control.html`, `server/ask/`).
-- Rostros, RAG y cuotas: `../rondax` (`face-recognition/`, `claude/CLAUDE.chat.md`, `claude/CLAUDE.ai-lab.md`,
-  `portal/backend-go/internal/aicredits/`).
+- Patrón QR + WebSocket, rostros, RAG y cuotas: tomados de proyectos propios anteriores (privados).
 - Precios Gemini Live (verificar antes de presupuestar): https://ai.google.dev/gemini-api/docs/pricing
 - Kokoro TTS en el navegador: https://www.npmjs.com/package/kokoro-js
